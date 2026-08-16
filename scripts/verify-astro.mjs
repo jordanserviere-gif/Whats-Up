@@ -20,7 +20,7 @@ import {
 import { gmstDegrees, lstDegrees } from '../src/astro/time.ts'
 import { orbitalPeriod, propagate } from '../src/astro/kepler.ts'
 import { computeSatelliteState } from '../src/astro/satellite.ts'
-import { computeBodyState, BODY_BY_ID } from '../src/astro/bodies.ts'
+import { computeBodyState, BODIES, BODY_BY_ID } from '../src/astro/bodies.ts'
 import { AIRGLOW_LUX, airmass, diskObscuration, skyLuminance } from '../src/astro/photometry.ts'
 import { equatorialToSceneMatrix, horizontalToScene, sceneDepth, sceneRadiusForBody } from '../src/scene/sceneMath.ts'
 
@@ -330,6 +330,77 @@ console.log('\n=== 6. Eclipse totale du 12 aout 2026 ===')
     const angular = 2 * Math.asin(sceneRadiusForBody(body.radiusKm, body.distanceKm) / sceneDepth(body.distanceKm)) * RAD
     check(`${body.name} : diametre apparent preserve`, angular, body.angularDiameter, 1e-6, '°')
   }
+}
+
+console.log('\n=== 7. Eclairement solaire des corps ===')
+{
+  // La scene n'oriente plus les phases a la main : elle transporte le vecteur
+  // corps → Soleil depuis le repere equatorial. Ce vecteur doit donc, a lui
+  // seul, reproduire l'angle de phase de chaque corps — de la Lune a Neptune.
+  // Une erreur ici passerait inapercue sur la Lune, ou la geometrie est proche
+  // de l'opposition, mais retournerait le croissant de Venus.
+  const paris = LOCATIONS[0]
+  const dates = [new Date('2026-02-14T20:00:00Z'), new Date('2026-08-16T22:30:00Z')]
+
+  for (const date of dates) {
+    console.log(`  ${date.toISOString().slice(0, 16)} UTC`)
+    for (const def of BODIES) {
+      if (def.id === 'sun') continue
+      const st = computeBodyState(def, date, paris)
+
+      // Direction corps → observateur : l'oppose de la ligne de visee.
+      const r = Math.hypot(...st.positionEq)
+      const toObserver = st.positionEq.map((v) => -v / r)
+      const cosPhase =
+        st.sunDirectionEq[0] * toObserver[0] +
+        st.sunDirectionEq[1] * toObserver[1] +
+        st.sunDirectionEq[2] * toObserver[2]
+
+      const phaseDeg = Math.acos(Math.min(1, Math.max(-1, cosPhase))) * RAD
+      const fraction = (1 + cosPhase) / 2
+      const ref = A.Illumination(def.body, date)
+
+      // Tolerance elargie pour la Lune : la reference est geocentrique, notre
+      // geometrie topocentrique, et la parallaxe lunaire atteint le degre.
+      const tolerance = def.id === 'moon' ? 1.2 : 0.05
+      check(`  ${def.name} : angle de phase`, phaseDeg, ref.phase_angle, tolerance, '°')
+      check(`  ${def.name} : fraction eclairee`, fraction, ref.phase_fraction, def.id === 'moon' ? 1e-2 : 1e-3)
+    }
+  }
+
+  // Coherence physique : plus un corps est loin, plus son angle de phase vu de
+  // la Terre est contraint. Au-dela de Mars, il ne peut plus depasser
+  // asin(1 ua / distance heliocentrique).
+  const date = dates[0]
+  for (const id of ['jupiter', 'saturn', 'uranus', 'neptune']) {
+    const def = BODY_BY_ID.get(id)
+    const st = computeBodyState(def, date, paris)
+    const ref = A.Illumination(def.body, date)
+    const helio = A.HelioDistance(def.body, date)
+    const maxPhase = Math.asin(Math.min(1, 1 / helio)) * RAD
+    const ok = ref.phase_angle <= maxPhase + 0.5 && st.illumination > 0.97
+    if (!ok) failures++
+    console.log(
+      `${ok ? 'OK  ' : 'ECHEC'} ${`${def.name} : phase bornee par la distance`.padEnd(52)} ` +
+        `${ref.phase_angle.toFixed(2)}° ≤ ${maxPhase.toFixed(2)}°, eclaire a ${(st.illumination * 100).toFixed(1)} %`,
+    )
+  }
+
+  // Venus doit montrer des phases marquees : c'est le test qui distingue une
+  // direction d'eclairement juste d'une direction simplement plausible.
+  let minFraction = 1
+  let maxFraction = 0
+  for (let ms = Date.UTC(2026, 0, 1); ms < Date.UTC(2027, 0, 1); ms += 5 * 86400000) {
+    const st = computeBodyState(BODY_BY_ID.get('venus'), new Date(ms), paris)
+    minFraction = Math.min(minFraction, st.illumination)
+    maxFraction = Math.max(maxFraction, st.illumination)
+  }
+  const venusOk = minFraction < 0.15 && maxFraction > 0.9
+  if (!venusOk) failures++
+  console.log(
+    `${venusOk ? 'OK  ' : 'ECHEC'} ${'Venus : amplitude des phases sur un an'.padEnd(52)} ` +
+      `de ${(minFraction * 100).toFixed(1)} % a ${(maxFraction * 100).toFixed(1)} % (attendu < 15 % et > 90 %)`,
+  )
 }
 
 console.log(`\n${failures === 0 ? 'Toutes les verifications passent.' : `${failures} verification(s) en echec.`}`)

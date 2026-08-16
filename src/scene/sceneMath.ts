@@ -225,6 +225,15 @@ export function mergeSegments(parts: Float32Array[]): Float32Array {
   return out
 }
 
+/** Couleur hexadecimale vers composantes normalisees [0, 1]. */
+export function hexToRgb(hex: string): [number, number, number] {
+  const value = hex.trim().replace('#', '')
+  const full = value.length === 3 ? value.split('').map((c) => c + c).join('') : value
+  const n = Number.parseInt(full, 16)
+  if (!Number.isFinite(n)) return [1, 1, 1]
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
+}
+
 /** Lit une couleur de token CSS resolue sur `document.documentElement`. */
 export function readToken(token: string, fallback = '#ffffff'): string {
   if (typeof window === 'undefined') return fallback

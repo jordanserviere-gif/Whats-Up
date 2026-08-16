@@ -12,14 +12,14 @@ import {
   useSimulatedDate,
   useSkyConditions,
 } from '@/state/hooks'
-import { readToken } from './sceneMath'
+import { hexToRgb, readToken } from './sceneMath'
 import { useSceneColors } from './useSceneColors'
 import { CameraRig } from './CameraRig'
 import { Starfield } from './Starfield'
 import { ConstellationLines } from './ConstellationLines'
 import { EclipticLine, EquatorialGrid, HorizonGrid, HorizonLine } from './Grids'
-import { Ground, SkyDome } from './SkyDome'
-import { Atmosphere } from './Atmosphere'
+import { Ground } from './Ground'
+import { SkyBackground } from './SkyBackground'
 import { SolarSystemBodies } from './Bodies'
 import { useBodyTextures } from './useBodyTextures'
 import { SatelliteLayer } from './Satellites'
@@ -68,6 +68,24 @@ export function SkyCanvas() {
   const limitingMagnitude = layers.atmosphere ? sky.limitingMagnitude : 6.6
   const illuminance = layers.atmosphere ? sky.illuminance : 2e-4
   const solarLux = layers.atmosphere ? sky.solarLux : 0
+
+  /**
+   * Voile atmospherique vu dans la direction des astres.
+   *
+   * On reprend le meme fondu que le fond de ciel, applique a la teinte du ciel
+   * diurne. C'est une approximation — la vraie luminance depend de la hauteur et
+   * de l'ecart au Soleil — mais elle suffit a ce que la face nuit d'une planete
+   * se fonde dans le ciel de jour au lieu d'y decouper un disque noir.
+   */
+  const airlight = useMemo<[number, number, number]>(() => {
+    if (!layers.atmosphere) return [0, 0, 0]
+    const geometric = sky.solarLux / Math.max(1e-6, 1 - sky.obscuration + 8e-4 * sky.obscuration)
+    const factor = Math.min(1, Math.max(0, (Math.log10(Math.max(1e-6, geometric)) + 2) / 4))
+    const eclipse = Math.pow(1 - sky.obscuration + 8e-4 * sky.obscuration, 0.5)
+    const [r, g, b] = hexToRgb(colors.skyDay)
+    const k = 0.72 * factor * eclipse
+    return [r * k, g * k, b * k]
+  }, [layers.atmosphere, sky.solarLux, sky.obscuration, colors.skyDay])
 
   const bodyColors = useMemo(() => {
     const map = new Map<string, string>()
@@ -146,29 +164,18 @@ export function SkyCanvas() {
       >
         <CameraRig canvas={host} />
 
-        <SkyDome
-          illuminance={illuminance}
+        <SkyBackground
           solarLux={solarLux}
+          obscuration={sky.obscuration}
           sunAltitude={sky.sunAltitude}
           sunAzimuth={sky.sunAzimuth}
           moonAltitude={layers.atmosphere ? sky.moonAltitude : -90}
           moonAzimuth={moon?.horizontal.azimuth ?? 0}
           lunarLux={layers.atmosphere ? sky.lunarLux : 0}
           nightColor={colors.skyZenith}
-          dayColor={colors.skyDay}
-          horizonColor={colors.skyHorizon}
           twilightColor={colors.twilight}
           moonGlowColor={colors.moonGlow}
         />
-
-        {layers.atmosphere && (
-          <Atmosphere
-            sunAltitude={sky.sunAltitude}
-            sunAzimuth={sky.sunAzimuth}
-            solarLux={sky.solarLux}
-            obscuration={sky.obscuration}
-          />
-        )}
 
         {layers.stars && (
           <Starfield
@@ -201,6 +208,7 @@ export function SkyCanvas() {
             location={location}
             limitingMagnitude={limitingMagnitude}
             discScale={discScale}
+            airlight={airlight}
             colors={bodyColors}
             sunGlowColor={colors.sunGlow}
             textures={textures}
@@ -236,7 +244,10 @@ export function SkyCanvas() {
             halo lumineux plutot que d'etre simplement ecrete au blanc. */}
         {layers.bloom && (
           <EffectComposer multisampling={0}>
-            <Bloom mipmapBlur luminanceThreshold={0.9} luminanceSmoothing={0.2} intensity={1.1} radius={0.85} />
+            {/* Seuil a 1 : le ciel, ramene sous 1 par la courbe filmique, ne
+                deborde pas. Seules les vraies sources — le Soleil, rendu a
+                intensite 6 — alimentent le halo. */}
+            <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={1.2} radius={0.8} />
           </EffectComposer>
         )}
       </Canvas>

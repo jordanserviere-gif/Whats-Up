@@ -9,6 +9,7 @@
  * Usage : node scripts/shoot.mjs [nom-du-scenario]
  */
 import { chromium } from 'playwright'
+import * as A from 'astronomy-engine'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +20,47 @@ const BASE = process.env.SHOOT_URL ?? 'http://localhost:5199'
 
 const PARIS = { name: 'Paris', latitude: 48.8566, longitude: 2.3522, elevation: 35 }
 const REYKJAVIK = { name: 'Reykjavík', latitude: 64.1466, longitude: -21.9426, elevation: 40 }
+
+const BODY_BY_NAME = {
+  sun: A.Body.Sun,
+  moon: A.Body.Moon,
+  mercury: A.Body.Mercury,
+  venus: A.Body.Venus,
+  mars: A.Body.Mars,
+  jupiter: A.Body.Jupiter,
+  saturn: A.Body.Saturn,
+  uranus: A.Body.Uranus,
+  neptune: A.Body.Neptune,
+}
+
+/**
+ * Cherche un instant qui satisfait les contraintes d'un scenario.
+ *
+ * Coder une date en dur condamne la capture a devenir fausse : un corps sous
+ * l'horizon ne donne qu'une image noire, et une phase precise ne se retrouve
+ * qu'a quelques jours pres. On laisse donc les ephemerides trouver le moment.
+ */
+function findTime(bodyId, location, { from, minAltitude = 20, illuminationBelow, illuminationAbove, stepHours = 1, maxDays = 400 }) {
+  const body = BODY_BY_NAME[bodyId]
+  const observer = new A.Observer(location.latitude, location.longitude, location.elevation)
+  const stepMs = stepHours * 3600_000
+  const start = new Date(from).getTime()
+
+  for (let ms = start; ms < start + maxDays * 86400_000; ms += stepMs) {
+    const date = new Date(ms)
+    const eq = A.Equator(body, date, observer, true, true)
+    const hor = A.Horizon(date, observer, eq.ra, eq.dec, 'normal')
+    if (hor.altitude < minAltitude) continue
+
+    if (illuminationBelow !== undefined || illuminationAbove !== undefined) {
+      const fraction = A.Illumination(body, date).phase_fraction
+      if (illuminationBelow !== undefined && fraction > illuminationBelow) continue
+      if (illuminationAbove !== undefined && fraction < illuminationAbove) continue
+    }
+    return date.toISOString()
+  }
+  return null
+}
 
 /** `fov` en degres ; `az`/`alt` en degres ; `time` en ISO UTC. */
 const SCENARIOS = [
@@ -75,6 +117,24 @@ const SCENARIOS = [
     note: 'temoin sans flou lumineux — isole l’effet du compositeur sur les couleurs',
   },
   {
+    name: '03c-soleil-zoom',
+    time: '2026-06-21T12:00:00Z',
+    location: PARIS,
+    follow: 'sun',
+    fixedTime: true,
+    fov: 1.5,
+    note: 'disque solaire resolu : il doit etre blanc, plus clair que sa couronne',
+  },
+  {
+    name: '03d-ciel-oppose-soleil',
+    time: '2026-06-21T12:00:00Z',
+    location: PARIS,
+    az: 0,
+    alt: 45,
+    fov: 60,
+    note: 'ciel de midi a l’oppose du Soleil : bleu franc, non delave',
+  },
+  {
     name: '04-coucher-soleil',
     time: '2026-08-16T19:15:00Z',
     location: PARIS,
@@ -100,6 +160,27 @@ const SCENARIOS = [
     fixedTime: true,
     fov: 60,
     note: 'ciel de totalite vu large : etoiles visibles en plein jour',
+  },
+  {
+    // Le croissant de Venus est le controle le plus severe de l'eclairement :
+    // une direction de lumiere fausse le retournerait sans rien casser d'autre.
+    name: '09-venus-croissant',
+    time: findTime('venus', PARIS, { from: '2026-01-01T00:00:00Z', minAltitude: 12, illuminationBelow: 0.22 }),
+    location: PARIS,
+    follow: 'venus',
+    fixedTime: true,
+    minAltitude: 10,
+    fov: 0.3,
+    note: 'Venus en croissant : la corne doit pointer a l’oppose du Soleil',
+  },
+  {
+    name: '10-mars-gibbeuse',
+    time: findTime('mars', PARIS, { from: '2026-01-01T00:00:00Z', minAltitude: 25, illuminationBelow: 0.93 }),
+    location: PARIS,
+    follow: 'mars',
+    fixedTime: true,
+    fov: 0.25,
+    note: 'Mars gibbeuse : terminateur visible, calottes et Syrtis Major',
   },
   {
     name: '07-jupiter-disque',
@@ -147,6 +228,16 @@ await page.goto(BASE, { waitUntil: 'networkidle' })
 await page.waitForTimeout(4000)
 
 /**
+ * Etat de reference des calques, releve une fois au demarrage.
+ *
+ * Chaque scenario repart de cette base plutot que de l'etat courant : sans
+ * cela, un scenario de diagnostic qui coupe un calque le laisserait coupe pour
+ * tous les suivants, et l'on interpreterait une image noire comme un defaut de
+ * rendu alors que l'objet a simplement ete masque deux scenarios plus tot.
+ */
+const BASE_LAYERS = await page.evaluate(() => ({ ...window.__skyStore.getState().layers }))
+
+/**
  * Feuille de style de capture : masque le chrome et neutralise les fonds
  * translucides. Les `backdrop-filter` echantillonnent le canvas WebGL et, dans
  * un navigateur sans accelaration materielle, laissent des halos rectangulaires
@@ -161,7 +252,7 @@ await page.addStyleTag({
 
 for (const s of scenarios) {
   await page.evaluate(
-    ({ time, location, az, alt, fov, follow, bloom, layers }) => {
+    ({ time, location, az, alt, fov, follow, bloom, layers, baseLayers }) => {
       // Le store est expose sur `window` en developpement (voir main.tsx).
       const store = window.__skyStore
       store.setState({
@@ -171,12 +262,12 @@ for (const s of scenarios) {
         location,
         fov,
         panelOpen: false,
-        layers: { ...store.getState().layers, constellationLabels: true, bloom: bloom !== false, ...layers },
+        layers: { ...baseLayers, constellationLabels: true, bloom: bloom !== false, ...layers },
       })
       if (!follow) store.getState().lookAt(az, alt)
       window.__followBody = follow ?? null
     },
-    s,
+    { ...s, baseLayers: BASE_LAYERS },
   )
 
   // Une visee sur un corps demande ses ephemerides : on les lit apres le calcul.

@@ -53,6 +53,13 @@ function bodyMaterial() {
       /** Relief simule a partir du gradient de l'albedo : creuse les crateres. */
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
+      /**
+       * Lumiere atmospherique diffusee entre l'observateur et l'astre.
+       * Sans elle, la face nuit d'une planete se decoupe en noir sur un ciel de
+       * jour — un trou dans le ciel. C'est ce voile, et non l'eclat de l'astre,
+       * qui rend les planetes invisibles en plein jour.
+       */
+      uAirlight: { value: new Vector3(0, 0, 0) },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -81,6 +88,7 @@ function bodyMaterial() {
       uniform float uBrightness;
       uniform float uRelief;
       uniform float uTexelSize;
+      uniform vec3 uAirlight;
 
       void main() {
         vec3 n = normalize(vNormal);
@@ -116,7 +124,7 @@ function bodyMaterial() {
         // uNightSide porte la lumiere cendree cote nuit.
         float shade = mix(uNightSide, limb, lit);
         vec3 col = albedo * mix(shade, uEmissiveGain, uEmissive) * uTint * uBrightness;
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(col + uAirlight, 1.0);
       }
     `,
   })
@@ -211,6 +219,8 @@ interface BodyProps {
   location: GeoLocation
   limitingMagnitude: number
   discScale: number
+  /** Voile atmospherique ajoute au disque : voir l'uniforme `uAirlight`. */
+  airlight: [number, number, number]
   selected: boolean
   selectionColor: string
   onSelect: (id: string) => void
@@ -230,6 +240,7 @@ function Body({
   location,
   limitingMagnitude,
   discScale,
+  airlight,
   selected,
   selectionColor,
   onSelect,
@@ -289,6 +300,7 @@ function Body({
       ;(surface.uniforms.uColor.value as Color).set(texture ? '#ffffff' : color)
       ;(surface.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
       surface.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinction * 0.6)
+      ;(surface.uniforms.uAirlight.value as Vector3).set(airlight[0], airlight[1], airlight[2])
 
       // Orientation reelle : axe de rotation et meridien origine du corps.
       const def = BODY_BY_ID.get(state.id)
@@ -314,13 +326,19 @@ function Body({
         (2 * depth * Math.tan(((camera as PerspectiveCamera).fov * DEG) / 2))
 
       if (isSun) {
-        // Le halo solaire est un eblouissement, pas une source ponctuelle : il
-        // reste proportionnel au disque, quel que soit le champ. Sans cela, il
-        // couvrirait tout le ciel a fort grossissement.
-        gl.scale.setScalar(Math.max(trueRadius * discScale * 6, worldSizeForPixels(24, camera as PerspectiveCamera, size.height, depth)))
-        halo.uniforms.uOpacity.value = 0.55 * Math.pow(10, -0.4 * extinction * 0.4)
-        halo.uniforms.uFalloff.value = 2.6
-        halo.uniforms.uCore.value = 0.3
+        // Le halo solaire est un eblouissement, pas une source ponctuelle.
+        //
+        // Tant que le disque tient dans quelques pixels, l'eblouissement porte
+        // tout l'objet et s'etale largement. Des qu'on grossit assez pour le
+        // resoudre, il se resserre en aureole autour du limbe : sinon le halo
+        // recouvrirait le disque, qui paraitrait alors plus sombre que sa
+        // propre couronne.
+        const resolved = Math.min(1, discPixels / 60)
+        gl.scale.setScalar(trueRadius * discScale * (2.2 + 6 * (1 - resolved)))
+        halo.uniforms.uOpacity.value = (0.16 + 0.5 * (1 - resolved)) * Math.pow(10, -0.4 * extinction * 0.4)
+        halo.uniforms.uFalloff.value = 3
+        // Aucun coeur sature : il masquerait le limbe.
+        halo.uniforms.uCore.value = 0
         ;(halo.uniforms.uColor.value as Color).set(glowColor)
       } else {
         const apparentMag = state.magnitude + extinction
@@ -500,6 +518,7 @@ export function SolarSystemBodies({
   location,
   limitingMagnitude,
   discScale,
+  airlight,
   colors,
   sunGlowColor,
   textures,
@@ -512,6 +531,7 @@ export function SolarSystemBodies({
   location: GeoLocation
   limitingMagnitude: number
   discScale: number
+  airlight: [number, number, number]
   colors: Map<string, string>
   sunGlowColor: string
   textures: Map<string, Texture>
@@ -534,6 +554,7 @@ export function SolarSystemBodies({
           location={location}
           limitingMagnitude={limitingMagnitude}
           discScale={discScale}
+          airlight={airlight}
           selected={selectedId === state.id}
           selectionColor={selectionColor}
           onSelect={onSelect}
