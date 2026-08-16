@@ -19,7 +19,11 @@ const SOURCES = {
   hyg: 'https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv',
   lines: 'https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/constellations.lines.json',
   names: 'https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/constellations.json',
+  openngc: 'https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/NGC.csv',
 }
+
+/** Magnitude au-dela de laquelle on n'embarque plus d'objet du ciel profond. */
+const DEEP_SKY_MAG_LIMIT = 12
 
 mkdirSync(CACHE, { recursive: true })
 mkdirSync(OUT, { recursive: true })
@@ -144,6 +148,142 @@ async function buildConstellations() {
   console.log(`constellations.json : ${constellations.length} figures`)
 }
 
+/** « hh:mm:ss.ss » vers degres. */
+function parseRa(text) {
+  const [h, m, s] = text.split(':').map(Number)
+  if (![h, m, s].every(Number.isFinite)) return null
+  return (h + m / 60 + s / 3600) * 15
+}
+
+/** « ±dd:mm:ss.s » vers degres. */
+function parseDec(text) {
+  const sign = text.trim().startsWith('-') ? -1 : 1
+  const [d, m, s] = text.replace(/^[+-]/, '').split(':').map(Number)
+  if (![d, m, s].every(Number.isFinite)) return null
+  return sign * (d + m / 60 + s / 3600)
+}
+
+/**
+ * Types OpenNGC ecartes.
+ *
+ * `Dup` designe une entree en doublon d'une autre, `NonEx` un objet inexistant,
+ * `*` et `**` des etoiles simples ou doubles — deja couvertes, et bien mieux,
+ * par le catalogue HYG.
+ */
+const EXCLUDED_TYPES = new Set(['Dup', 'NonEx', '*', '**'])
+
+/** Libelles francais des types conserves. */
+const TYPE_LABELS = {
+  G: 'galaxie',
+  GPair: 'paire de galaxies',
+  GTrpl: 'triplet de galaxies',
+  GGroup: 'groupe de galaxies',
+  GCl: 'amas globulaire',
+  OCl: 'amas ouvert',
+  'Cl+N': 'amas avec nébulosité',
+  PN: 'nébuleuse planétaire',
+  Neb: 'nébuleuse',
+  HII: 'région HII',
+  RfN: 'nébuleuse par réflexion',
+  SNR: 'rémanent de supernova',
+  EmN: 'nébuleuse en émission',
+  DrkN: 'nébuleuse obscure',
+  Nova: 'nova',
+  Other: 'autre',
+}
+
+async function buildDeepSky() {
+  const csv = await cached('openngc.csv', SOURCES.openngc)
+  const lines = csv.split('\n')
+  const head = lines[0].trim().split(';')
+  const col = (name) => {
+    const i = head.indexOf(name)
+    if (i < 0) throw new Error(`colonne OpenNGC absente : ${name}`)
+    return i
+  }
+
+  const iName = col('Name')
+  const iType = col('Type')
+  const iRa = col('RA')
+  const iDec = col('Dec')
+  const iMajor = col('MajAx')
+  const iMinor = col('MinAx')
+  const iAngle = col('PosAng')
+  const iVmag = col('V-Mag')
+  const iBmag = col('B-Mag')
+  const iMessier = col('M')
+  const iCommon = col('Common names')
+
+  const typeNames = []
+  const typeIndex = new Map()
+  const out = { id: [], name: [], type: [], ra: [], dec: [], mag: [], major: [], minor: [], angle: [], messier: [] }
+
+  for (let l = 1; l < lines.length; l++) {
+    const row = lines[l]
+    if (!row.trim()) continue
+    // Pas de guillemets dans OpenNGC : un decoupage simple suffit.
+    const f = row.split(';')
+
+    const type = f[iType]?.trim()
+    if (!type || EXCLUDED_TYPES.has(type)) continue
+
+    const ra = parseRa(f[iRa] ?? '')
+    const dec = parseDec(f[iDec] ?? '')
+    if (ra === null || dec === null) continue
+
+    // La magnitude visuelle prime ; a defaut la magnitude bleue, moins juste
+    // pour l'oeil mais preferable a une absence de donnee.
+    const v = Number.parseFloat(f[iVmag])
+    const b = Number.parseFloat(f[iBmag])
+    const mag = Number.isFinite(v) ? v : Number.isFinite(b) ? b : null
+    if (mag === null || mag > DEEP_SKY_MAG_LIMIT) continue
+
+    if (!typeIndex.has(type)) {
+      typeIndex.set(type, typeNames.length)
+      typeNames.push(type)
+    }
+
+    const major = Number.parseFloat(f[iMajor])
+    const minor = Number.parseFloat(f[iMinor])
+    const angle = Number.parseFloat(f[iAngle])
+    const messier = Number.parseInt(f[iMessier], 10)
+    // Plusieurs noms usuels possibles : on garde le premier, le plus courant.
+    const common = (f[iCommon] ?? '').split(',')[0].trim()
+
+    out.id.push(f[iName].trim())
+    out.name.push(common)
+    out.type.push(typeIndex.get(type))
+    out.ra.push(+ra.toFixed(5))
+    out.dec.push(+dec.toFixed(5))
+    out.mag.push(+mag.toFixed(2))
+    // Dimensions en minutes d'arc ; 0 = inconnu, l'objet sera rendu ponctuel.
+    out.major.push(Number.isFinite(major) ? +major.toFixed(3) : 0)
+    out.minor.push(Number.isFinite(minor) ? +minor.toFixed(3) : 0)
+    out.angle.push(Number.isFinite(angle) ? Math.round(angle) : 0)
+    out.messier.push(Number.isFinite(messier) ? messier : 0)
+  }
+
+  const payload = {
+    epoch: 'J2000',
+    magLimit: DEEP_SKY_MAG_LIMIT,
+    count: out.id.length,
+    typeNames,
+    typeLabels: typeNames.map((t) => TYPE_LABELS[t] ?? t),
+    ...out,
+  }
+  const json = JSON.stringify(payload)
+  writeFileSync(join(OUT, 'deepsky.json'), json)
+
+  const withSize = out.major.filter((m) => m > 0).length
+  const messierCount = out.messier.filter((m) => m > 0).length
+  console.log(
+    `deepsky.json : ${payload.count} objets ≤ mag ${DEEP_SKY_MAG_LIMIT}, ` +
+      `${withSize} avec dimensions, ${messierCount} Messier, ${typeNames.length} types, ` +
+      `${(json.length / 1024).toFixed(0)} Ko`,
+  )
+}
+
 await buildStars()
 await buildConstellations()
+await buildDeepSky()
 console.log('catalogues generes dans src/data/')

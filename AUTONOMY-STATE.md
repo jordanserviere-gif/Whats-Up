@@ -14,11 +14,21 @@ Dernier commit vert : 231f112
 - [ ] 6. SIMBAD — recherche
 
 ## En cours : étape 5
-Fait : rien encore.
-Reste : étendre `scripts/build-catalogs.mjs` pour produire `src/data/deepsky.json`,
-puis le calque `deepSky` avec rendu en ellipse à la taille apparente réelle.
-Prochaine action concrète : ajouter la fonction `buildDeepSky()` à
-`scripts/build-catalogs.mjs`.
+Fait : `buildDeepSky()` dans `scripts/build-catalogs.mjs` → `src/data/deepsky.json`,
+1 738 objets ≤ mag 12, 91 Ko (sous le seuil des 500 Ko : le JSON reste adapté,
+pas besoin de tableaux binaires). 107 Messier, 13 types, dimensions apparentes
+pour 1 730 objets. Types `Dup`, `NonEx`, `*` et `**` écartés — les étoiles sont
+déjà mieux couvertes par HYG.
+
+Reste :
+1. `src/astro/deepsky.ts` — chargement, précession J2000 → date, filtrage par
+   magnitude limite (même loi photométrique que les étoiles).
+2. Calque `deepSky` dans `LayerVisibility` + rendu `src/scene/DeepSky.tsx`,
+   en ellipse à la taille apparente réelle, à `SKY_RADIUS`.
+3. Section « ciel profond » dans `scripts/verify-astro.mjs`.
+4. Capture de contrôle : M31 doit mesurer ~3°, six fois la Lune.
+
+Prochaine action concrète : créer `src/astro/deepsky.ts`.
 
 ## Bloqué
 - **Étape 4 — JPL SBDB.** Les trois points d'entrée JPL testés depuis le
