@@ -11,29 +11,46 @@ doit donc tolérer d'échouer plusieurs fois de suite et se reprogrammer.
 
 ## Étapes
 - [x] 0. Reconnaissance des API (CORS, formes de réponse)
-- [ ] 5. OpenNGC — catalogue embarqué          ← EN COURS
-- [ ] 1. CelesTrak + SGP4
+- [x] 5. OpenNGC — catalogue embarqué
+- [ ] 1. CelesTrak + SGP4                      ← EN COURS
 - [ ] 2. Open-Meteo — réfraction
 - [ ] 3. Open-Meteo Air Quality — extinction
 - [ ] ~~4. JPL SBDB — petits corps~~           **BLOQUÉ** (CORS, voir plus bas)
 - [ ] 6. SIMBAD — recherche
 
-## En cours : étape 5
-Fait : `buildDeepSky()` dans `scripts/build-catalogs.mjs` → `src/data/deepsky.json`,
-1 738 objets ≤ mag 12, 91 Ko (sous le seuil des 500 Ko : le JSON reste adapté,
-pas besoin de tableaux binaires). 107 Messier, 13 types, dimensions apparentes
-pour 1 730 objets. Types `Dup`, `NonEx`, `*` et `**` écartés — les étoiles sont
-déjà mieux couvertes par HYG.
+## Étape 5 — terminée
+- `buildDeepSky()` → `src/data/deepsky.json` : 1 738 objets ≤ mag 12, 91 Ko.
+  Sous le seuil des 500 Ko, le JSON reste adapté ; pas de tableaux binaires.
+  107 Messier, 13 types. Types `Dup`, `NonEx`, `*` et `**` écartés.
+- `src/astro/deepsky.ts` : chargement, précession J2000 → date mise en cache par
+  année, recherche par identifiant ou numéro Messier, brillance de surface.
+- `src/scene/DeepSky.tsx` : un maillage instancié unique porte les 1 738 objets.
+  Chaque instance est un quad orienté vers l'observateur et mis à l'échelle des
+  deux axes, ce qui donne l'ellipse sans géométrie dédiée. Les matrices sont
+  calculées **une seule fois** dans le repère équatorial ; la rotation diurne
+  passe par la matrice du groupe, comme pour les étoiles.
+- Calque `deepSky` dans `LayerVisibility`, exposé dans les puces du HUD.
+- Section 8 de `verify-astro.mjs` : 17 assertions, toutes vertes.
 
-Reste :
-1. `src/astro/deepsky.ts` — chargement, précession J2000 → date, filtrage par
-   magnitude limite (même loi photométrique que les étoiles).
-2. Calque `deepSky` dans `LayerVisibility` + rendu `src/scene/DeepSky.tsx`,
-   en ellipse à la taille apparente réelle, à `SKY_RADIUS`.
-3. Section « ciel profond » dans `scripts/verify-astro.mjs`.
-4. Capture de contrôle : M31 doit mesurer ~3°, six fois la Lune.
+**Décision de conception.** La visibilité ne suit pas la magnitude intégrée mais
+la **brillance de surface** comparée au fond de ciel. Une galaxie de magnitude
+3,4 étalée sur trois degrés n'a rien de commun avec une étoile de magnitude 3,4.
+M31 ressort à 22,30 mag/arcsec² contre 21,80 pour un site noir : plus ténue que
+le fond de ciel, ce qui reproduit le fait qu'on n'en voie que le noyau à l'œil
+nu — et la fait disparaître de jour sans traitement particulier.
 
-Prochaine action concrète : créer `src/astro/deepsky.ts`.
+## En cours : étape 1 — CelesTrak + SGP4
+Fait : rien encore.
+Reste : couche `src/data-sources/` (cache IndexedDB, `fetchJson` avec repli sur
+cache périmé), client CelesTrak, `src/astro/sgp4.ts` à la signature de
+`propagate()`, champ `source` dans `OrbitalElements`, bascule du panneau.
+Prochaine action concrète : créer `src/data-sources/cache.ts` et `fetchJson.ts`
+(architecture de la section 6, à faire une seule fois).
+
+Piège identifié à ne pas oublier : SGP4 travaille en **TEME**, pas dans
+l'équatorial de la date qu'utilise `observerEci()`. La conversion est le vrai
+risque de l'étape ; un oubli donne quelques dixièmes de degré, assez pour rater
+un passage sans que rien n'ait l'air faux.
 
 ## Bloqué
 - **Étape 4 — JPL SBDB.** Les trois points d'entrée JPL testés depuis le
@@ -102,3 +119,9 @@ vecteur corps → Soleil colle à 0,05° près pour toutes les planètes.
 | 2026-08-17 | Masse d'air bornée sur [-90°, 90°] | — | toujours dans [1, 40] | conforme | OK |
 | 2026-08-17 | CORS des six sources depuis le navigateur | localhost:5199 | — | 5 OK, JPL bloqué | OK |
 | 2026-08-17 | SIMBAD — position de M 31 | — | 10,685° / +41,269° | 10,6847° / 41,2688°, V=3,44 | OK |
+| 2026-08-17 | M31 / M42 / M13 — positions OpenNGC | — | consigne §8.3 | écart < 0,004° | OK |
+| 2026-08-17 | M31 — taille apparente | — | ≈ 3°, six fois la Lune | 2,96°, 5,7× | OK |
+| 2026-08-17 | M31 — brillance de surface vs fond de ciel | site noir | plus ténue que le ciel | 22,30 > 21,80 | OK |
+| 2026-08-17 | Fond de ciel de jour | — | noie tout objet étendu | 0,05 mag/arcsec² | OK |
+| 2026-08-17 | M31 — précession J2000 → 2026 | — | 12′ à 30′ | 18,6′ | OK |
+| 2026-08-17 | M31 rendue à taille réelle (capture) | Paris | ellipse ≈ 3° | ≈ 2,7° visible, M32/M110 présentes | OK |

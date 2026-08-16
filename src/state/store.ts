@@ -33,6 +33,8 @@ export interface LayerVisibility {
   constellationLabels: boolean
   bodies: boolean
   bodyLabels: boolean
+  /** Objets du ciel profond : galaxies, amas, nebuleuses. */
+  deepSky: boolean
   horizonGrid: boolean
   equatorialGrid: boolean
   ecliptic: boolean
@@ -114,6 +116,7 @@ const DEFAULT_LAYERS: LayerVisibility = {
   constellationLabels: false,
   bodies: true,
   bodyLabels: true,
+  deepSky: true,
   horizonGrid: false,
   equatorialGrid: false,
   ecliptic: false,

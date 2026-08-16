@@ -221,6 +221,36 @@ function angularSeparationDeg(ra1: number, dec1: number, ra2: number, dec2: numb
   return Math.acos(Math.min(1, Math.max(-1, Math.sin(d1) * Math.sin(d2) + Math.cos(d1) * Math.cos(d2) * Math.cos(dra)))) * RAD
 }
 
+/**
+ * Brillance de surface d'un objet etendu, en magnitudes par seconde d'arc carree.
+ *
+ * Une galaxie de magnitude 3,4 etalee sur trois degres n'a rien de commun avec
+ * une etoile de magnitude 3,4 : c'est la brillance de surface, et non la
+ * magnitude integree, qui decide de ce qu'on percoit. M31 tourne autour de
+ * 22 mag/arcsec², soit a peine sous le fond de ciel d'un site noir — d'ou le
+ * fait qu'on n'en voie que le noyau a l'oeil nu.
+ *
+ * `majorArcmin` et `minorArcmin` sont les axes complets, pas les demi-axes.
+ */
+export function surfaceBrightness(magnitude: number, majorArcmin: number, minorArcmin: number): number | null {
+  if (!(majorArcmin > 0)) return null
+  const minor = minorArcmin > 0 ? minorArcmin : majorArcmin
+  // Aire de l'ellipse, en secondes d'arc carrees.
+  const area = Math.PI * (majorArcmin * 30) * (minor * 30)
+  return magnitude + 2.5 * Math.log10(area)
+}
+
+/**
+ * Brillance de surface du fond de ciel, deduite de l'eclairement.
+ *
+ * Ancree sur 21,8 mag/arcsec² pour un ciel naturel sans Lune, valeur de
+ * reference d'un site noir, et prolongee en logarithme : cinq magnitudes par
+ * facteur cent d'eclairement.
+ */
+export function skySurfaceBrightness(illuminance: number): number {
+  return 21.8 - 2.5 * Math.log10(Math.max(1e-6, illuminance) / AIRGLOW_LUX)
+}
+
 /** Diametre de rendu, en pixels, d'une source ponctuelle de magnitude donnee. */
 export const POINT_BASE_SIZE_PX = 2.3
 

@@ -17,6 +17,7 @@ import { useSceneColors } from './useSceneColors'
 import { CameraRig } from './CameraRig'
 import { Starfield } from './Starfield'
 import { ConstellationLines } from './ConstellationLines'
+import { DeepSky } from './DeepSky'
 import { EclipticLine, EquatorialGrid, HorizonGrid, HorizonLine } from './Grids'
 import { Ground } from './Ground'
 import { SkyBackground } from './SkyBackground'
@@ -25,6 +26,7 @@ import { useBodyTextures } from './useBodyTextures'
 import { SatelliteLayer } from './Satellites'
 import { LabelLayer, type SceneLabel } from './LabelLayer'
 import { constellationLabels } from '@/astro/catalog'
+import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
 import './SkyCanvas.css'
 
 /**
@@ -187,6 +189,16 @@ export function SkyCanvas() {
         )}
         {layers.constellations && (
           <ConstellationLines date={date} location={location} color={colors.constellation} darkness={sky.darkness} />
+        )}
+        {layers.deepSky && (
+          <DeepSky
+            date={date}
+            location={location}
+            magnitudeLimit={DEEP_SKY_MAG_LIMIT}
+            limitingMagnitude={limitingMagnitude}
+            illuminance={illuminance}
+            resolveToken={readToken}
+          />
         )}
 
         {layers.equatorialGrid && (

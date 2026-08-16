@@ -21,7 +21,14 @@ import { gmstDegrees, lstDegrees } from '../src/astro/time.ts'
 import { orbitalPeriod, propagate } from '../src/astro/kepler.ts'
 import { computeSatelliteState } from '../src/astro/satellite.ts'
 import { computeBodyState, BODIES, BODY_BY_ID } from '../src/astro/bodies.ts'
-import { AIRGLOW_LUX, airmass, diskObscuration, skyLuminance } from '../src/astro/photometry.ts'
+import { AIRGLOW_LUX, airmass, diskObscuration, skyLuminance, skySurfaceBrightness } from '../src/astro/photometry.ts'
+import {
+  DEEP_SKY_COUNT,
+  DEEP_SKY_MAG_LIMIT,
+  MESSIER_OBJECTS,
+  buildDeepSkyGeometry,
+  findDeepSkyObject,
+} from '../src/astro/deepsky.ts'
 import { equatorialToSceneMatrix, horizontalToScene, sceneDepth, sceneRadiusForBody } from '../src/scene/sceneMath.ts'
 
 let failures = 0
@@ -400,6 +407,94 @@ console.log('\n=== 7. Eclairement solaire des corps ===')
   console.log(
     `${venusOk ? 'OK  ' : 'ECHEC'} ${'Venus : amplitude des phases sur un an'.padEnd(52)} ` +
       `de ${(minFraction * 100).toFixed(1)} % a ${(maxFraction * 100).toFixed(1)} % (attendu < 15 % et > 90 %)`,
+  )
+}
+
+console.log('\n=== 8. Ciel profond (OpenNGC) ===')
+{
+  console.log(`     ${DEEP_SKY_COUNT} objets embarques jusqu'a la magnitude ${DEEP_SKY_MAG_LIMIT}`)
+
+  // Positions de reference. Elles viennent du catalogue lui-meme, mais les
+  // valeurs attendues sont celles, independantes, de la consigne de mission.
+  const references = [
+    { query: 'M31', ra: 10.6848, dec: 41.2688, name: 'Andromeda Galaxy' },
+    { query: 'M42', ra: 83.8221, dec: -5.3911, name: 'Great Orion Nebula' },
+    { query: 'M13', ra: 250.4235, dec: 36.4613, name: 'Hercules Globular Cluster' },
+  ]
+
+  for (const ref of references) {
+    const object = findDeepSkyObject(ref.query)
+    if (!object) {
+      failures++
+      console.log(`ECHEC ${`${ref.query} introuvable`.padEnd(52)}`)
+      continue
+    }
+    check(`${ref.query} : ascension droite`, object.ra, ref.ra, 0.02, '°')
+    check(`${ref.query} : declinaison`, object.dec, ref.dec, 0.02, '°')
+    const named = object.name === ref.name
+    if (!named) failures++
+    console.log(`${named ? 'OK  ' : 'ECHEC'} ${`${ref.query} : nom usuel`.padEnd(52)} « ${object.name} »`)
+  }
+
+  // Taille apparente : M31 fait environ 3°, soit six fois la Lune. Si elle
+  // sortait ponctuelle, tout le rendu des objets etendus serait faux.
+  const m31 = findDeepSkyObject('M31')
+  const moonDiameter = 0.518
+  const ratio = m31.majorArcmin / 60 / moonDiameter
+  check('M31 : grand axe apparent', m31.majorArcmin / 60, 2.96, 0.1, '°')
+  const sixMoons = ratio > 5 && ratio < 7
+  if (!sixMoons) failures++
+  console.log(
+    `${sixMoons ? 'OK  ' : 'ECHEC'} ${'M31 : rapport a la Lune'.padEnd(52)} ${ratio.toFixed(1)}× (attendu ≈ 6×)`,
+  )
+
+  // Brillance de surface : c'est elle, et non la magnitude integree, qui
+  // explique qu'une galaxie de magnitude 3,4 reste difficile a l'oeil nu.
+  check('M31 : brillance de surface', m31.surfaceBrightness, 22.1, 0.6, ' mag/arcsec²')
+  const darkSky = skySurfaceBrightness(AIRGLOW_LUX)
+  check('fond de ciel, site noir', darkSky, 21.8, 0.01, ' mag/arcsec²')
+  const fainterThanSky = m31.surfaceBrightness > darkSky
+  if (!fainterThanSky) failures++
+  console.log(
+    `${fainterThanSky ? 'OK  ' : 'ECHEC'} ${'M31 : plus tenue que le fond de ciel'.padEnd(52)} ` +
+      `${m31.surfaceBrightness.toFixed(2)} > ${darkSky.toFixed(2)} — seul le noyau ressort a l'oeil nu`,
+  )
+
+  // De jour, le fond de ciel doit noyer tout objet etendu.
+  const daySky = skySurfaceBrightness(100000)
+  const invisibleByDay = daySky < 5
+  if (!invisibleByDay) failures++
+  console.log(
+    `${invisibleByDay ? 'OK  ' : 'ECHEC'} ${'fond de ciel de jour'.padEnd(52)} ` +
+      `${daySky.toFixed(2)} mag/arcsec² — aucun objet etendu ne s'en detache`,
+  )
+
+  // Precession J2000 → date : le catalogue est en J2000, la scene en repere de
+  // la date. Sur un quart de siecle, l'ecart doit etre de l'ordre du tiers de degre.
+  const geometry = buildDeepSkyGeometry(new Date('2026-08-17T00:00:00Z'))
+  const k = geometry.indices.indexOf(m31.index)
+  const [x, y, z] = [geometry.positions[k * 3], geometry.positions[k * 3 + 1], geometry.positions[k * 3 + 2]]
+  const precessed = { ra: ((Math.atan2(y, x) * RAD) + 360) % 360, dec: Math.asin(z) * RAD }
+  const shift = Math.acos(
+    Math.min(
+      1,
+      Math.sin(precessed.dec * DEG) * Math.sin(m31.dec * DEG) +
+        Math.cos(precessed.dec * DEG) * Math.cos(m31.dec * DEG) * Math.cos((precessed.ra - m31.ra) * DEG),
+    ),
+  ) * RAD
+  const plausible = shift > 0.2 && shift < 0.5
+  if (!plausible) failures++
+  console.log(
+    `${plausible ? 'OK  ' : 'ECHEC'} ${'M31 : precession J2000 → 2026'.padEnd(52)} ` +
+      `${(shift * 60).toFixed(1)}′ (attendu 12′ à 30′ sur 26 ans)`,
+  )
+
+  // Le catalogue Messier doit etre presque complet.
+  const messierOk = MESSIER_OBJECTS.length >= 100
+  if (!messierOk) failures++
+  console.log(
+    `${messierOk ? 'OK  ' : 'ECHEC'} ${'objets Messier presents'.padEnd(52)} ` +
+      `${MESSIER_OBJECTS.length} / 110 (les manquants sont des asterismes ou des doublons)`,
   )
 }
 

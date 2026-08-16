@@ -19,7 +19,7 @@ export default defineConfig({
         manualChunks: {
           three: ['three', '@react-three/fiber', '@react-three/drei'],
           astro: ['astronomy-engine'],
-          catalog: ['./src/data/stars.json', './src/data/constellations.json'],
+          catalog: ['./src/data/stars.json', './src/data/constellations.json', './src/data/deepsky.json'],
         },
       },
     },

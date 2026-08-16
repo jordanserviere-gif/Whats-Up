@@ -35,6 +35,20 @@
   --app-constellation-line: color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
   --app-constellation-label: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 70%, transparent);
 
+  /* Ciel profond — teintes motivees par le rayonnement dominant de chaque type.
+   * Les nebuleuses en emission rougeoient a l'hydrogene alpha, les nebuleuses
+   * planetaires virent au vert-bleu de l'oxygene doublement ionise, les amas
+   * globulaires jaunissent avec leur population stellaire agee. */
+  --app-dso-galaxy: #e8dcc8;
+  --app-dso-cluster-globular: #ffe9b8;
+  --app-dso-cluster-open: #cfe0ff;
+  --app-dso-nebula-emission: #ff9fb0;
+  --app-dso-nebula-planetary: #86f0d8;
+  --app-dso-nebula-reflection: #a8c4ff;
+  --app-dso-supernova: #ffb38a;
+  --app-dso-default: #d6d9e6;
+  --app-dso-label: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 80%, transparent);
+
   /* Traces satellites. */
   --app-track-sunlit: var(--md-sys-color-tertiary);
   --app-track-eclipsed: color-mix(in srgb, var(--md-sys-color-on-surface) 28%, transparent);

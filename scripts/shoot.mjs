@@ -34,6 +34,36 @@ const BODY_BY_NAME = {
 }
 
 /**
+ * Cherche un instant ou une direction equatoriale fixe est haute dans le ciel,
+ * et renvoie l'instant et la visee correspondante.
+ *
+ * Sert aux objets du ciel profond, qui ne sont pas des corps du systeme solaire
+ * et n'ont donc pas d'entree dans `window.__bodyStates`.
+ */
+function findTimeForTarget(ra, dec, location, { from, minAltitude = 45, requireDark = true, stepHours = 1, maxDays = 400 }) {
+  const observer = new A.Observer(location.latitude, location.longitude, location.elevation)
+  const start = new Date(from).getTime()
+
+  for (let ms = start; ms < start + maxDays * 86400_000; ms += stepHours * 3600_000) {
+    const date = new Date(ms)
+    // `Horizon` attend une ascension droite en heures.
+    const hor = A.Horizon(date, observer, ra / 15, dec, 'normal')
+    if (hor.altitude < minAltitude) continue
+
+    if (requireDark) {
+      const sunEq = A.Equator(A.Body.Sun, date, observer, true, true)
+      const sunAlt = A.Horizon(date, observer, sunEq.ra, sunEq.dec, 'normal').altitude
+      // Nuit astronomique, et Lune couchee : conditions d'observation reelles.
+      if (sunAlt > -18) continue
+      const moonEq = A.Equator(A.Body.Moon, date, observer, true, true)
+      if (A.Horizon(date, observer, moonEq.ra, moonEq.dec, 'normal').altitude > 0) continue
+    }
+    return { time: date.toISOString(), az: hor.azimuth, alt: hor.altitude }
+  }
+  return null
+}
+
+/**
  * Cherche un instant qui satisfait les contraintes d'un scenario.
  *
  * Coder une date en dur condamne la capture a devenir fausse : un corps sous
@@ -73,6 +103,34 @@ const SCENARIOS = [
     fov: 70,
     note: 'ciel nocturne, constellations, magnitude limite haute',
   },
+  // --- Ciel profond ---
+  // M31 doit couvrir pres de trois degres, soit six fois la Lune. Si elle sort
+  // ponctuelle, tout le rendu des objets etendus est faux.
+  ...(() => {
+    const m31 = findTimeForTarget(10.6848, 41.2688, PARIS, { from: '2026-09-01T00:00:00Z', minAltitude: 55 })
+    if (!m31) return []
+    return [
+      {
+        name: '11-m31-taille-reelle',
+        time: m31.time,
+        location: PARIS,
+        az: m31.az,
+        alt: m31.alt,
+        fov: 12,
+        note: 'M31 a sa taille reelle : environ 3°, un quart du champ',
+      },
+      {
+        name: '12-ciel-profond-large',
+        time: m31.time,
+        location: PARIS,
+        az: m31.az,
+        alt: Math.max(20, m31.alt - 25),
+        fov: 60,
+        note: 'champ large : galaxies, amas et nebuleuses coexistent avec les etoiles',
+      },
+    ]
+  })(),
+
   // Bisection : meme vue, un calque retire a chaque fois.
   ...[
     ['bloom', { bloom: false }],
