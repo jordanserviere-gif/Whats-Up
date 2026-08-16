@@ -2,6 +2,7 @@ import { Chip, ChipSet, IconButton, Surface, Toolbar, Tooltip } from '@/ui'
 import { useSkyStore, type LayerVisibility } from '@/state/store'
 import { useSkyConditions } from '@/state/hooks'
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
+import { MAX_FOV, MIN_FOV } from '@/scene/CameraRig'
 import './SkyHud.css'
 
 /** Calques proposes en acces direct au-dessus de la scene. */
@@ -54,10 +55,10 @@ export function SkyHud() {
           <IconButton icon="south" label="Regarder le sud" onClick={() => lookAt(180, 20)} />
         </Tooltip>
         <Tooltip content="Élargir le champ" placement="start">
-          <IconButton icon="zoom_out" label="Élargir le champ" onClick={() => setFov(Math.min(110, fov * 1.35))} />
+          <IconButton icon="zoom_out" label="Élargir le champ" onClick={() => setFov(Math.min(MAX_FOV, fov * 1.35))} />
         </Tooltip>
         <Tooltip content="Resserrer le champ" placement="start">
-          <IconButton icon="zoom_in" label="Resserrer le champ" onClick={() => setFov(Math.max(0.15, fov / 1.35))} />
+          <IconButton icon="zoom_in" label="Resserrer le champ" onClick={() => setFov(Math.max(MIN_FOV, fov / 1.35))} />
         </Tooltip>
       </Toolbar>
 

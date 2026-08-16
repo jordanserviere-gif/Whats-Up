@@ -70,7 +70,11 @@ function findTimeForTarget(ra, dec, location, { from, minAltitude = 45, requireD
  * l'horizon ne donne qu'une image noire, et une phase precise ne se retrouve
  * qu'a quelques jours pres. On laisse donc les ephemerides trouver le moment.
  */
-function findTime(bodyId, location, { from, minAltitude = 20, illuminationBelow, illuminationAbove, stepHours = 1, maxDays = 400 }) {
+function findTime(
+  bodyId,
+  location,
+  { from, minAltitude = 20, illuminationBelow, illuminationAbove, requireDark = false, stepHours = 1, maxDays = 400 },
+) {
   const body = BODY_BY_NAME[bodyId]
   const observer = new A.Observer(location.latitude, location.longitude, location.elevation)
   const stepMs = stepHours * 3600_000
@@ -81,6 +85,13 @@ function findTime(bodyId, location, { from, minAltitude = 20, illuminationBelow,
     const eq = A.Equator(body, date, observer, true, true)
     const hor = A.Horizon(date, observer, eq.ra, eq.dec, 'normal')
     if (hor.altitude < minAltitude) continue
+
+    // De jour, le voile atmospherique delave le disque : on ne peut plus juger
+    // ni la texture ni l'orientation de la planete.
+    if (requireDark) {
+      const sunEq = A.Equator(A.Body.Sun, date, observer, true, true)
+      if (A.Horizon(date, observer, sunEq.ra, sunEq.dec, 'normal').altitude > -12) continue
+    }
 
     if (illuminationBelow !== undefined || illuminationAbove !== undefined) {
       const fraction = A.Illumination(body, date).phase_fraction
@@ -130,6 +141,18 @@ const SCENARIOS = [
       },
     ]
   })(),
+
+  // Bisection du champ : a quel grossissement un disque planetaire cesse-t-il
+  // d'etre rendu ? Un objet qui disparait en zoomant trahit un probleme de
+  // troncature ou de precision, pas un defaut d'eclairage.
+  ...[0.4, 0.2, 0.1, 0.05].map((fov) => ({
+    name: `diag-saturne-fov-${String(fov).replace('.', '')}`,
+    time: '2026-08-16T23:30:00Z',
+    location: PARIS,
+    follow: 'saturn',
+    fov,
+    note: `Saturne a ${fov}° de champ`,
+  })),
 
   // Bisection : meme vue, un calque retire a chaque fois.
   ...[
@@ -233,27 +256,27 @@ const SCENARIOS = [
   },
   {
     name: '10-mars-gibbeuse',
-    time: findTime('mars', PARIS, { from: '2026-01-01T00:00:00Z', minAltitude: 25, illuminationBelow: 0.93 }),
+    time: findTime('mars', PARIS, { from: '2026-01-01T00:00:00Z', minAltitude: 25, illuminationBelow: 0.93, requireDark: true }),
     location: PARIS,
     follow: 'mars',
     fixedTime: true,
-    fov: 0.25,
+    fov: 0.06,
     note: 'Mars gibbeuse : terminateur visible, calottes et Syrtis Major',
   },
   {
     name: '07-jupiter-disque',
-    time: '2026-08-16T23:30:00Z',
+    time: findTime('jupiter', PARIS, { from: '2026-08-01T00:00:00Z', minAltitude: 30, requireDark: true }),
     location: PARIS,
     follow: 'jupiter',
-    fov: 0.4,
+    fov: 0.05,
     note: 'bandes nuageuses resolues au tres petit champ',
   },
   {
     name: '08-saturne-anneaux',
-    time: '2026-08-16T23:30:00Z',
+    time: findTime('saturn', PARIS, { from: '2026-08-01T00:00:00Z', minAltitude: 30, requireDark: true }),
     location: PARIS,
     follow: 'saturn',
-    fov: 0.4,
+    fov: 0.05,
     note: 'anneaux inclines, division de Cassini',
   },
 ]
@@ -393,3 +416,4 @@ if (errors.length) {
   console.log('\nAucune erreur console.')
 }
 console.log(`Captures dans ${OUT}`)
+

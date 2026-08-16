@@ -216,11 +216,33 @@ Cette suite a effectivement attrapé une inversion de signe sur l'axe est de la
 matrice de scène, invisible au zénith et au pôle, puis un double comptage du fond
 de ciel entre le terme solaire et l'airglow.
 
-## Catalogues
+## Catalogues et textures
 
-`src/data/stars.json` et `constellations.json` sont générés par
-`npm run data` depuis la base HYG v4.1 et les figures de d3-celestial, puis
-commités : l'application ne fait aucun appel réseau à l'exécution.
+`src/data/stars.json`, `constellations.json` et `deepsky.json` sont générés par
+`npm run data` depuis la base HYG v4.1, les figures de d3-celestial et OpenNGC,
+puis commités. Les cartes de surface sont récupérées par `npm run textures` dans
+`public/textures/`. Rien n'est téléchargé à l'exécution.
+
+## Crédits et licences
+
+| Donnée | Source | Licence |
+| --- | --- | --- |
+| Éphémérides | [astronomy-engine](https://github.com/cosinekitty/astronomy) (Don Cross) | MIT |
+| Étoiles (5 071) | [HYG Database v4.1](https://github.com/astronexus/HYG-Database) (Astronexus) | CC BY-SA 2.5 |
+| Figures de constellations | [d3-celestial](https://github.com/ofrohn/d3-celestial) (Olaf Frohn) | BSD 3-Clause |
+| Ciel profond (1 738) | [OpenNGC](https://github.com/mattiaverga/OpenNGC) (Mattia Verga) | CC BY-SA 4.0 |
+| Cartes de surface | [Solar System Scope](https://www.solarsystemscope.com/textures/) | **CC BY 4.0** |
+| Éléments orbitaux | [CelesTrak](https://celestrak.org/) (Dr T.S. Kelso) | usage libre, mise en cache demandée |
+
+Les cartes de Solar System Scope sont redimensionnées mais non modifiées. La
+licence CC BY 4.0 impose de créditer l'auteur : l'attribution figure donc aussi
+**dans l'application**, section « Sources et licences » du panneau Réglages, et
+non seulement ici.
+
+Le modèle de diffusion atmosphérique reprend le shader de Preetham livré avec
+three.js (`examples/jsm/objects/Sky.js`), dont le disque solaire est retiré et
+auquel sont greffés un fondu crépusculaire et une exposition — voir
+`src/scene/SkyBackground.tsx`.
 
 ## Raccourcis
 

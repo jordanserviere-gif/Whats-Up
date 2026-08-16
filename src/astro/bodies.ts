@@ -67,7 +67,19 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
   const observer = observerOf(location)
   const eqOfDate = A.Equator(def.body, date, observer, true, true)
   const equatorial: Equatorial = { ra: norm360(eqOfDate.ra * 15), dec: eqOfDate.dec }
-  const hor = A.Horizon(date, observer, eqOfDate.ra, eqOfDate.dec, 'normal')
+  // Coordonnees horizontales **sans refraction**, pour coller exactement a la
+  // geometrie de la scene : celle-ci place les corps depuis leur direction
+  // equatorielle, qui ne connait pas l'atmosphere. Melanger les deux introduit
+  // un ecart d'environ deux minutes d'arc a 25° de hauteur — invisible au champ
+  // large, mais suffisant pour faire sortir une planete du cadre a fort
+  // grossissement, et pour decaler les etiquettes de leurs objets.
+  // La refraction sera introduite de facon coherente pour toutes les couches
+  // — etoiles comprises — a l'etape 2 de la mission.
+  //
+  // La chaine vide est la facon documentee de la desactiver : `Horizon` teste
+  // la veracite de son argument, et toute valeur non vide autre que « normal »
+  // ou « jplhor » leve une erreur.
+  const hor = A.Horizon(date, observer, eqOfDate.ra, eqOfDate.dec, '')
 
   const sunEq = A.Equator(A.Body.Sun, date, observer, true, true)
   const sunEquatorial: Equatorial = { ra: norm360(sunEq.ra * 15), dec: sunEq.dec }

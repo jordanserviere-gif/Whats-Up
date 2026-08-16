@@ -137,13 +137,39 @@ resaturation post-ACES, et voile atmosphérique sur les disques planétaires.
 Vérification ajoutée : l'angle de phase reconstruit depuis le vecteur
 corps → Soleil colle à 0,05° près pour toutes les planètes.
 
-## Reste à faire, hors mission
-- Attribution CC BY 4.0 des cartes Solar System Scope, à écrire dans le README
-  et dans le panneau Réglages. Obligation de la licence, non encore honorée.
-- Captures de Jupiter et Saturne au très petit champ jamais regardées : c'est
-  là que se verraient l'orientation des textures planétaires et l'inclinaison
-  des anneaux. La face visible de la Lune valide l'axe de rotation, mais pas
-  nécessairement le méridien origine des planètes.
+## Dettes soldées
+- **Attribution CC BY 4.0** honorée : tableau des crédits dans le README, et
+  section « Sources et licences » dans le panneau Réglages — la licence impose
+  que le crédit soit visible dans l'application, pas seulement dans le dépôt.
+- **Jupiter et Saturne inspectés** au champ de 0,05°. Les deux rendent
+  correctement : bandes nuageuses et Grande Tache rouge pour Jupiter, anneaux
+  inclinés avec division de Cassini, ombre des anneaux sur le globe et globe
+  occultant l'arrière des anneaux pour Saturne. L'orientation des textures
+  planétaires est donc validée, pas seulement l'axe de la Lune.
+
+  Cette inspection a révélé **deux vrais bugs**, tous deux invisibles au champ
+  large (voir la section suivante).
+
+## Bug trouvé par l'inspection à fort grossissement
+`computeBodyState` rapportait une position horizontale **réfractée**
+(`A.Horizon(..., 'normal')`) alors que la scène place les corps depuis leur
+direction équatoriale **non réfractée**. Écart d'environ 2′ à 25° de hauteur :
+imperceptible au champ large, mais suffisant pour faire sortir Saturne du cadre
+à 0,05° — et pour décaler toutes les étiquettes de leurs objets.
+
+Corrigé en rapportant des coordonnées non réfractées, cohérentes avec la
+géométrie de la scène. **L'étape 2 devra introduire la réfraction de façon
+cohérente pour toutes les couches à la fois** — étoiles, corps, étiquettes,
+satellites — et non sur une seule.
+
+Piège associé : `A.Horizon` teste la véracité de son argument de réfraction.
+`'none'` est *truthy* et lève « unrecognized value ». La chaîne vide est la
+façon correcte de la désactiver.
+
+Second bug : la borne basse du champ était à 0,15°, et le garde-fou de
+publication du `CameraRig` (`> 0.2`) interdisait de toute façon tout réglage
+sous le demi-degré. Bornes ramenées à 0,02° et seuils rendus proportionnels au
+champ.
 
 ## Journal des vérifications
 | Date | Événement testé | Lieu | Attendu | Obtenu | Verdict |

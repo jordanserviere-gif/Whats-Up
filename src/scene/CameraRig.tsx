@@ -7,6 +7,10 @@ import { lerpAngle, viewDirection } from './sceneMath'
 
 const COMMIT_INTERVAL_MS = 100
 
+/** Bornes du champ de vision, en degres. */
+export const MIN_FOV = 0.02
+export const MAX_FOV = 110
+
 /**
  * Pilotage de la camera : glisser pour balayer le ciel, molette pour zoomer.
  *
@@ -36,8 +40,10 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
       }
       // On ne reagit qu'aux changements venus d'ailleurs : le rig publie
       // lui-meme le champ a 10 Hz, et se rattraperait sans cesse sinon.
-      if (s.fov !== prev.fov && Math.abs(s.fov - fov.current) > 0.2) {
-        targetFov.current = clamp(s.fov, 0.15, 110)
+      // Le seuil est relatif : un seuil fixe aurait interdit tout reglage sous
+      // le demi-degre, la ou se joue justement l'observation planetaire.
+      if (s.fov !== prev.fov && Math.abs(s.fov - fov.current) > Math.max(1e-3, fov.current * 0.05)) {
+        targetFov.current = clamp(s.fov, MIN_FOV, MAX_FOV)
       }
     })
   }, [])
@@ -81,9 +87,11 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      // La borne basse descend sous le degre : c'est a ce grossissement que les
-      // disques planetaires se resolvent vraiment.
-      targetFov.current = clamp(targetFov.current * Math.exp(e.deltaY * 0.0012), 0.15, 110)
+      // La borne basse descend a une minute d'arc : c'est le grossissement
+      // auquel les anneaux de Saturne et les bandes de Jupiter se lisent
+      // vraiment. Au-dela, la precision des flottants du nuanceur ferait
+      // trembler le limbe.
+      targetFov.current = clamp(targetFov.current * Math.exp(e.deltaY * 0.0012), MIN_FOV, MAX_FOV)
     }
 
     element.addEventListener('pointerdown', onPointerDown)
@@ -123,7 +131,14 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
       lastCommit.current = now
       const s = useSkyStore.getState()
       const az = ((azimuth.current % 360) + 360) % 360
-      if (Math.abs(s.viewAzimuth - az) > 0.05 || Math.abs(s.viewAltitude - altitude.current) > 0.05 || Math.abs(s.fov - fov.current) > 0.05) {
+      // Seuils proportionnels au champ : a fort grossissement, un dixieme de
+      // degre d'ecart en visee est deja un demi-ecran.
+      const angleThreshold = Math.max(1e-4, fov.current * 0.002)
+      if (
+        Math.abs(s.viewAzimuth - az) > angleThreshold ||
+        Math.abs(s.viewAltitude - altitude.current) > angleThreshold ||
+        Math.abs(s.fov - fov.current) > Math.max(1e-4, fov.current * 0.002)
+      ) {
         useSkyStore.setState({ viewAzimuth: az, viewAltitude: altitude.current, fov: fov.current })
       }
     }

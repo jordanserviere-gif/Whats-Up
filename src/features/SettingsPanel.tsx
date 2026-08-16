@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   Button,
+  DataRow,
   Divider,
   SegmentedButton,
   Section,
@@ -12,6 +13,8 @@ import {
   useTheme,
 } from '@/ui'
 import { PRESET_LOCATIONS, useSkyStore, type LayerVisibility } from '@/state/store'
+import { DEEP_SKY_COUNT } from '@/astro/deepsky'
+import './SettingsPanel.css'
 import { STAR_COUNT, STAR_MAG_LIMIT } from '@/astro/catalog'
 import { localTimeZone } from '@/astro/time'
 
@@ -195,6 +198,41 @@ export function SettingsPanel() {
           onChange={setContrast}
         />
       </Section>
+
+      <SourcesSection />
     </>
+  )
+}
+
+/**
+ * Sources et attributions.
+ *
+ * Les cartes de surface sont sous licence CC BY 4.0 : les créditer n'est pas
+ * une politesse mais une condition d'usage, et elle doit être visible dans
+ * l'application, pas seulement dans le dépôt.
+ */
+function SourcesSection() {
+  return (
+    <Section title="Sources et licences" icon="menu_book" defaultOpen={false} summary="crédits">
+      <DataRow label="Éphémérides" value="astronomy-engine" />
+      <DataRow label="Étoiles" value={`HYG v4.1 · ${STAR_COUNT.toLocaleString('fr-FR')}`} />
+      <DataRow label="Ciel profond" value={`OpenNGC · ${DEEP_SKY_COUNT.toLocaleString('fr-FR')}`} />
+      <DataRow label="Figures" value="d3-celestial" />
+      <Divider />
+      <p className="md-type-body-small">
+        Cartes de surface des planètes et de la Lune :{' '}
+        <a className="settings__link" href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noreferrer">
+          Solar System Scope
+        </a>
+        , sous licence{' '}
+        <a className="settings__link" href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+          CC BY 4.0
+        </a>
+        . Elles sont redimensionnées mais non modifiées.
+      </p>
+      <p className="md-type-body-small">
+        Catalogue OpenNGC de Mattia Verga, sous CC BY-SA 4.0. Base HYG d’Astronexus, sous CC BY-SA 2.5.
+      </p>
+    </Section>
   )
 }
