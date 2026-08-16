@@ -1,0 +1,64 @@
+.md-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.md-tooltip {
+  position: absolute;
+  z-index: var(--app-z-tooltip);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 240px;
+  padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.9);
+  transition:
+    opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
+    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+
+.md-tooltip-anchor:hover > .md-tooltip,
+.md-tooltip-anchor:focus-within > .md-tooltip {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.md-tooltip--top {
+  bottom: calc(100% + var(--md-sys-spacing-2));
+  left: 50%;
+  translate: -50% 0;
+}
+.md-tooltip--bottom {
+  top: calc(100% + var(--md-sys-spacing-2));
+  left: 50%;
+  translate: -50% 0;
+}
+.md-tooltip--start {
+  right: calc(100% + var(--md-sys-spacing-2));
+  top: 50%;
+  translate: 0 -50%;
+}
+.md-tooltip--end {
+  left: calc(100% + var(--md-sys-spacing-2));
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.md-tooltip--rich {
+  white-space: normal;
+  max-width: 300px;
+  padding: var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-sys-elevation-level2);
+}
+.md-tooltip__title {
+  color: var(--md-sys-color-on-surface);
+}

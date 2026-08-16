@@ -1,0 +1,84 @@
+.md-fab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--md-sys-spacing-2);
+  height: var(--_size);
+  min-width: var(--_size);
+  padding-inline: var(--_padding, 0);
+  border: none;
+  border-radius: var(--_radius);
+  background: var(--_container);
+  color: var(--_content);
+  box-shadow: var(--md-sys-elevation-level3);
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    box-shadow var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
+    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
+    border-radius var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
+}
+
+.md-fab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+.md-fab:hover::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+.md-fab:hover {
+  box-shadow: var(--md-sys-elevation-level4);
+}
+.md-fab:active {
+  transform: scale(0.94);
+}
+
+.md-fab__label {
+  position: relative;
+  font-family: var(--md-sys-typescale-title-medium-font);
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-emphasized-title-medium-weight);
+  letter-spacing: var(--md-sys-typescale-title-medium-tracking);
+}
+
+.md-fab--small {
+  --_size: var(--md-comp-fab-size-small);
+  --_radius: var(--md-sys-shape-corner-medium);
+}
+.md-fab--medium {
+  --_size: var(--md-comp-fab-size-medium);
+  --_radius: var(--md-sys-shape-corner-large);
+}
+.md-fab--large {
+  --_size: var(--md-comp-fab-size-large);
+  --_radius: var(--md-sys-shape-corner-extra-large);
+}
+
+.md-fab--extended {
+  --_padding: var(--md-sys-spacing-5);
+}
+
+.md-fab--primary {
+  --_container: var(--md-sys-color-primary-container);
+  --_content: var(--md-sys-color-on-primary-container);
+}
+.md-fab--secondary {
+  --_container: var(--md-sys-color-secondary-container);
+  --_content: var(--md-sys-color-on-secondary-container);
+}
+.md-fab--tertiary {
+  --_container: var(--md-sys-color-tertiary-container);
+  --_content: var(--md-sys-color-on-tertiary-container);
+}
+.md-fab--surface {
+  --_container: var(--md-sys-color-surface-container-high);
+  --_content: var(--md-sys-color-primary);
+}

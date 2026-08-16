@@ -1,0 +1,341 @@
+/* Material 3 Expressive — echelle typographique
+ * 30 styles : 15 roles de base + 15 roles « emphasized » introduits par
+ * Expressive (graisse superieure, destines aux moments cles de l'interface). */
+
+:root {
+  --md-ref-typeface-brand: 'Roboto Flex', 'Roboto', system-ui, sans-serif;
+  --md-ref-typeface-plain: 'Roboto Flex', 'Roboto', system-ui, sans-serif;
+  --md-ref-typeface-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --md-ref-typeface-weight-regular: 400;
+  --md-ref-typeface-weight-medium: 500;
+  --md-ref-typeface-weight-bold: 700;
+
+  /* display */
+  --md-sys-typescale-display-large-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-display-large-size: 57px;
+  --md-sys-typescale-display-large-line-height: 64px;
+  --md-sys-typescale-display-large-weight: 400;
+  --md-sys-typescale-display-large-tracking: -0.25px;
+
+  --md-sys-typescale-display-medium-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-display-medium-size: 45px;
+  --md-sys-typescale-display-medium-line-height: 52px;
+  --md-sys-typescale-display-medium-weight: 400;
+  --md-sys-typescale-display-medium-tracking: 0px;
+
+  --md-sys-typescale-display-small-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-display-small-size: 36px;
+  --md-sys-typescale-display-small-line-height: 44px;
+  --md-sys-typescale-display-small-weight: 400;
+  --md-sys-typescale-display-small-tracking: 0px;
+
+  /* headline */
+  --md-sys-typescale-headline-large-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-headline-large-size: 32px;
+  --md-sys-typescale-headline-large-line-height: 40px;
+  --md-sys-typescale-headline-large-weight: 400;
+  --md-sys-typescale-headline-large-tracking: 0px;
+
+  --md-sys-typescale-headline-medium-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-headline-medium-size: 28px;
+  --md-sys-typescale-headline-medium-line-height: 36px;
+  --md-sys-typescale-headline-medium-weight: 400;
+  --md-sys-typescale-headline-medium-tracking: 0px;
+
+  --md-sys-typescale-headline-small-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-headline-small-size: 24px;
+  --md-sys-typescale-headline-small-line-height: 32px;
+  --md-sys-typescale-headline-small-weight: 400;
+  --md-sys-typescale-headline-small-tracking: 0px;
+
+  /* title */
+  --md-sys-typescale-title-large-font: var(--md-ref-typeface-brand);
+  --md-sys-typescale-title-large-size: 22px;
+  --md-sys-typescale-title-large-line-height: 28px;
+  --md-sys-typescale-title-large-weight: 400;
+  --md-sys-typescale-title-large-tracking: 0px;
+
+  --md-sys-typescale-title-medium-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-title-medium-size: 16px;
+  --md-sys-typescale-title-medium-line-height: 24px;
+  --md-sys-typescale-title-medium-weight: 500;
+  --md-sys-typescale-title-medium-tracking: 0.15px;
+
+  --md-sys-typescale-title-small-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-title-small-size: 14px;
+  --md-sys-typescale-title-small-line-height: 20px;
+  --md-sys-typescale-title-small-weight: 500;
+  --md-sys-typescale-title-small-tracking: 0.1px;
+
+  /* body */
+  --md-sys-typescale-body-large-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-body-large-size: 16px;
+  --md-sys-typescale-body-large-line-height: 24px;
+  --md-sys-typescale-body-large-weight: 400;
+  --md-sys-typescale-body-large-tracking: 0.5px;
+
+  --md-sys-typescale-body-medium-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-body-medium-size: 14px;
+  --md-sys-typescale-body-medium-line-height: 20px;
+  --md-sys-typescale-body-medium-weight: 400;
+  --md-sys-typescale-body-medium-tracking: 0.25px;
+
+  --md-sys-typescale-body-small-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-body-small-size: 12px;
+  --md-sys-typescale-body-small-line-height: 16px;
+  --md-sys-typescale-body-small-weight: 400;
+  --md-sys-typescale-body-small-tracking: 0.4px;
+
+  /* label */
+  --md-sys-typescale-label-large-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-label-large-size: 14px;
+  --md-sys-typescale-label-large-line-height: 20px;
+  --md-sys-typescale-label-large-weight: 500;
+  --md-sys-typescale-label-large-tracking: 0.1px;
+
+  --md-sys-typescale-label-medium-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-label-medium-size: 12px;
+  --md-sys-typescale-label-medium-line-height: 16px;
+  --md-sys-typescale-label-medium-weight: 500;
+  --md-sys-typescale-label-medium-tracking: 0.5px;
+
+  --md-sys-typescale-label-small-font: var(--md-ref-typeface-plain);
+  --md-sys-typescale-label-small-size: 11px;
+  --md-sys-typescale-label-small-line-height: 16px;
+  --md-sys-typescale-label-small-weight: 500;
+  --md-sys-typescale-label-small-tracking: 0.5px;
+
+  /* --- Roles « emphasized » (Expressive) : meme metrique, graisse accrue --- */
+  --md-sys-typescale-emphasized-display-large-weight: 500;
+  --md-sys-typescale-emphasized-display-medium-weight: 500;
+  --md-sys-typescale-emphasized-display-small-weight: 500;
+  --md-sys-typescale-emphasized-headline-large-weight: 500;
+  --md-sys-typescale-emphasized-headline-medium-weight: 500;
+  --md-sys-typescale-emphasized-headline-small-weight: 500;
+  --md-sys-typescale-emphasized-title-large-weight: 500;
+  --md-sys-typescale-emphasized-title-medium-weight: 700;
+  --md-sys-typescale-emphasized-title-small-weight: 700;
+  --md-sys-typescale-emphasized-body-large-weight: 500;
+  --md-sys-typescale-emphasized-body-medium-weight: 500;
+  --md-sys-typescale-emphasized-body-small-weight: 500;
+  --md-sys-typescale-emphasized-label-large-weight: 700;
+  --md-sys-typescale-emphasized-label-medium-weight: 700;
+  --md-sys-typescale-emphasized-label-small-weight: 700;
+}
+
+/* Classes utilitaires : `.md-type-title-medium`, `.md-type-title-medium.is-emphasized`.
+ * Generees a la main plutot qu'en boucle pour rester lisibles dans le devtool. */
+[class*='md-type-'] {
+  margin: 0;
+}
+
+.md-type-display-large,
+.md-type-display-medium,
+.md-type-display-small,
+.md-type-headline-large,
+.md-type-headline-medium,
+.md-type-headline-small,
+.md-type-title-large,
+.md-type-title-medium,
+.md-type-title-small,
+.md-type-body-large,
+.md-type-body-medium,
+.md-type-body-small,
+.md-type-label-large,
+.md-type-label-medium,
+.md-type-label-small {
+  font-family: var(--_font);
+  font-size: var(--_size);
+  line-height: var(--_line-height);
+  font-weight: var(--_weight);
+  letter-spacing: var(--_tracking);
+  font-variation-settings: 'opsz' var(--_opsz, 24);
+}
+
+.md-type-display-large {
+  --_font: var(--md-sys-typescale-display-large-font);
+  --_size: var(--md-sys-typescale-display-large-size);
+  --_line-height: var(--md-sys-typescale-display-large-line-height);
+  --_weight: var(--md-sys-typescale-display-large-weight);
+  --_tracking: var(--md-sys-typescale-display-large-tracking);
+  --_opsz: 57;
+}
+.md-type-display-large.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-display-large-weight);
+}
+
+.md-type-display-medium {
+  --_font: var(--md-sys-typescale-display-medium-font);
+  --_size: var(--md-sys-typescale-display-medium-size);
+  --_line-height: var(--md-sys-typescale-display-medium-line-height);
+  --_weight: var(--md-sys-typescale-display-medium-weight);
+  --_tracking: var(--md-sys-typescale-display-medium-tracking);
+  --_opsz: 45;
+}
+.md-type-display-medium.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-display-medium-weight);
+}
+
+.md-type-display-small {
+  --_font: var(--md-sys-typescale-display-small-font);
+  --_size: var(--md-sys-typescale-display-small-size);
+  --_line-height: var(--md-sys-typescale-display-small-line-height);
+  --_weight: var(--md-sys-typescale-display-small-weight);
+  --_tracking: var(--md-sys-typescale-display-small-tracking);
+  --_opsz: 36;
+}
+.md-type-display-small.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-display-small-weight);
+}
+
+.md-type-headline-large {
+  --_font: var(--md-sys-typescale-headline-large-font);
+  --_size: var(--md-sys-typescale-headline-large-size);
+  --_line-height: var(--md-sys-typescale-headline-large-line-height);
+  --_weight: var(--md-sys-typescale-headline-large-weight);
+  --_tracking: var(--md-sys-typescale-headline-large-tracking);
+  --_opsz: 32;
+}
+.md-type-headline-large.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-headline-large-weight);
+}
+
+.md-type-headline-medium {
+  --_font: var(--md-sys-typescale-headline-medium-font);
+  --_size: var(--md-sys-typescale-headline-medium-size);
+  --_line-height: var(--md-sys-typescale-headline-medium-line-height);
+  --_weight: var(--md-sys-typescale-headline-medium-weight);
+  --_tracking: var(--md-sys-typescale-headline-medium-tracking);
+  --_opsz: 28;
+}
+.md-type-headline-medium.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-headline-medium-weight);
+}
+
+.md-type-headline-small {
+  --_font: var(--md-sys-typescale-headline-small-font);
+  --_size: var(--md-sys-typescale-headline-small-size);
+  --_line-height: var(--md-sys-typescale-headline-small-line-height);
+  --_weight: var(--md-sys-typescale-headline-small-weight);
+  --_tracking: var(--md-sys-typescale-headline-small-tracking);
+  --_opsz: 24;
+}
+.md-type-headline-small.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-headline-small-weight);
+}
+
+.md-type-title-large {
+  --_font: var(--md-sys-typescale-title-large-font);
+  --_size: var(--md-sys-typescale-title-large-size);
+  --_line-height: var(--md-sys-typescale-title-large-line-height);
+  --_weight: var(--md-sys-typescale-title-large-weight);
+  --_tracking: var(--md-sys-typescale-title-large-tracking);
+  --_opsz: 22;
+}
+.md-type-title-large.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-title-large-weight);
+}
+
+.md-type-title-medium {
+  --_font: var(--md-sys-typescale-title-medium-font);
+  --_size: var(--md-sys-typescale-title-medium-size);
+  --_line-height: var(--md-sys-typescale-title-medium-line-height);
+  --_weight: var(--md-sys-typescale-title-medium-weight);
+  --_tracking: var(--md-sys-typescale-title-medium-tracking);
+  --_opsz: 16;
+}
+.md-type-title-medium.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-title-medium-weight);
+}
+
+.md-type-title-small {
+  --_font: var(--md-sys-typescale-title-small-font);
+  --_size: var(--md-sys-typescale-title-small-size);
+  --_line-height: var(--md-sys-typescale-title-small-line-height);
+  --_weight: var(--md-sys-typescale-title-small-weight);
+  --_tracking: var(--md-sys-typescale-title-small-tracking);
+  --_opsz: 14;
+}
+.md-type-title-small.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-title-small-weight);
+}
+
+.md-type-body-large {
+  --_font: var(--md-sys-typescale-body-large-font);
+  --_size: var(--md-sys-typescale-body-large-size);
+  --_line-height: var(--md-sys-typescale-body-large-line-height);
+  --_weight: var(--md-sys-typescale-body-large-weight);
+  --_tracking: var(--md-sys-typescale-body-large-tracking);
+  --_opsz: 16;
+}
+.md-type-body-large.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-body-large-weight);
+}
+
+.md-type-body-medium {
+  --_font: var(--md-sys-typescale-body-medium-font);
+  --_size: var(--md-sys-typescale-body-medium-size);
+  --_line-height: var(--md-sys-typescale-body-medium-line-height);
+  --_weight: var(--md-sys-typescale-body-medium-weight);
+  --_tracking: var(--md-sys-typescale-body-medium-tracking);
+  --_opsz: 14;
+}
+.md-type-body-medium.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-body-medium-weight);
+}
+
+.md-type-body-small {
+  --_font: var(--md-sys-typescale-body-small-font);
+  --_size: var(--md-sys-typescale-body-small-size);
+  --_line-height: var(--md-sys-typescale-body-small-line-height);
+  --_weight: var(--md-sys-typescale-body-small-weight);
+  --_tracking: var(--md-sys-typescale-body-small-tracking);
+  --_opsz: 12;
+}
+.md-type-body-small.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-body-small-weight);
+}
+
+.md-type-label-large {
+  --_font: var(--md-sys-typescale-label-large-font);
+  --_size: var(--md-sys-typescale-label-large-size);
+  --_line-height: var(--md-sys-typescale-label-large-line-height);
+  --_weight: var(--md-sys-typescale-label-large-weight);
+  --_tracking: var(--md-sys-typescale-label-large-tracking);
+  --_opsz: 14;
+}
+.md-type-label-large.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-label-large-weight);
+}
+
+.md-type-label-medium {
+  --_font: var(--md-sys-typescale-label-medium-font);
+  --_size: var(--md-sys-typescale-label-medium-size);
+  --_line-height: var(--md-sys-typescale-label-medium-line-height);
+  --_weight: var(--md-sys-typescale-label-medium-weight);
+  --_tracking: var(--md-sys-typescale-label-medium-tracking);
+  --_opsz: 12;
+}
+.md-type-label-medium.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-label-medium-weight);
+}
+
+.md-type-label-small {
+  --_font: var(--md-sys-typescale-label-small-font);
+  --_size: var(--md-sys-typescale-label-small-size);
+  --_line-height: var(--md-sys-typescale-label-small-line-height);
+  --_weight: var(--md-sys-typescale-label-small-weight);
+  --_tracking: var(--md-sys-typescale-label-small-tracking);
+  --_opsz: 11;
+}
+.md-type-label-small.is-emphasized {
+  --_weight: var(--md-sys-typescale-emphasized-label-small-weight);
+}
+
+/* Chiffres alignes : indispensable pour les valeurs qui defilent (temps, coordonnees). */
+.md-numeric {
+  font-family: var(--md-ref-typeface-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}

@@ -1,0 +1,89 @@
+.md-data-row {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  min-height: 28px;
+}
+
+.md-data-row__icon {
+  color: var(--md-sys-color-on-surface-variant);
+  flex: none;
+}
+
+.md-data-row__label {
+  color: var(--md-sys-color-on-surface-variant);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-data-row__value {
+  flex: none;
+  color: var(--md-sys-color-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-data-row.is-emphasis .md-data-row__value {
+  color: var(--md-sys-color-primary);
+  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
+}
+
+.md-data-row__unit {
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 400;
+}
+
+.md-data-grid {
+  display: grid;
+  gap: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+}
+
+/* --- Tuile --- */
+.md-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-1);
+  padding: var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-large-increased);
+  background: var(--_bg);
+  color: var(--_fg);
+}
+
+.md-stat-tile--neutral {
+  --_bg: var(--md-sys-color-surface-container-high);
+  --_fg: var(--md-sys-color-on-surface);
+}
+.md-stat-tile--primary {
+  --_bg: var(--md-sys-color-primary-container);
+  --_fg: var(--md-sys-color-on-primary-container);
+}
+.md-stat-tile--secondary {
+  --_bg: var(--md-sys-color-secondary-container);
+  --_fg: var(--md-sys-color-on-secondary-container);
+}
+.md-stat-tile--tertiary {
+  --_bg: var(--md-sys-color-tertiary-container);
+  --_fg: var(--md-sys-color-on-tertiary-container);
+}
+
+.md-stat-tile__head {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-1);
+  opacity: 0.85;
+}
+
+.md-stat-tile__value {
+  margin: 0;
+  font-size: var(--md-sys-typescale-headline-small-size);
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+  font-weight: var(--md-sys-typescale-emphasized-headline-small-weight);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-stat-tile__unit {
+  font-size: var(--md-sys-typescale-body-medium-size);
+  opacity: 0.7;
+}

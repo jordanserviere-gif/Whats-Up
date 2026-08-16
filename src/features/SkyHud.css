@@ -1,0 +1,121 @@
+.sky-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--app-z-chrome);
+  padding: var(--md-sys-spacing-4);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--md-sys-spacing-3);
+  align-items: start;
+}
+
+.sky-hud > * {
+  pointer-events: auto;
+}
+
+/* --- Boussole --- */
+.sky-hud__compass {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-3);
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4) var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+}
+
+.sky-hud__compass-dial {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+  rotate: var(--_az);
+  transition: rotate var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+
+.sky-hud__compass-needle {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 3px;
+  height: 16px;
+  margin-left: -1.5px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+}
+
+.sky-hud__compass-north {
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  translate: -50% 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.sky-hud__readout {
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+.sky-hud__readout-sub {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* --- Outils de visee --- */
+.sky-hud__view-tools {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: center;
+  justify-self: end;
+}
+
+/* --- Calques rapides --- */
+.sky-hud__layers {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  justify-self: end;
+  max-width: min(640px, 60vw);
+}
+
+.sky-hud__layers .md-chip {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 70%, transparent);
+}
+.sky-hud__layers .md-chip.is-selected {
+  background: var(--md-sys-color-secondary-container);
+}
+
+/* --- Conditions d'observation --- */
+.sky-hud__conditions {
+  grid-column: 1;
+  grid-row: 3;
+  align-self: end;
+  display: flex;
+  flex-direction: column;
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+  white-space: nowrap;
+}
+.sky-hud__conditions-sub {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+@media (max-width: 900px) {
+  .sky-hud {
+    padding: var(--md-sys-spacing-2);
+  }
+  .sky-hud__view-tools,
+  .sky-hud__conditions {
+    display: none;
+  }
+  .sky-hud__layers {
+    grid-column: 1 / 4;
+    grid-row: 2;
+    align-self: start;
+    justify-self: stretch;
+    max-width: none;
+  }
+}

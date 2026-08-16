@@ -1,0 +1,40 @@
+.md-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding-inline: var(--md-sys-spacing-2);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--_bg);
+  color: var(--_fg);
+  white-space: nowrap;
+  flex: none;
+}
+
+.md-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--md-sys-shape-corner-full);
+  box-shadow: 0 0 6px currentColor;
+}
+
+.md-badge--neutral {
+  --_bg: var(--md-sys-color-surface-container-highest);
+  --_fg: var(--md-sys-color-on-surface-variant);
+}
+.md-badge--primary {
+  --_bg: var(--md-sys-color-primary-container);
+  --_fg: var(--md-sys-color-on-primary-container);
+}
+.md-badge--secondary {
+  --_bg: var(--md-sys-color-secondary-container);
+  --_fg: var(--md-sys-color-on-secondary-container);
+}
+.md-badge--tertiary {
+  --_bg: var(--md-sys-color-tertiary-container);
+  --_fg: var(--md-sys-color-on-tertiary-container);
+}
+.md-badge--error {
+  --_bg: var(--md-sys-color-error-container);
+  --_fg: var(--md-sys-color-on-error-container);
+}

@@ -1,0 +1,88 @@
+.md-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-sys-spacing-4);
+  min-height: var(--md-sys-touch-target-min);
+}
+
+.md-switch-row__text {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  min-width: 0;
+}
+.md-switch-row__support {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.md-switch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.md-switch__track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-highest);
+  border: var(--md-sys-outline-width-thick) solid var(--md-sys-color-outline);
+  transition:
+    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
+    border-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+}
+
+.md-switch__handle {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-outline);
+  color: var(--md-sys-color-surface-container-highest);
+  /* Ressort spatial : le curseur depasse legerement puis se cale. */
+  transition:
+    left var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
+    width var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
+    height var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
+    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+}
+
+.md-switch.is-checked .md-switch__track {
+  background: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+}
+.md-switch.is-checked .md-switch__handle {
+  left: 24px;
+  width: 24px;
+  height: 24px;
+  background: var(--md-sys-color-on-primary);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.md-switch:active .md-switch__handle {
+  width: 28px;
+  height: 28px;
+}
+.md-switch:active:not(.is-checked) .md-switch__handle {
+  left: 2px;
+}
+.md-switch:active.is-checked .md-switch__handle {
+  left: 22px;
+}
+
+.md-switch-row.is-disabled {
+  opacity: var(--md-sys-state-disabled-content-opacity);
+  pointer-events: none;
+}

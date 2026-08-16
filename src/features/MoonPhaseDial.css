@@ -1,0 +1,26 @@
+.moon-dial {
+  flex: none;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--app-body-moon) 30%, transparent));
+}
+
+.moon-dial svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.moon-dial__dark {
+  fill: color-mix(in srgb, var(--app-body-moon) 12%, var(--md-sys-color-surface-container-lowest));
+}
+
+.moon-dial__lit {
+  fill: var(--app-body-moon);
+}
+
+.moon-dial__rim {
+  fill: none;
+  stroke: color-mix(in srgb, var(--app-body-moon) 35%, transparent);
+  stroke-width: 2;
+}

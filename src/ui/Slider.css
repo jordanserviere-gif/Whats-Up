@@ -1,0 +1,125 @@
+.md-slider {
+  --_track-height: 16px;
+  --_handle-width: 4px;
+  --_gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-1);
+  width: 100%;
+}
+
+.md-slider__label {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.md-slider__track-row {
+  position: relative;
+  height: var(--md-sys-touch-target-min);
+  display: flex;
+  align-items: center;
+}
+
+.md-slider__track {
+  position: absolute;
+  inset-inline: 0;
+  height: var(--_track-height);
+  pointer-events: none;
+}
+
+.md-slider__track-active,
+.md-slider__track-inactive {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: inset-inline var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+
+.md-slider__track-active {
+  left: 0;
+  right: calc(100% - var(--_pct) + var(--_gap));
+  background: var(--md-sys-color-primary);
+  border-start-end-radius: var(--md-sys-shape-corner-extra-small);
+  border-end-end-radius: var(--md-sys-shape-corner-extra-small);
+}
+
+.md-slider__track-inactive {
+  left: calc(var(--_pct) + var(--_gap));
+  right: 0;
+  background: var(--md-sys-color-secondary-container);
+  border-start-start-radius: var(--md-sys-shape-corner-extra-small);
+  border-end-start-radius: var(--md-sys-shape-corner-extra-small);
+}
+
+/* Poignee en barre : signature Expressive. */
+.md-slider__handle {
+  position: absolute;
+  top: -4px;
+  left: var(--_pct);
+  width: var(--_handle-width);
+  height: calc(var(--_track-height) + 8px);
+  margin-left: calc(var(--_handle-width) / -2);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  transition:
+    left var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
+    width var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+
+.md-slider__track-row:hover .md-slider__handle,
+.md-slider__track-row:focus-within .md-slider__handle {
+  width: 2px;
+}
+
+.md-slider__anchor {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-on-secondary-container);
+  opacity: 0.9;
+}
+
+.md-slider__value {
+  position: absolute;
+  bottom: calc(100% + var(--md-sys-spacing-2));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px var(--md-sys-spacing-2);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* L'input natif porte l'interaction ; il est invisible mais actif. */
+.md-slider__input {
+  position: absolute;
+  inset-inline: calc(var(--_handle-width) / -2);
+  width: calc(100% + var(--_handle-width));
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+  background: transparent;
+}
+.md-slider__input::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--md-sys-touch-target-min);
+  height: var(--md-sys-touch-target-min);
+}
+.md-slider__input::-moz-range-thumb {
+  width: var(--md-sys-touch-target-min);
+  height: var(--md-sys-touch-target-min);
+  border: none;
+  background: transparent;
+}
+
+.md-slider.is-disabled {
+  opacity: var(--md-sys-state-disabled-content-opacity);
+  pointer-events: none;
+}

@@ -1,0 +1,7 @@
+.luminance-band {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  pointer-events: none;
+  /* Aucun filtre : la bande doit rendre fidelement l'echelle de luminance. */
+}

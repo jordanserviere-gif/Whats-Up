@@ -1,0 +1,73 @@
+.app {
+  position: relative;
+  display: flex;
+  height: 100%;
+  gap: var(--md-sys-spacing-2);
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2) var(--md-sys-spacing-2) 0;
+  background: var(--md-sys-color-background);
+  overflow: hidden;
+}
+
+.app__stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  overflow: hidden;
+  background: var(--app-sky-zenith);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.app__timeline {
+  position: absolute;
+  inset-inline: var(--md-sys-spacing-4);
+  bottom: var(--md-sys-spacing-4);
+  z-index: var(--app-z-chrome);
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+}
+.app__timeline > * {
+  width: min(1040px, 100%);
+}
+
+.app__panel {
+  margin-block: 0;
+}
+
+/* Marque discrete en tete du rail. */
+.app__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: radial-gradient(
+    circle at 30% 30%,
+    var(--md-sys-color-primary),
+    var(--md-sys-color-primary-container) 60%,
+    transparent 72%
+  );
+}
+.app__mark-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-on-primary);
+  box-shadow: 0 0 12px 2px var(--md-sys-color-primary);
+}
+
+@media (max-width: 900px) {
+  .app {
+    flex-direction: column-reverse;
+    padding: 0;
+    gap: 0;
+  }
+  .app__stage {
+    border-radius: 0;
+  }
+  .app__timeline {
+    inset-inline: var(--md-sys-spacing-2);
+    bottom: var(--md-sys-spacing-2);
+  }
+}

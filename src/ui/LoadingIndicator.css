@@ -1,0 +1,99 @@
+.md-loading {
+  display: inline-grid;
+  place-items: center;
+}
+
+.md-loading__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.md-loading__track,
+.md-loading__arc {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.md-loading__track {
+  stroke: var(--md-sys-color-secondary-container);
+}
+
+.md-loading__arc {
+  stroke: var(--md-sys-color-primary);
+  transform-origin: center;
+}
+
+/* Rotation + respiration de l'arc : la « forme » evolue pendant le tour. */
+.md-loading.is-indeterminate .md-loading__arc {
+  stroke-dasharray: 30 113;
+  animation:
+    md-loading-spin 1.4s var(--md-sys-motion-easing-linear) infinite,
+    md-loading-morph 1.4s var(--md-sys-motion-easing-emphasized) infinite;
+}
+
+.md-loading.is-determinate .md-loading__arc {
+  transform: rotate(-90deg);
+  transition: stroke-dasharray var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
+}
+
+@keyframes md-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes md-loading-morph {
+  0% {
+    stroke-dasharray: 12 113;
+  }
+  50% {
+    stroke-dasharray: 80 113;
+  }
+  100% {
+    stroke-dasharray: 12 113;
+  }
+}
+
+/* --- Barre lineaire --- */
+.md-linear-progress {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-secondary-container);
+  overflow: hidden;
+}
+
+.md-linear-progress__bar {
+  height: 100%;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  transition: width var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
+}
+
+.md-linear-progress.is-indeterminate .md-linear-progress__bar {
+  width: 40%;
+  animation: md-linear-slide 1.6s var(--md-sys-motion-easing-emphasized) infinite;
+}
+
+/* Indicateur de butee : marqueur MD3 en fin de piste. */
+.md-linear-progress__stop {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+}
+
+@keyframes md-linear-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}

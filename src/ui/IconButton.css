@@ -1,0 +1,137 @@
+.md-icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: var(--_size);
+  width: var(--_width);
+  padding: 0;
+  border: none;
+  border-radius: var(--_radius);
+  background: var(--_container);
+  color: var(--_content);
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-radius var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
+    background-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
+    color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
+    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+
+.md-icon-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+.md-icon-button:hover::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+.md-icon-button:focus-visible::before {
+  opacity: var(--md-sys-state-focus-opacity);
+}
+.md-icon-button:active {
+  transform: scale(0.92);
+  border-radius: var(--_radius-pressed);
+}
+
+.md-icon-button:disabled {
+  pointer-events: none;
+  color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) calc(var(--md-sys-state-disabled-content-opacity) * 100%),
+    transparent
+  );
+}
+
+/* Tailles */
+.md-icon-button--xs {
+  --_size: var(--md-comp-icon-button-size-xs);
+  --_radius-square: var(--md-sys-shape-corner-medium);
+  --_radius-pressed: var(--md-sys-shape-corner-small);
+}
+.md-icon-button--s {
+  --_size: var(--md-comp-icon-button-size-s);
+  --_radius-square: var(--md-sys-shape-corner-medium);
+  --_radius-pressed: var(--md-sys-shape-corner-small);
+}
+.md-icon-button--m {
+  --_size: var(--md-comp-icon-button-size-m);
+  --_radius-square: var(--md-sys-shape-corner-large);
+  --_radius-pressed: var(--md-sys-shape-corner-medium);
+}
+.md-icon-button--l {
+  --_size: var(--md-comp-icon-button-size-l);
+  --_radius-square: var(--md-sys-shape-corner-extra-large);
+  --_radius-pressed: var(--md-sys-shape-corner-large);
+}
+
+/* Largeurs (axe Expressive) */
+.md-icon-button--w-narrow {
+  --_width: calc(var(--_size) * 0.75);
+}
+.md-icon-button--w-default {
+  --_width: var(--_size);
+}
+.md-icon-button--w-wide {
+  --_width: calc(var(--_size) * 1.5);
+}
+
+/* Formes */
+.md-icon-button--round {
+  --_radius: var(--md-sys-shape-corner-full);
+}
+.md-icon-button--square {
+  --_radius: var(--_radius-square);
+}
+.md-icon-button--round.is-selected {
+  --_radius: var(--_radius-square);
+}
+.md-icon-button--square.is-selected {
+  --_radius: var(--md-sys-shape-corner-full);
+}
+
+/* Variantes */
+.md-icon-button--standard {
+  --_container: transparent;
+  --_content: var(--md-sys-color-on-surface-variant);
+}
+.md-icon-button--standard.is-selected {
+  --_content: var(--md-sys-color-primary);
+}
+
+.md-icon-button--filled {
+  --_container: var(--md-sys-color-surface-container-highest);
+  --_content: var(--md-sys-color-on-surface-variant);
+}
+.md-icon-button--filled.is-selected {
+  --_container: var(--md-sys-color-primary);
+  --_content: var(--md-sys-color-on-primary);
+}
+
+.md-icon-button--tonal {
+  --_container: var(--md-sys-color-secondary-container);
+  --_content: var(--md-sys-color-on-secondary-container);
+}
+.md-icon-button--tonal.is-selected {
+  --_container: var(--md-sys-color-secondary);
+  --_content: var(--md-sys-color-on-secondary);
+}
+
+.md-icon-button--outlined {
+  --_container: transparent;
+  --_content: var(--md-sys-color-on-surface-variant);
+  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+}
+.md-icon-button--outlined.is-selected {
+  --_container: var(--md-sys-color-inverse-surface);
+  --_content: var(--md-sys-color-inverse-on-surface);
+  border-color: transparent;
+}

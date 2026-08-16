@@ -1,0 +1,69 @@
+.md-dialog {
+  border: none;
+  padding: 0;
+  background: transparent;
+  max-width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 96px);
+  overflow: visible;
+  color: var(--md-sys-color-on-surface);
+}
+
+.md-dialog::backdrop {
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 48%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.md-dialog[open] .md-dialog__panel {
+  animation: md-dialog-in var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
+}
+
+@keyframes md-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.md-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-4);
+  padding: var(--md-sys-spacing-6);
+  border-radius: var(--md-sys-shape-corner-extra-large-increased);
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-sys-elevation-level3);
+  max-height: inherit;
+}
+
+.md-dialog__icon {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  color: var(--md-sys-color-secondary);
+}
+
+.md-dialog__title--centered {
+  text-align: center;
+}
+
+.md-dialog__support {
+  color: var(--md-sys-color-on-surface-variant);
+  margin: 0;
+}
+
+.md-dialog__content {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-3);
+}
+
+.md-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--md-sys-spacing-2);
+}

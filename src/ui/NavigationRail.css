@@ -1,0 +1,115 @@
+.md-nav-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-sys-spacing-3);
+  width: var(--md-comp-navigation-rail-width);
+  flex: none;
+  padding: var(--md-sys-spacing-3) var(--md-sys-spacing-2);
+  background: var(--md-sys-color-surface-container);
+  border-radius: 0 var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0;
+  z-index: var(--app-z-chrome);
+}
+
+.md-nav-rail__header,
+.md-nav-rail__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+}
+.md-nav-rail__footer {
+  margin-top: auto;
+}
+
+.md-nav-rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-1);
+  width: 100%;
+}
+
+.md-nav-rail__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-sys-spacing-1);
+  width: 100%;
+  padding: var(--md-sys-spacing-1) 0;
+  border: none;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Indicateur pilule : morphe en s'activant, sur un ressort spatial. */
+.md-nav-rail__indicator {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 32px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  transition:
+    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
+    width var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
+    height var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
+    color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+}
+.md-nav-rail__item:hover .md-nav-rail__indicator {
+  background: color-mix(in srgb, currentColor calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+}
+.md-nav-rail__item.is-active .md-nav-rail__indicator {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  width: 64px;
+  height: 36px;
+}
+.md-nav-rail__item.is-active {
+  color: var(--md-sys-color-on-surface);
+}
+
+.md-nav-rail__label {
+  text-align: center;
+}
+
+.md-nav-rail__badge {
+  position: absolute;
+  top: -2px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding-inline: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+}
+
+/* Sous 900 px : barre de navigation ancree en bas. */
+@media (max-width: 900px) {
+  .md-nav-rail {
+    flex-direction: row;
+    width: 100%;
+    height: 76px;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2) env(safe-area-inset-bottom, 0);
+    border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;
+  }
+  .md-nav-rail__list {
+    flex-direction: row;
+    justify-content: space-around;
+  }
+  .md-nav-rail__header {
+    display: none;
+  }
+  .md-nav-rail__footer {
+    margin-top: 0;
+    flex-direction: row;
+  }
+}

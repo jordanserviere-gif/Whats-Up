@@ -1,0 +1,38 @@
+.orbit-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-3);
+}
+
+.orbit-editor__colors {
+  display: flex;
+  gap: var(--md-sys-spacing-2);
+  flex-wrap: wrap;
+}
+
+.orbit-editor__color {
+  width: 32px;
+  height: 32px;
+  border: var(--md-sys-outline-width-thick) solid transparent;
+  border-radius: var(--md-sys-shape-corner-medium);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    border-radius var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
+    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
+    box-shadow var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+.orbit-editor__color:hover {
+  transform: scale(1.1);
+}
+.orbit-editor__color.is-selected {
+  border-radius: var(--md-sys-shape-corner-full);
+  box-shadow: 0 0 0 3px var(--md-sys-color-surface-container), 0 0 0 5px currentColor;
+  border-color: var(--md-sys-color-surface-container);
+}
+
+.orbit-editor__delete {
+  --_label: var(--md-sys-color-error);
+  color: var(--md-sys-color-error);
+  align-self: flex-start;
+}

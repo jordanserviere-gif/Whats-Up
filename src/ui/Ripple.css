@@ -1,0 +1,31 @@
+.md-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  color: inherit;
+}
+
+.md-ripple__wave {
+  position: absolute;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: currentColor;
+  opacity: var(--md-sys-state-pressed-opacity);
+  transform: scale(0);
+  animation: md-ripple-expand 600ms var(--md-sys-motion-easing-standard-decelerate) forwards;
+}
+
+@keyframes md-ripple-expand {
+  0% {
+    transform: scale(0);
+    opacity: var(--md-sys-state-pressed-opacity);
+  }
+  60% {
+    opacity: var(--md-sys-state-pressed-opacity);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}

@@ -1,0 +1,53 @@
+/* Tokens applicatifs du domaine « ciel » : ils prolongent le systeme MD3 avec
+ * les couleurs semantiques des objets celestes et des couches de la scene.
+ * Aucun composant ne code une couleur en dur : tout passe par ces tokens. */
+
+:root {
+  /* Corps du systeme solaire — teintes fideles a leur apparence visuelle.
+   * Le Soleil est blanc : sa teinte chaude usuelle vient de l'extinction
+   * atmospherique, appliquee au rendu, pas d'une couleur propre. */
+  --app-body-sun: #fffaf0;
+  /* Teinte du halo solaire, legerement plus chaude que le disque. */
+  --app-body-sun-glow: #ffe9c4;
+  --app-body-moon: #e8e6df;
+  --app-body-mercury: #b5aca1;
+  --app-body-venus: #f5e6bd;
+  --app-body-mars: #ff7a52;
+  --app-body-jupiter: #e6c396;
+  --app-body-saturn: #f0dda3;
+  --app-body-uranus: #a8e5ee;
+  --app-body-neptune: #7fa8ff;
+  --app-body-pluto: #cbb8a6;
+  --app-body-satellite: var(--md-sys-color-tertiary);
+
+  /* Couches de la scene. */
+  --app-sky-zenith: #03040a;
+  --app-sky-horizon: #0b1120;
+  --app-sky-ground: #06080d;
+  /* Diffusion atmospherique autour de la Lune levee. */
+  --app-moon-glow: #7d8fc4;
+  --app-sky-ground-line: color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent);
+
+  --app-grid-horizon: color-mix(in srgb, var(--md-sys-color-primary) 26%, transparent);
+  --app-grid-equatorial: color-mix(in srgb, var(--md-sys-color-tertiary) 24%, transparent);
+  --app-grid-ecliptic: color-mix(in srgb, var(--app-body-sun) 34%, transparent);
+  --app-grid-meridian: color-mix(in srgb, var(--md-sys-color-secondary) 30%, transparent);
+  --app-constellation-line: color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
+  --app-constellation-label: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 70%, transparent);
+
+  /* Traces satellites. */
+  --app-track-sunlit: var(--md-sys-color-tertiary);
+  --app-track-eclipsed: color-mix(in srgb, var(--md-sys-color-on-surface) 28%, transparent);
+  --app-track-below-horizon: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+
+  /* Etat d'illumination (crepuscules). */
+  --app-twilight-day: #7ec8ff;
+  --app-twilight-civil: #ff9d5c;
+  --app-twilight-nautical: #6d7fd6;
+  --app-twilight-astronomical: #3b3f7a;
+  --app-twilight-night: #12142a;
+
+  /* Reticule et selection dans la scene. */
+  --app-selection-ring: var(--md-sys-color-primary);
+  --app-selection-glow: color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
+}

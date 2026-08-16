@@ -1,0 +1,27 @@
+.md-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-1);
+  padding: var(--md-sys-spacing-2);
+  pointer-events: auto;
+}
+
+.md-toolbar--start {
+  justify-content: flex-start;
+}
+.md-toolbar--center {
+  justify-content: center;
+}
+.md-toolbar--end {
+  justify-content: flex-end;
+}
+
+.md-toolbar--vertical {
+  flex-direction: column;
+}
+
+.md-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-1);
+}

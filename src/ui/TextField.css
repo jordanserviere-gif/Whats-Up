@@ -1,0 +1,125 @@
+.md-text-field {
+  --_height: 56px;
+  --_outline: var(--md-sys-color-outline);
+  --_label-color: var(--md-sys-color-on-surface-variant);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-1);
+  min-width: 0;
+}
+
+.md-text-field--compact {
+  --_height: 48px;
+}
+
+.md-text-field__box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  height: var(--_height);
+  padding-inline: var(--md-sys-spacing-4);
+  border-radius: var(--md-sys-shape-corner-large);
+  transition:
+    border-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
+    background-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+
+.md-text-field--outlined .md-text-field__box {
+  border: var(--md-sys-outline-width-thin) solid var(--_outline);
+  background: transparent;
+}
+.md-text-field--filled .md-text-field__box {
+  background: var(--md-sys-color-surface-container-highest);
+  border-bottom: var(--md-sys-outline-width-thin) solid var(--_outline);
+  border-radius: var(--md-sys-shape-corner-medium) var(--md-sys-shape-corner-medium) 0 0;
+}
+
+.md-text-field__box:focus-within {
+  --_outline: var(--md-sys-color-primary);
+  --_label-color: var(--md-sys-color-primary);
+}
+.md-text-field--outlined .md-text-field__box:focus-within {
+  border-width: var(--md-sys-outline-width-thick);
+  padding-inline: calc(var(--md-sys-spacing-4) - 1px);
+}
+
+.md-text-field__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  padding: var(--md-sys-spacing-5) 0 0;
+}
+.md-text-field__input.md-numeric {
+  font-family: var(--md-ref-typeface-mono);
+  font-variant-numeric: tabular-nums;
+}
+.md-text-field__input::-webkit-outer-spin-button,
+.md-text-field__input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.md-text-field__input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+/* Label flottant : repos au centre, ancre en haut des qu'il y a du contenu. */
+.md-text-field__label {
+  position: absolute;
+  left: var(--md-sys-spacing-4);
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  color: var(--_label-color);
+  pointer-events: none;
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  transition: all var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+.md-text-field__box:focus-within .md-text-field__label,
+.md-text-field__input:not(:placeholder-shown) + .md-text-field__label {
+  top: 12px;
+  transform: translateY(0) scale(0.75);
+  font-weight: var(--md-sys-typescale-emphasized-body-small-weight);
+}
+
+.md-text-field__leading {
+  color: var(--md-sys-color-on-surface-variant);
+  flex: none;
+}
+.md-text-field__box:has(.md-text-field__leading) .md-text-field__label {
+  left: calc(var(--md-sys-spacing-4) + 20px + var(--md-sys-spacing-2));
+}
+
+.md-text-field__suffix {
+  color: var(--md-sys-color-on-surface-variant);
+  flex: none;
+  padding-top: var(--md-sys-spacing-5);
+  white-space: nowrap;
+}
+
+.md-text-field__support {
+  padding-inline: var(--md-sys-spacing-4);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.md-text-field.is-invalid {
+  --_outline: var(--md-sys-color-error);
+  --_label-color: var(--md-sys-color-error);
+}
+.md-text-field.is-invalid .md-text-field__support {
+  color: var(--md-sys-color-error);
+}
+
+.md-text-field.is-disabled {
+  opacity: var(--md-sys-state-disabled-content-opacity);
+  pointer-events: none;
+}

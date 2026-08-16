@@ -1,0 +1,79 @@
+.md-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.md-segmented--full {
+  display: flex;
+  width: 100%;
+}
+
+.md-segmented__item {
+  position: relative;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--md-sys-spacing-2);
+  height: var(--_h);
+  padding-inline: var(--_px);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
+    color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
+    border-radius var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
+    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+}
+
+.md-segmented--s {
+  --_h: 36px;
+  --_px: var(--md-sys-spacing-3);
+}
+.md-segmented--m {
+  --_h: 44px;
+  --_px: var(--md-sys-spacing-4);
+}
+
+.md-segmented__item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+.md-segmented__item:hover::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+.md-segmented__item:active {
+  transform: scale(0.95);
+}
+
+.md-segmented__item.is-selected {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  /* Le segment actif se distingue aussi par une forme plus carree. */
+  border-radius: var(--md-sys-shape-corner-medium);
+}
+
+.md-segmented__label {
+  position: relative;
+}
+
+@media (max-width: 720px) {
+  .md-segmented__label--compact {
+    display: none;
+  }
+}

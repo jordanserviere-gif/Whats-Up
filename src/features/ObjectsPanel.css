@@ -1,0 +1,7 @@
+/* Les corps sous l'horizon restent listes, mais en retrait. */
+.objects-panel__below .md-list-item__surface {
+  opacity: 0.55;
+}
+.objects-panel__below.is-selected .md-list-item__surface {
+  opacity: 1;
+}

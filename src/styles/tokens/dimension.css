@@ -1,0 +1,64 @@
+/* Tokens dimensionnels : espacement, cibles tactiles, densites, epaisseurs.
+ * Expressive augmente les cibles et les respirations par rapport a M3 de base. */
+
+:root {
+  /* Echelle d'espacement (multiple de 4). */
+  --md-sys-spacing-0: 0px;
+  --md-sys-spacing-1: 4px;
+  --md-sys-spacing-2: 8px;
+  --md-sys-spacing-3: 12px;
+  --md-sys-spacing-4: 16px;
+  --md-sys-spacing-5: 20px;
+  --md-sys-spacing-6: 24px;
+  --md-sys-spacing-7: 28px;
+  --md-sys-spacing-8: 32px;
+  --md-sys-spacing-10: 40px;
+  --md-sys-spacing-12: 48px;
+  --md-sys-spacing-14: 56px;
+  --md-sys-spacing-16: 64px;
+
+  /* Cible tactile minimale. */
+  --md-sys-touch-target-min: 48px;
+
+  /* Hauteurs de composants (tailles Expressive : xs → xl). */
+  --md-comp-button-height-xs: 32px;
+  --md-comp-button-height-s: 40px;
+  --md-comp-button-height-m: 56px;
+  --md-comp-button-height-l: 96px;
+  --md-comp-button-height-xl: 136px;
+
+  --md-comp-icon-button-size-xs: 32px;
+  --md-comp-icon-button-size-s: 40px;
+  --md-comp-icon-button-size-m: 56px;
+  --md-comp-icon-button-size-l: 96px;
+
+  --md-comp-fab-size-small: 40px;
+  --md-comp-fab-size-medium: 56px;
+  --md-comp-fab-size-large: 96px;
+
+  --md-comp-top-app-bar-height: 64px;
+  --md-comp-navigation-rail-width: 96px;
+  --md-comp-navigation-rail-width-expanded: 240px;
+
+  /* Traits et contours. */
+  --md-sys-outline-width-thin: 1px;
+  --md-sys-outline-width-thick: 2px;
+  --md-sys-outline-width-focus: 3px;
+
+  /* Panneaux applicatifs. */
+  --app-side-panel-width: 380px;
+  --app-timeline-height: 120px;
+  --app-z-scene: 0;
+  --app-z-overlay: 10;
+  --app-z-chrome: 20;
+  --app-z-sheet: 30;
+  --app-z-dialog: 40;
+  --app-z-snackbar: 50;
+  --app-z-tooltip: 60;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --app-side-panel-width: 100vw;
+  }
+}

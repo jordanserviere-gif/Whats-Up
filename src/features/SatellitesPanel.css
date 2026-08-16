@@ -1,0 +1,5 @@
+.satellites-panel__intro,
+.satellites-panel__empty {
+  color: var(--md-sys-color-on-surface-variant);
+  margin: 0;
+}
