@@ -1,8 +1,8 @@
 # État d'avancement
 
-Dernière mise à jour : 2026-08-17T02:30:00Z
+Dernière mise à jour : 2026-08-17T03:10:00Z
 Branche : feat/sources-externes
-Dernier commit vert : 4e9576f
+Dernier commit vert : a8fc0c4
 
 Boucle de reprise : `/loop` en auto-cadencement, consigne « Lis AUTONOMY.md et
 AUTONOMY-STATE.md, reprends à la prochaine action concrète ». Repli horaire —
