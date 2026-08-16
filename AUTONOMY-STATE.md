@@ -1,8 +1,13 @@
 # État d'avancement
 
-Dernière mise à jour : 2026-08-17T01:20:00Z
+Dernière mise à jour : 2026-08-17T01:40:00Z
 Branche : feat/sources-externes
-Dernier commit vert : 231f112
+Dernier commit vert : 0d00215
+
+Boucle de reprise : `/loop` en auto-cadencement, consigne « Lis AUTONOMY.md et
+AUTONOMY-STATE.md, reprends à la prochaine action concrète ». Repli horaire —
+un reset de crédits dépasse la borne d'une heure de `ScheduleWakeup`, le tick
+doit donc tolérer d'échouer plusieurs fois de suite et se reprogrammer.
 
 ## Étapes
 - [x] 0. Reconnaissance des API (CORS, formes de réponse)
