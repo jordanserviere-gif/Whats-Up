@@ -7,9 +7,8 @@ import {
   ATMOSPHERE_HAZE_COLOR_FN,
   ATMOSPHERE_TONEMAP_FN,
   ATMOSPHERE_UNIFORM_DECLARATIONS,
+  applyAerosolTurbidity,
   atmosphereUniforms,
-  MIE_COEFFICIENT,
-  MIE_SCALE_HEIGHT_M,
 } from './atmosphere'
 
 /**
@@ -62,6 +61,7 @@ function buildSkyMaterial(): ShaderMaterial {
     uniform vec3 uMoonDir;
     uniform float uMoonFactor;
     uniform vec3 uMoonGlow;
+    uniform vec3 uPollution;
 
     void main() {
       vec3 dir = normalize(vDir);
@@ -80,6 +80,14 @@ function buildSkyMaterial(): ShaderMaterial {
       float toMoon = max(0.0, dot(dir, normalize(uMoonDir)));
       night += uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
 
+      // Halo urbain. La lumiere perdue par l'eclairage public part du sol et
+      // remonte : elle traverse d'autant plus d'air qu'on regarde bas, et le
+      // ciel s'eclaircit donc vers l'horizon bien plus qu'au zenith. C'est ce
+      // gradient, autant que la teinte orangee des lampes, qui rend une nuit
+      // de ville reconnaissable.
+      float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
+      night += uPollution * (0.3 + 0.7 * lowSky);
+
       gl_FragColor = vec4(night + scattered, 1.0);
     }
   `
@@ -92,6 +100,7 @@ function buildSkyMaterial(): ShaderMaterial {
       uMoonFactor: { value: 0 },
       uNight: { value: new Color('#03040a') },
       uMoonGlow: { value: new Color('#7d8fc4') },
+      uPollution: { value: new Color('#000000') },
     },
     vertexShader,
     fragmentShader,
@@ -126,6 +135,14 @@ export interface SkyBackgroundProps {
    * ciel s'eclaircit, comme une vraie brume de pollution.
    */
   aerosolTurbidity?: number
+  /**
+   * Intensite du halo urbain, deja mise a l'echelle de l'affichage — voir
+   * `SkyCanvas.tsx`. Zero sur un site vierge : le rendu est alors strictement
+   * celui d'avant l'existence de ce reglage.
+   */
+  pollutionGain?: number
+  /** Teinte des lampes urbaines renvoyee par le ciel. */
+  pollutionColor?: string
 }
 
 export function SkyBackground({
@@ -138,6 +155,8 @@ export function SkyBackground({
   moonGlowColor,
   atmosphereExposure,
   aerosolTurbidity = 1,
+  pollutionGain = 0,
+  pollutionColor = '#ffb066',
 }: SkyBackgroundProps) {
   const material = useMemo(buildSkyMaterial, [])
 
@@ -157,14 +176,14 @@ export function SkyBackground({
       -Math.cos(malt) * Math.cos(maz),
     )
 
-    u.uMieCoeff.value = MIE_COEFFICIENT * aerosolTurbidity
-    u.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M * Math.sqrt(aerosolTurbidity)
+    applyAerosolTurbidity(u as Parameters<typeof applyAerosolTurbidity>[0], aerosolTurbidity)
     u.uAtmosphereExposure.value = atmosphereExposure
 
     u.uMoonFactor.value = moonAltitude > 0 ? Math.min(0.5, Math.max(0, lunarLux * 0.55)) : 0
 
     ;(u.uNight.value as Color).set(nightColor)
     ;(u.uMoonGlow.value as Color).set(moonGlowColor)
+    ;(u.uPollution.value as Color).set(pollutionColor).multiplyScalar(pollutionGain)
   })
 
   return (

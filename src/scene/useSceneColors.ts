@@ -28,6 +28,7 @@ export function useSceneColors() {
       constellationLabel: readToken('--md-sys-color-on-surface-variant', '#c4c5d6'),
       cardinal: readToken('--md-sys-color-secondary', '#c8c2ea'),
       moonGlow: readToken('--app-moon-glow', '#7d8fc4'),
+      lightPollution: readToken('--app-sky-light-pollution', '#ffb066'),
       sunGlow: readToken('--app-body-sun-glow', '#ffe9c4'),
       selection: readToken('--app-selection-ring', '#b8c3ff'),
       onSurface: readToken('--md-sys-color-on-surface', '#e2e1ef'),

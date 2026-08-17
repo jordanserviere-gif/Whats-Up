@@ -12,6 +12,7 @@ import {
   computeRiseSet,
   computeSkyConditions,
 } from '@/astro/bodies'
+import { lightPollutionLux } from '@/astro/photometry'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
 import { computeAircraftState, forgetAircraftTracks, type AircraftState } from '@/astro/aircraft'
 import { ensureAircraftPolling, getAircraftFeedSnapshot, stopAircraftPolling, subscribeAircraftFeed } from './aircraftFeed'
@@ -69,11 +70,15 @@ export function useBodyStates(): BodyState[] {
   return useMemo(() => computeAllBodies(date, location), [date, location])
 }
 
-/** Conditions d'observation courantes. */
+/** Conditions d'observation courantes, pollution lumineuse du site comprise. */
 export function useSkyConditions() {
   const date = useSimulatedDate()
   const location = useSkyStore((s) => s.location)
-  return useMemo(() => computeSkyConditions(date, location), [date, location])
+  const lightPollution = useSkyStore((s) => s.lightPollution)
+  return useMemo(
+    () => computeSkyConditions(date, location, lightPollutionLux(lightPollution)),
+    [date, location, lightPollution],
+  )
 }
 
 /** Donnees lunaires : recalculees a la minute, la phase evolue lentement. */

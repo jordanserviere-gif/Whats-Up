@@ -26,6 +26,10 @@
   --app-sky-ground: #06080d;
   /* Diffusion atmospherique autour de la Lune levee. */
   --app-moon-glow: #7d8fc4;
+  /* Halo urbain renvoye par le ciel. Teinte ambree : le parc d'eclairage
+   * public reste domine par le sodium et les LED chaudes, dont la lumiere
+   * perdue vers le haut est ce qui colore les nuits de ville. */
+  --app-sky-light-pollution: #ffb066;
   --app-sky-ground-line: color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent);
 
   --app-grid-horizon: color-mix(in srgb, var(--md-sys-color-primary) 26%, transparent);

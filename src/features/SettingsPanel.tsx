@@ -13,6 +13,8 @@ import {
   useTheme,
 } from '@/ui'
 import { PRESET_LOCATIONS, useSkyStore, type LayerVisibility } from '@/state/store'
+import { useSkyConditions } from '@/state/hooks'
+import { bortleLabel, bortleSkyBrightness } from '@/astro/photometry'
 import { DEEP_SKY_COUNT } from '@/astro/deepsky'
 import './SettingsPanel.css'
 import { STAR_COUNT, STAR_MAG_LIMIT } from '@/astro/catalog'
@@ -44,6 +46,11 @@ export function SettingsPanel() {
   const setMagnitudeLimit = useSkyStore((s) => s.setMagnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
   const setDiscScale = useSkyStore((s) => s.setDiscScale)
+  const lightPollution = useSkyStore((s) => s.lightPollution)
+  const setLightPollution = useSkyStore((s) => s.setLightPollution)
+  const aerosolTurbidity = useSkyStore((s) => s.aerosolTurbidity)
+  const setAerosolTurbidity = useSkyStore((s) => s.setAerosolTurbidity)
+  const sky = useSkyConditions()
   const { mode, setMode, contrast, setContrast } = useTheme()
   const { show } = useSnackbar()
   const [locating, setLocating] = useState(false)
@@ -172,6 +179,56 @@ export function SettingsPanel() {
           Par défaut, chaque corps occupe son diamètre apparent exact : Jupiter mesure une quarantaine de
           secondes d’arc, soit une fraction de pixel à champ large. Resserrez le champ à moins d’un degré
           pour voir les disques, ou grossissez-les ici — au prix de la fidélité.
+        </p>
+      </Section>
+
+      <Section
+        title="Conditions du site"
+        icon="foggy"
+        defaultOpen={false}
+        summary={
+          lightPollution <= 1 && aerosolTurbidity === 1
+            ? 'ciel naturel'
+            : `Bortle ${Math.round(lightPollution)} · trouble ×${aerosolTurbidity.toFixed(1).replace('.', ',')}`
+        }
+      >
+        <Slider
+          label="Pollution lumineuse"
+          min={1}
+          max={9}
+          step={1}
+          value={lightPollution}
+          showValue
+          format={(v) => `Bortle ${v} · ${bortleLabel(v)}`}
+          onChange={setLightPollution}
+        />
+        <p className="md-type-body-small">
+          Échelle de Bortle, ancrée sur la brillance réelle du fond de ciel :{' '}
+          {bortleSkyBrightness(lightPollution).toFixed(1).replace('.', ',')} mag/arcsec² au zénith. La
+          valeur entre dans le bilan lumineux comme une source de plus, au même titre que la Lune —
+          elle recule donc la magnitude limite, efface les objets étendus et éclaircit le ciel
+          d’elle-même, surtout vers l’horizon d’où monte le halo urbain. Magnitude limite actuelle :{' '}
+          {sky.limitingMagnitude.toFixed(1).replace('.', ',')}.
+        </p>
+
+        <Divider />
+
+        <Slider
+          label="Trouble atmosphérique"
+          min={0.5}
+          max={6}
+          step={0.1}
+          value={aerosolTurbidity}
+          showValue
+          format={(v) => `× ${v.toFixed(1).replace('.', ',')}`}
+          onChange={setAerosolTurbidity}
+        />
+        <p className="md-type-body-small">
+          Charge en aérosols — poussière, humidité, particules fines — qui pilote la diffusion de Mie.
+          À ×1, le modèle décrit un air très pur (épaisseur optique 0,025) : l’horizon reste net et les
+          astres bas peu affaiblis. En montant, la brume blanchit l’horizon, resserre le halo solaire
+          et éteint ce qui est rasant. Le réglage s’applique partout à la fois — fond de ciel, disques
+          planétaires, silhouettes d’avions.
         </p>
       </Section>
 

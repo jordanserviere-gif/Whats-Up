@@ -41,6 +41,58 @@ const SOLAR_ANCHORS: ReadonlyArray<[altitudeDeg: number, lux: number]> = [
   [90, 120000],
 ]
 
+/**
+ * Pollution lumineuse — echelle de Bortle.
+ *
+ * Chaque classe est ancree sur la brillance du fond de ciel au zenith qu'elle
+ * decrit, en magnitudes par seconde d'arc carree : c'est la grandeur qu'un
+ * photometre de ciel mesure reellement, et elle se convertit directement en
+ * eclairement par la meme relation que `skySurfaceBrightness`, en sens
+ * inverse. La pollution n'est donc pas un effet visuel plaque par-dessus le
+ * rendu : elle entre dans le bilan lumineux comme une source de plus, au meme
+ * titre que le Soleil ou la Lune. Elle fait donc reculer la magnitude limite,
+ * pâlir les objets etendus et eclaircir le ciel d'elle-meme.
+ */
+export const BORTLE_CLASSES: ReadonlyArray<{ readonly rank: number; readonly sqm: number; readonly label: string }> = [
+  { rank: 1, sqm: 21.9, label: 'ciel noir' },
+  { rank: 2, sqm: 21.8, label: 'site vierge' },
+  { rank: 3, sqm: 21.5, label: 'ciel rural' },
+  { rank: 4, sqm: 21.0, label: 'transition rurale' },
+  { rank: 5, sqm: 20.4, label: 'périphérie' },
+  { rank: 6, sqm: 19.3, label: 'banlieue lumineuse' },
+  { rank: 7, sqm: 18.4, label: 'abords de ville' },
+  { rank: 8, sqm: 17.5, label: 'ville' },
+  { rank: 9, sqm: 16.8, label: 'centre-ville' },
+]
+
+/** Brillance du fond de ciel pour une classe de Bortle, interpolee entre les paliers. */
+export function bortleSkyBrightness(rank: number): number {
+  const first = BORTLE_CLASSES[0]
+  const last = BORTLE_CLASSES[BORTLE_CLASSES.length - 1]
+  if (rank <= first.rank) return first.sqm
+  if (rank >= last.rank) return last.sqm
+  const i = Math.min(BORTLE_CLASSES.length - 2, Math.floor(rank) - 1)
+  const a = BORTLE_CLASSES[i]
+  const b = BORTLE_CLASSES[i + 1]
+  return a.sqm + (b.sqm - a.sqm) * ((rank - a.rank) / (b.rank - a.rank))
+}
+
+/** Libelle de la classe de Bortle la plus proche. */
+export const bortleLabel = (rank: number) =>
+  BORTLE_CLASSES[Math.min(BORTLE_CLASSES.length - 1, Math.max(0, Math.round(rank) - 1))].label
+
+/**
+ * Eclairement **ajoute** par la pollution lumineuse, en lux.
+ *
+ * L'airglow naturel est deja compte par `AIRGLOW_LUX` : on le retranche, de
+ * sorte qu'un ciel de classe 1 ou 2 n'ajoute rien du tout et laisse le rendu
+ * strictement identique a ce qu'il etait sans ce reglage.
+ */
+export function lightPollutionLux(rank: number): number {
+  const excess = AIRGLOW_LUX * Math.pow(10, (21.8 - bortleSkyBrightness(rank)) / 2.5) - AIRGLOW_LUX
+  return Math.max(0, excess)
+}
+
 /** Magnitude limite a l'oeil nu selon l'eclairement ambiant. */
 const LIMIT_MAG_ANCHORS: ReadonlyArray<[lux: number, magnitude: number]> = [
   [0.0002, 6.6],
@@ -128,6 +180,8 @@ export interface SkyLuminance {
   solarLux: number
   /** Part due a la Lune. */
   lunarLux: number
+  /** Part due a la pollution lumineuse, au-dela de l'airglow naturel. */
+  pollutionLux: number
   sunAltitude: number
   sunAzimuth: number
   moonAltitude: number
@@ -155,7 +209,7 @@ function moonMagnitude(phaseAngleDeg: number): number {
  * Une seule evaluation des ephemerides du Soleil et de la Lune suffit :
  * la fonction est appelee a chaque pas de la frise temporelle.
  */
-export function skyLuminance(date: Date, location: GeoLocation): SkyLuminance {
+export function skyLuminance(date: Date, location: GeoLocation, pollutionLux = 0): SkyLuminance {
   const observer = new A.Observer(location.latitude, location.longitude, location.elevation)
 
   const sunEq = A.Equator(A.Body.Sun, date, observer, true, true)
@@ -186,7 +240,10 @@ export function skyLuminance(date: Date, location: GeoLocation): SkyLuminance {
         Math.pow(Math.sin(moonHor.altitude * DEG), 0.8)
       : 0
 
-  const illuminance = solarLux + lunarLux + AIRGLOW_LUX
+  // La pollution lumineuse est une source de plus dans le bilan, pas une
+  // retouche du rendu : elle repousse donc la magnitude limite et efface les
+  // objets etendus par le meme chemin que le clair de lune.
+  const illuminance = solarLux + lunarLux + AIRGLOW_LUX + Math.max(0, pollutionLux)
   const h = sunHor.altitude
   const twilight: TwilightPhase =
     h > -0.833 ? 'jour' : h > -6 ? 'crépuscule civil' : h > -12 ? 'crépuscule nautique' : h > -18 ? 'crépuscule astronomique' : 'nuit'
@@ -202,6 +259,7 @@ export function skyLuminance(date: Date, location: GeoLocation): SkyLuminance {
     illuminance,
     solarLux,
     lunarLux,
+    pollutionLux: Math.max(0, pollutionLux),
     sunAltitude: sunHor.altitude,
     sunAzimuth: sunHor.azimuth,
     moonAltitude: moonHor.altitude,

@@ -59,12 +59,15 @@ export function Section({
           fixe — c'est la seule facon d'animer « jusqu'a la hauteur naturelle »
           en CSS pur. `inert` retire le contenu replie du clavier et des
           lecteurs d'ecran, comme le faisait `hidden` avant, sans quoi les
-          boutons d'une section fermee resteraient atteignables par tabulation. */}
+          boutons d'une section fermee resteraient atteignables par tabulation.
+          Il vaut la chaine vide et non `true` : React 18 ne connait pas `inert`
+          comme attribut booleen, posait bien l'attribut mais avertissait a
+          chaque rendu. `inert=""` est de toute facon la forme HTML exacte. */}
       <div className="md-section__body-frame">
         <div
           id={id}
           className="md-section__body"
-          {...({ inert: !expanded || undefined } as Record<string, unknown>)}
+          {...({ inert: !expanded ? '' : undefined } as Record<string, unknown>)}
         >
           {/* Le remplissage vit ici, pas sur `.md-section__body` : en
               `box-sizing: border-box`, une hauteur qui tend vers zero ne

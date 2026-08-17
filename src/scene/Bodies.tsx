@@ -23,6 +23,7 @@ import {
   ATMOSPHERE_HAZE_COLOR_FN,
   ATMOSPHERE_TONEMAP_FN,
   ATMOSPHERE_UNIFORM_DECLARATIONS,
+  applyAerosolTurbidity,
   atmosphereUniforms,
 } from './atmosphere'
 
@@ -297,6 +298,8 @@ interface BodyProps {
   sunDirection: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
+  /** Charge en aerosols, identique a celle du fond de ciel. */
+  aerosolTurbidity: number
   selected: boolean
   selectionColor: string
 }
@@ -317,6 +320,7 @@ function Body({
   discScale,
   sunDirection,
   atmosphereExposure,
+  aerosolTurbidity,
   selected,
   selectionColor,
 }: BodyProps) {
@@ -367,6 +371,7 @@ function Body({
       ;(surface.uniforms.uBodySunDir.value as Vector3).set(sd[0], sd[1], sd[2])
       ;(surface.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
       surface.uniforms.uAtmosphereExposure.value = atmosphereExposure
+      applyAerosolTurbidity(surface.uniforms as Parameters<typeof applyAerosolTurbidity>[0], aerosolTurbidity)
       surface.uniforms.uEmissive.value = 0
       // Lumiere cendree cote nuit — la Terre reflechie sur la face non
       // eclairee de la Lune. 0,035 la rendait aussi visible qu'un authentique
@@ -598,6 +603,7 @@ export function SolarSystemBodies({
   discScale,
   sunDirection,
   atmosphereExposure,
+  aerosolTurbidity,
   colors,
   sunGlowColor,
   textures,
@@ -613,6 +619,8 @@ export function SolarSystemBodies({
   sunDirection: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
+  /** Charge en aerosols, identique a celle du fond de ciel. */
+  aerosolTurbidity: number
   colors: Map<string, string>
   sunGlowColor: string
   textures: Map<string, Texture>
@@ -636,6 +644,7 @@ export function SolarSystemBodies({
           discScale={discScale}
           sunDirection={sunDirection}
           atmosphereExposure={atmosphereExposure}
+          aerosolTurbidity={aerosolTurbidity}
           selected={selectedId === state.id}
           selectionColor={selectionColor}
         />

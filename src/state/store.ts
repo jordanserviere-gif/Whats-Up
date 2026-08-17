@@ -135,6 +135,24 @@ interface SkyState {
    */
   discScale: number
   setDiscScale: (s: number) => void
+  /**
+   * Pollution lumineuse du site, sur l'echelle de Bortle (1 a 9).
+   *
+   * Par defaut 1 : le rendu reste alors celui d'un ciel naturel, sans rien
+   * d'ajoute. C'est un choix delibere — une valeur realiste pour un lieu urbain
+   * effacerait d'emblee la quasi-totalite des etoiles, ce qui est fidele mais
+   * fait un mauvais etat initial pour une carte du ciel.
+   */
+  lightPollution: number
+  setLightPollution: (bortle: number) => void
+  /**
+   * Trouble atmospherique — charge en aerosols, multipliant la diffusion de
+   * Mie. 1 = air standard du modele (une epaisseur optique de 0,025, soit un
+   * air tres pur) ; au-dela, l'horizon blanchit et les astres bas s'eteignent,
+   * comme sous une brume de pollution ou d'humidite.
+   */
+  aerosolTurbidity: number
+  setAerosolTurbidity: (t: number) => void
 
   // --- Satellites ---
   satellites: OrbitalElements[]
@@ -217,6 +235,10 @@ export const useSkyStore = create<SkyState>()(
       setMagnitudeLimit: (magnitudeLimit) => set({ magnitudeLimit }),
       discScale: 1,
       setDiscScale: (discScale) => set({ discScale }),
+      lightPollution: 1,
+      setLightPollution: (lightPollution) => set({ lightPollution }),
+      aerosolTurbidity: 1,
+      setAerosolTurbidity: (aerosolTurbidity) => set({ aerosolTurbidity }),
 
       satellites: [],
       addSatellite: (el) => {
@@ -246,6 +268,8 @@ export const useSkyStore = create<SkyState>()(
         layers: s.layers,
         magnitudeLimit: s.magnitudeLimit,
         discScale: s.discScale,
+        lightPollution: s.lightPollution,
+        aerosolTurbidity: s.aerosolTurbidity,
         satellites: s.satellites,
         trackWindowMinutes: s.trackWindowMinutes,
         celestrakGroup: s.celestrakGroup,

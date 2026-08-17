@@ -213,6 +213,30 @@ export function atmosphereUniforms() {
   }
 }
 
+/**
+ * Applique une charge en aerosols aux uniforms d'un materiau.
+ *
+ * Un facteur unique agit sur deux grandeurs : le coefficient de Mie, qui dit
+ * combien les aerosols diffusent, et leur hauteur d'echelle, qui dit jusqu'ou
+ * ils montent. Une atmosphere chargee ne fait pas que diffuser davantage : sa
+ * brume s'epaissit aussi en altitude, ce qui blanchit l'horizon bien plus haut
+ * qu'une simple hausse du coefficient. La racine carree tient la hausse de la
+ * hauteur d'echelle bien en deca de celle du coefficient — les aerosols restent
+ * un phenomene de basse couche, meme charges.
+ *
+ * Passer par cette fonction plutot que d'ecrire les deux lignes dans chaque
+ * materiau est ce qui garantit que le voile d'un avion, celui d'une planete et
+ * le fond de ciel ne peuvent pas decrire des atmospheres differentes.
+ */
+export function applyAerosolTurbidity(
+  uniforms: { uMieCoeff: { value: number }; uMieScaleHeight: { value: number } },
+  turbidity: number,
+) {
+  const t = Math.max(0.1, turbidity)
+  uniforms.uMieCoeff.value = MIE_COEFFICIENT * t
+  uniforms.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M * Math.sqrt(t)
+}
+
 export const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `
   uniform vec3 uSunDir;
   uniform float uSunIntensity;

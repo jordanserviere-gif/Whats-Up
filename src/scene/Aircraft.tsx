@@ -21,6 +21,7 @@ import {
   ATMOSPHERE_HAZE_COLOR_FN,
   ATMOSPHERE_TONEMAP_FN,
   ATMOSPHERE_UNIFORM_DECLARATIONS,
+  applyAerosolTurbidity,
   atmosphereUniforms,
 } from './atmosphere'
 
@@ -140,6 +141,7 @@ function AircraftMesh({
   location,
   sunDirection,
   atmosphereExposure,
+  aerosolTurbidity,
   dayFactor,
   selected,
 }: {
@@ -149,6 +151,8 @@ function AircraftMesh({
   sunDirection: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
+  /** Charge en aerosols, identique a celle du fond de ciel. */
+  aerosolTurbidity: number
   /** Facteur jour/nuit : un avion ne se voit quasiment plus une fois la nuit tombee. */
   dayFactor: number
   selected: boolean
@@ -178,6 +182,7 @@ function AircraftMesh({
     material.uniforms.uRangeM.value = rangeKm * 1000
     ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     material.uniforms.uAtmosphereExposure.value = atmosphereExposure
+    applyAerosolTurbidity(material.uniforms as Parameters<typeof applyAerosolTurbidity>[0], aerosolTurbidity)
     ;(material.uniforms.uColor.value as Color).setRGB(
       selected ? 1 : 0.914,
       selected ? 1 : 0.925,
@@ -297,6 +302,7 @@ function AircraftContrail({
   location,
   sunDirection,
   atmosphereExposure,
+  aerosolTurbidity,
   dayFactor,
 }: {
   state: AircraftState
@@ -304,6 +310,8 @@ function AircraftContrail({
   sunDirection: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
+  /** Charge en aerosols, identique a celle du fond de ciel. */
+  aerosolTurbidity: number
   dayFactor: number
 }) {
   const mesh = useRef<Mesh>(null)
@@ -420,6 +428,7 @@ function AircraftContrail({
     material.uniforms.uRangeM.value = headView.rangeKm * 1000
     ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     material.uniforms.uAtmosphereExposure.value = atmosphereExposure
+    applyAerosolTurbidity(material.uniforms as Parameters<typeof applyAerosolTurbidity>[0], aerosolTurbidity)
     // Sous l'horizon rien a montrer ; sinon l'opacite suit la probabilite de
     // condensation a l'altitude courante et la lumiere du jour.
     const visible = headView.horizontal.altitude > -1 ? state.contrailLikelihood * dayFactor : 0
@@ -502,6 +511,7 @@ export function AircraftLayer({
   location,
   sunDirection,
   atmosphereExposure,
+  aerosolTurbidity,
   dayFactor,
   selectedHex,
   trackColor,
@@ -512,6 +522,8 @@ export function AircraftLayer({
   sunDirection: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
+  /** Charge en aerosols, identique a celle du fond de ciel. */
+  aerosolTurbidity: number
   dayFactor: number
   selectedHex: string | null
   /** Couleur de la trace suivie de l'avion selectionne. */
@@ -526,6 +538,7 @@ export function AircraftLayer({
             location={location}
             sunDirection={sunDirection}
             atmosphereExposure={atmosphereExposure}
+            aerosolTurbidity={aerosolTurbidity}
             dayFactor={dayFactor}
             selected={s.hex === selectedHex}
           />
@@ -535,6 +548,7 @@ export function AircraftLayer({
               location={location}
               sunDirection={sunDirection}
               atmosphereExposure={atmosphereExposure}
+              aerosolTurbidity={aerosolTurbidity}
               dayFactor={dayFactor}
             />
           )}

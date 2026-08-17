@@ -33,6 +33,7 @@ import { LabelLayer, type SceneLabel } from './LabelLayer'
 import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
 import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
+import { AIRGLOW_LUX } from '@/astro/photometry'
 import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
@@ -54,6 +55,7 @@ export function SkyCanvas() {
   const layers = useSkyStore((s) => s.layers)
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
+  const aerosolTurbidity = useSkyStore((s) => s.aerosolTurbidity)
   const fov = useSkyStore((s) => s.fov)
   const viewAzimuth = useSkyStore((s) => s.viewAzimuth)
   const viewAltitude = useSkyStore((s) => s.viewAltitude)
@@ -136,6 +138,26 @@ export function SkyCanvas() {
     const eclipse = Math.pow(1 - sky.obscuration + 8e-4 * sky.obscuration, 0.5)
     return 0.3 * eclipse
   }, [layers.atmosphere, sky.obscuration])
+
+  /**
+   * Intensite d'affichage du halo urbain.
+   *
+   * L'eclairement de la pollution est une grandeur lineaire, alors que la
+   * couleur de nuit du ciel est un token deja encode pour l'ecran : multiplier
+   * l'un par l'autre donnerait un ciel noir jusqu'a la classe 7 puis blanc
+   * d'un coup. On passe donc le rapport d'eclairement par l'exposant inverse
+   * de la courbe d'affichage, ce qui echelonne le halo comme l'oeil le percoit
+   * — chaque classe de Bortle se distingue de la suivante.
+   *
+   * `AIRGLOW_LUX` sert de reference : la lueur naturelle d'un site vierge, que
+   * la couleur de nuit du token represente deja. Un rapport de 1 n'ajoute donc
+   * rien du tout.
+   */
+  const pollutionGain = useMemo(() => {
+    if (!layers.atmosphere || sky.pollutionLux <= 0) return 0
+    const nightLuma = 0.017
+    return (Math.pow(1 + sky.pollutionLux / AIRGLOW_LUX, 1 / 2.2) - 1) * nightLuma
+  }, [layers.atmosphere, sky.pollutionLux])
 
   /**
    * Facteur jour/nuit applique au maillage realiste des avions.
@@ -390,6 +412,9 @@ export function SkyCanvas() {
           lunarLux={layers.atmosphere ? sky.lunarLux : 0}
           nightColor={colors.skyZenith}
           moonGlowColor={colors.moonGlow}
+          aerosolTurbidity={aerosolTurbidity}
+          pollutionGain={pollutionGain}
+          pollutionColor={colors.lightPollution}
         />
 
         {layers.stars && (
@@ -435,6 +460,7 @@ export function SkyCanvas() {
             discScale={discScale}
             sunDirection={sunDirection}
             atmosphereExposure={atmosphereExposure}
+            aerosolTurbidity={aerosolTurbidity}
             colors={bodyColors}
             sunGlowColor={colors.sunGlow}
             textures={textures}
@@ -461,6 +487,7 @@ export function SkyCanvas() {
             location={location}
             sunDirection={sunDirection}
             atmosphereExposure={atmosphereExposure}
+            aerosolTurbidity={aerosolTurbidity}
             dayFactor={dayFactor}
             selectedHex={selectedAircraftHex}
             trackColor={colors.selection}
