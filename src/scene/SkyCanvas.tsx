@@ -14,7 +14,7 @@ import {
   useSimulatedDate,
   useSkyConditions,
 } from '@/state/hooks'
-import { angularDistance, hexToRgb, readToken, viewDirection } from './sceneMath'
+import { angularDistance, readToken, viewDirection } from './sceneMath'
 import { pickSkyTarget } from './picking'
 import { fieldLabels } from './fieldLabels'
 import { useSceneColors } from './useSceneColors'
@@ -125,29 +125,11 @@ export function SkyCanvas() {
   const illuminance = layers.atmosphere ? sky.illuminance : 2e-4
 
   /**
-   * Voile atmospherique vu dans la direction des astres.
-   *
-   * On reprend le meme fondu que le fond de ciel, applique a la teinte du ciel
-   * diurne. C'est une approximation — la vraie luminance depend de la hauteur et
-   * de l'ecart au Soleil — mais elle suffit a ce que la face nuit d'une planete
-   * se fonde dans le ciel de jour au lieu d'y decouper un disque noir.
-   */
-  const airlight = useMemo<[number, number, number]>(() => {
-    if (!layers.atmosphere) return [0, 0, 0]
-    const geometric = sky.solarLux / Math.max(1e-6, 1 - sky.obscuration + 8e-4 * sky.obscuration)
-    const factor = Math.min(1, Math.max(0, (Math.log10(Math.max(1e-6, geometric)) + 2) / 4))
-    const eclipse = Math.pow(1 - sky.obscuration + 8e-4 * sky.obscuration, 0.5)
-    const [r, g, b] = hexToRgb(colors.skyDay)
-    const k = 0.72 * factor * eclipse
-    return [r * k, g * k, b * k]
-  }, [layers.atmosphere, sky.solarLux, sky.obscuration, colors.skyDay])
-
-  /**
    * Exposition de la diffusion atmospherique reelle (voir `atmosphere.ts`),
-   * partagee par le fond de ciel et le voile des avions/trainees — meme
-   * formule que `SkyBackground`, pour que les deux s'eteignent exactement au
-   * meme rythme pendant une eclipse ou en vue depuis l'espace plutot que de
-   * deriver chacun de son cote.
+   * partagee par le fond de ciel, les corps du systeme solaire et le voile
+   * des avions/trainees — meme formule que `SkyBackground`, pour que tous
+   * s'eteignent exactement au meme rythme pendant une eclipse ou en vue
+   * depuis l'espace plutot que de deriver chacun de son cote.
    */
   const atmosphereExposure = useMemo(() => {
     if (!layers.atmosphere) return 0
@@ -452,7 +434,8 @@ export function SkyCanvas() {
             location={location}
             limitingMagnitude={limitingMagnitude}
             discScale={discScale}
-            airlight={airlight}
+            sunDirection={sunDirection}
+            atmosphereExposure={atmosphereExposure}
             colors={bodyColors}
             sunGlowColor={colors.sunGlow}
             textures={textures}

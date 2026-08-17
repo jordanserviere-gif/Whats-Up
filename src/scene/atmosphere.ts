@@ -18,6 +18,7 @@
  * couleur du halo solaire, integrees depuis la geometrie Terre-atmosphere,
  * plutot qu'un degrade peint a la main autour de l'azimut du Soleil.
  */
+import { Vector3 } from 'three'
 
 /** Rayon terrestre moyen, en metres — coherent avec `EARTH_RADIUS_KM` de `astro/coords.ts`. */
 export const PLANET_RADIUS_M = 6_371_000
@@ -144,5 +145,54 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
     }
 
     return iSun * (pRlh * kRlh * totalRlh + pMie * kMie * totalMie);
+  }
+`
+
+/**
+ * Uniforms communs a tout materiau qui evalue la diffusion le long de sa
+ * propre ligne de visee — silhouette d'avion, trainee, disque planetaire —
+ * plutot que de recevoir une teinte globale approchee. Voir `SkyBackground`
+ * pour l'unique source de verite sur l'exposition (`uAtmosphereExposure`),
+ * partagee afin que tout le monde s'eteigne au meme rythme.
+ */
+export function atmosphereUniforms() {
+  return {
+    uSunDir: { value: new Vector3(0, 1, 0) },
+    uSunIntensity: { value: SUN_INTENSITY_REF },
+    uPlanetRadius: { value: PLANET_RADIUS_M },
+    uAtmosphereRadius: { value: ATMOSPHERE_RADIUS_M },
+    uRayleighCoeff: { value: new Vector3(...RAYLEIGH_COEFFICIENTS) },
+    uMieCoeff: { value: MIE_COEFFICIENT },
+    uRayleighScaleHeight: { value: RAYLEIGH_SCALE_HEIGHT_M },
+    uMieScaleHeight: { value: MIE_SCALE_HEIGHT_M },
+    uMieG: { value: MIE_G },
+    /** Meme exposition que le fond de ciel — voir `SkyCanvas.tsx` — pour que la teinte du voile lui reste identique. */
+    uAtmosphereExposure: { value: 0 },
+  }
+}
+
+export const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `
+  uniform vec3 uSunDir;
+  uniform float uSunIntensity;
+  uniform float uPlanetRadius;
+  uniform float uAtmosphereRadius;
+  uniform vec3 uRayleighCoeff;
+  uniform float uMieCoeff;
+  uniform float uRayleighScaleHeight;
+  uniform float uMieScaleHeight;
+  uniform float uMieG;
+  uniform float uAtmosphereExposure;
+`
+
+/** Couleur du ciel le long de `dir`, dans les memes unites que `SkyBackground`. */
+export const ATMOSPHERE_HAZE_COLOR_FN = /* glsl */ `
+  vec3 hazeColorAlong(vec3 dir) {
+    vec3 r0 = vec3(0.0, uPlanetRadius, 0.0);
+    vec3 raw = atmosphere(
+      dir, r0, uSunDir, uSunIntensity,
+      uPlanetRadius, uAtmosphereRadius,
+      uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG
+    );
+    return 1.0 - exp(-uAtmosphereExposure * raw);
   }
 `

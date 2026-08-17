@@ -17,68 +17,7 @@ import {
 import { getAircraftHistory } from '@/state/aircraftFeed'
 import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
-import {
-  ATMOSPHERE_GLSL,
-  ATMOSPHERE_RADIUS_M,
-  MIE_COEFFICIENT,
-  MIE_G,
-  MIE_SCALE_HEIGHT_M,
-  PLANET_RADIUS_M,
-  RAYLEIGH_COEFFICIENTS,
-  RAYLEIGH_SCALE_HEIGHT_M,
-  SUN_INTENSITY_REF,
-} from './atmosphere'
-
-/**
- * Uniforms communs a la silhouette et a la trainee pour evaluer la meme
- * diffusion atmospherique que le fond de ciel (`SkyBackground.tsx`), le long
- * de leur propre ligne de visee plutot que sous une teinte globale
- * approchee. C'est ce qui manquait pour qu'un avion pres de l'horizon se
- * fonde vraiment dans le ciel du moment, et qu'une trainee cesse de
- * ressortir une fois la nuit tombee : les deux se decolorent desormais avec
- * la meme physique que le ciel qui les entoure.
- */
-function atmosphereUniforms() {
-  return {
-    uSunDir: { value: new Vector3(0, 1, 0) },
-    uSunIntensity: { value: SUN_INTENSITY_REF },
-    uPlanetRadius: { value: PLANET_RADIUS_M },
-    uAtmosphereRadius: { value: ATMOSPHERE_RADIUS_M },
-    uRayleighCoeff: { value: new Vector3(...RAYLEIGH_COEFFICIENTS) },
-    uMieCoeff: { value: MIE_COEFFICIENT },
-    uRayleighScaleHeight: { value: RAYLEIGH_SCALE_HEIGHT_M },
-    uMieScaleHeight: { value: MIE_SCALE_HEIGHT_M },
-    uMieG: { value: MIE_G },
-    /** Meme exposition que le fond de ciel — voir `SkyCanvas.tsx` — pour que la teinte du voile lui reste identique. */
-    uAtmosphereExposure: { value: 0 },
-  }
-}
-
-const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `
-  uniform vec3 uSunDir;
-  uniform float uSunIntensity;
-  uniform float uPlanetRadius;
-  uniform float uAtmosphereRadius;
-  uniform vec3 uRayleighCoeff;
-  uniform float uMieCoeff;
-  uniform float uRayleighScaleHeight;
-  uniform float uMieScaleHeight;
-  uniform float uMieG;
-  uniform float uAtmosphereExposure;
-`
-
-/** Couleur du ciel le long de `dir`, dans les memes unites que `SkyBackground`. */
-const ATMOSPHERE_HAZE_COLOR_FN = /* glsl */ `
-  vec3 hazeColorAlong(vec3 dir) {
-    vec3 r0 = vec3(0.0, uPlanetRadius, 0.0);
-    vec3 raw = atmosphere(
-      dir, r0, uSunDir, uSunIntensity,
-      uPlanetRadius, uAtmosphereRadius,
-      uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG
-    );
-    return 1.0 - exp(-uAtmosphereExposure * raw);
-  }
-`
+import { ATMOSPHERE_GLSL, ATMOSPHERE_HAZE_COLOR_FN, ATMOSPHERE_UNIFORM_DECLARATIONS, atmosphereUniforms } from './atmosphere'
 
 const DEG = Math.PI / 180
 

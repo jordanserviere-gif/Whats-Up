@@ -18,6 +18,7 @@ import { bodyOrientation } from '@/astro/orientation'
 import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels } from '@/astro/photometry'
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
+import { ATMOSPHERE_GLSL, ATMOSPHERE_HAZE_COLOR_FN, ATMOSPHERE_UNIFORM_DECLARATIONS, atmosphereUniforms } from './atmosphere'
 
 const DEG = Math.PI / 180
 
@@ -44,7 +45,7 @@ function bodyMaterial() {
       uColor: { value: new Color('#ffffff') },
       uMap: { value: null as Texture | null },
       uHasMap: { value: 0 },
-      uSunDir: { value: new Vector3(1, 0, 0) },
+      uBodySunDir: { value: new Vector3(1, 0, 0) },
       uEmissive: { value: 0 },
       uEmissiveGain: { value: 1 },
       uNightSide: { value: 0.02 },
@@ -53,34 +54,43 @@ function bodyMaterial() {
       /** Relief simule a partir du gradient de l'albedo : creuse les crateres. */
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
-      /**
-       * Lumiere atmospherique diffusee entre l'observateur et l'astre.
-       * Sans elle, la face nuit d'une planete se decoupe en noir sur un ciel de
-       * jour — un trou dans le ciel. C'est ce voile, et non l'eclat de l'astre,
-       * qui rend les planetes invisibles en plein jour.
-       */
-      uAirlight: { value: new Vector3(0, 0, 0) },
+      ...atmosphereUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
       varying vec3 vViewDir;
+      varying vec3 vDir;
       varying vec2 vUv;
       void main() {
         vUv = uv;
         vNormal = normalize(mat3(modelMatrix) * normal);
         vec4 world = modelMatrix * vec4(position, 1.0);
         vViewDir = normalize(cameraPosition - world.xyz);
+        // L'observateur est a l'origine : la position dans le monde donne
+        // directement la direction sous laquelle on voit ce point — c'est
+        // l'oppose de vViewDir, qui pointe elle du point vers la camera.
+        vDir = normalize(world.xyz);
         gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: /* glsl */ `
+      ${ATMOSPHERE_GLSL}
+      ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+      ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec3 vNormal;
       varying vec3 vViewDir;
+      varying vec3 vDir;
       varying vec2 vUv;
       uniform vec3 uColor;
       uniform sampler2D uMap;
       uniform float uHasMap;
-      uniform vec3 uSunDir;
+      // Direction du Soleil vue depuis le corps — sert la geometrie de la
+      // phase et du terminateur. Distincte de uSunDir : celle-la est le
+      // Soleil vu depuis l'observateur, qu'attend la diffusion atmospherique.
+      // Les deux different d'un angle de parallaxe minime mais reel — les
+      // confondre serait faux pour l'atmosphere terrestre, qui est la notre,
+      // pas celle du corps observe.
+      uniform vec3 uBodySunDir;
       uniform float uEmissive;
       uniform float uEmissiveGain;
       uniform float uNightSide;
@@ -88,11 +98,10 @@ function bodyMaterial() {
       uniform float uBrightness;
       uniform float uRelief;
       uniform float uTexelSize;
-      uniform vec3 uAirlight;
 
       void main() {
         vec3 n = normalize(vNormal);
-        vec3 sun = normalize(uSunDir);
+        vec3 sun = normalize(uBodySunDir);
 
         vec3 albedo = uColor;
         if (uHasMap > 0.5) {
@@ -124,7 +133,14 @@ function bodyMaterial() {
         // uNightSide porte la lumiere cendree cote nuit.
         float shade = mix(uNightSide, limb, lit);
         vec3 col = albedo * mix(shade, uEmissiveGain, uEmissive) * uTint * uBrightness;
-        gl_FragColor = vec4(col + uAirlight, 1.0);
+
+        // Lumiere atmospherique diffusee entre l'observateur et l'astre, evaluee
+        // le long de la vraie ligne de visee plutot qu'une teinte globale
+        // approchee : sans elle, la face nuit d'une planete se decoupe en noir
+        // sur un ciel de jour — un trou dans le ciel. C'est ce voile, et non
+        // l'eclat de l'astre, qui rend les planetes invisibles en plein jour.
+        vec3 haze = hazeColorAlong(normalize(vDir));
+        gl_FragColor = vec4(col + haze, 1.0);
       }
     `,
   })
@@ -265,8 +281,10 @@ interface BodyProps {
   location: GeoLocation
   limitingMagnitude: number
   discScale: number
-  /** Voile atmospherique ajoute au disque : voir l'uniforme `uAirlight`. */
-  airlight: [number, number, number]
+  /** Direction du Soleil dans le repere de la scene, unitaire. */
+  sunDirection: [number, number, number]
+  /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
+  atmosphereExposure: number
   selected: boolean
   selectionColor: string
 }
@@ -285,7 +303,8 @@ function Body({
   location,
   limitingMagnitude,
   discScale,
-  airlight,
+  sunDirection,
+  atmosphereExposure,
   selected,
   selectionColor,
 }: BodyProps) {
@@ -333,7 +352,9 @@ function Body({
       surface.uniforms.uGain.value = 6 * Math.pow(10, -0.4 * extinction * 0.5)
     } else {
       const sd = equatorialDirectionToScene(state.sunDirectionEq, date, location, scratch.current)
-      ;(surface.uniforms.uSunDir.value as Vector3).set(sd[0], sd[1], sd[2])
+      ;(surface.uniforms.uBodySunDir.value as Vector3).set(sd[0], sd[1], sd[2])
+      ;(surface.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
+      surface.uniforms.uAtmosphereExposure.value = atmosphereExposure
       surface.uniforms.uEmissive.value = 0
       surface.uniforms.uNightSide.value = state.id === 'moon' ? 0.035 : 0.008
       surface.uniforms.uHasMap.value = texture ? 1 : 0
@@ -345,7 +366,6 @@ function Body({
       ;(surface.uniforms.uColor.value as Color).set(texture ? '#ffffff' : color)
       ;(surface.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
       surface.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinction * 0.6)
-      ;(surface.uniforms.uAirlight.value as Vector3).set(airlight[0], airlight[1], airlight[2])
 
       // Orientation reelle : axe de rotation et meridien origine du corps.
       const def = BODY_BY_ID.get(state.id)
@@ -558,7 +578,8 @@ export function SolarSystemBodies({
   location,
   limitingMagnitude,
   discScale,
-  airlight,
+  sunDirection,
+  atmosphereExposure,
   colors,
   sunGlowColor,
   textures,
@@ -570,7 +591,10 @@ export function SolarSystemBodies({
   location: GeoLocation
   limitingMagnitude: number
   discScale: number
-  airlight: [number, number, number]
+  /** Direction du Soleil dans le repere de la scene, unitaire. */
+  sunDirection: [number, number, number]
+  /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
+  atmosphereExposure: number
   colors: Map<string, string>
   sunGlowColor: string
   textures: Map<string, Texture>
@@ -592,7 +616,8 @@ export function SolarSystemBodies({
           location={location}
           limitingMagnitude={limitingMagnitude}
           discScale={discScale}
-          airlight={airlight}
+          sunDirection={sunDirection}
+          atmosphereExposure={atmosphereExposure}
           selected={selectedId === state.id}
           selectionColor={selectionColor}
         />
