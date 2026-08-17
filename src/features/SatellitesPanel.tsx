@@ -51,16 +51,12 @@ export function SatellitesPanel() {
   const selectedId = useSkyStore(selectedSatelliteId)
   const selectSatellite = useSkyStore((s) => s.selectSatellite)
   const addSatellite = useSkyStore((s) => s.addSatellite)
-  const updateSatellite = useSkyStore((s) => s.updateSatellite)
-  const removeSatellite = useSkyStore((s) => s.removeSatellite)
   const trackWindow = useSkyStore((s) => s.trackWindowMinutes)
   const setTrackWindow = useSkyStore((s) => s.setTrackWindow)
   const lookAt = useSkyStore((s) => s.lookAt)
   const all = useAllSatellites()
   const states = useSatelliteStates(all)
   const { show } = useSnackbar()
-
-  const selected = all.find((s) => s.id === selectedId) ?? null
 
   const openSatellite = (el: OrbitalElements) => {
     selectSatellite(el.id)
@@ -70,7 +66,7 @@ export function SatellitesPanel() {
 
   return (
     <>
-      <CelestrakSection onOpen={openSatellite} selectedId={selectedId} />
+      <CelestrakSection />
 
       <Section
         title="Orbites saisies"
@@ -123,27 +119,58 @@ export function SatellitesPanel() {
           onChange={setTrackWindow}
         />
       </Section>
+    </>
+  )
+}
 
-      {selected && (
-        <>
-          <SatelliteLiveCard element={selected} state={states.get(selected.id) ?? null} />
-          {selected.source === 'celestrak' ? (
-            <CatalogElements element={selected} />
-          ) : (
-            <Section title="Éléments orbitaux" icon="edit" defaultOpen>
-              <OrbitEditor
-                element={selected}
-                onChange={(patch) => updateSatellite(selected.id, patch)}
-                onRemove={() => {
-                  removeSatellite(selected.id)
-                  show(`« ${selected.name} » supprimé`)
-                }}
-              />
-            </Section>
-          )}
-          <PassesSection element={selected} />
-        </>
+/**
+ * Fiche ancree du panneau satellite.
+ *
+ * Sans selection, la fiche explique ou trouver un objet plutot que de rester
+ * vide : le catalogue compte des milliers d'entrees, et c'est la recherche —
+ * non une liste — qui y mene.
+ */
+export function SatelliteDetail() {
+  const selectedId = useSkyStore(selectedSatelliteId)
+  const updateSatellite = useSkyStore((s) => s.updateSatellite)
+  const removeSatellite = useSkyStore((s) => s.removeSatellite)
+  const all = useAllSatellites()
+  const states = useSatelliteStates(all)
+  const { show } = useSnackbar()
+
+  const selected = all.find((s) => s.id === selectedId) ?? null
+
+  if (!selected) {
+    return (
+      <Card variant="outlined" shape="extra-large">
+        <CardHeader
+          icon="search"
+          overline="Aucun objet suivi"
+          title="Chercher un satellite"
+          subtitle="Son nom ou son numéro NORAD dans la barre de recherche, ou un clic sur son point dans le ciel"
+        />
+      </Card>
+    )
+  }
+
+  return (
+    <>
+      <SatelliteLiveCard element={selected} state={states.get(selected.id) ?? null} />
+      {selected.source === 'celestrak' ? (
+        <CatalogElements element={selected} />
+      ) : (
+        <Section title="Éléments orbitaux" icon="edit" defaultOpen={false}>
+          <OrbitEditor
+            element={selected}
+            onChange={(patch) => updateSatellite(selected.id, patch)}
+            onRemove={() => {
+              removeSatellite(selected.id)
+              show(`« ${selected.name} » supprimé`)
+            }}
+          />
+        </Section>
       )}
+      <PassesSection element={selected} />
     </>
   )
 }
@@ -184,13 +211,7 @@ function SatelliteRow({
  * La section reste visible meme calque eteint : c'est la qu'on choisit quel
  * groupe suivre, et l'interrupteur y est le pendant du bouton de la barre haute.
  */
-function CelestrakSection({
-  onOpen,
-  selectedId,
-}: {
-  onOpen: (el: OrbitalElements) => void
-  selectedId: string | null
-}) {
+function CelestrakSection() {
   const enabled = useSkyStore((s) => s.layers.celestrak)
   const setLayer = useSkyStore((s) => s.setLayer)
   const group = useSkyStore((s) => s.celestrakGroup)
@@ -198,19 +219,23 @@ function CelestrakSection({
   const feed = useCelestrakSatellites()
   const states = useSatelliteStates(feed.elements)
 
-  // Les objets levés d'abord : c'est la seule partie de la liste qu'on peut voir.
-  const sorted = [...feed.elements].sort(
-    (a, b) =>
-      (states.get(b.id)?.horizontal.altitude ?? -90) - (states.get(a.id)?.horizontal.altitude ?? -90),
-  )
-  const aboveHorizon = sorted.filter((el) => (states.get(el.id)?.horizontal.altitude ?? -90) > 0)
+  // Deux chiffres suffisent a dire l'etat du ciel : combien d'objets sont suivis,
+  // et combien sont effectivement au-dessus de l'horizon a cet instant.
+  let aboveHorizon = 0
+  let visible = 0
+  for (const el of feed.elements) {
+    const s = states.get(el.id)
+    if (!s || s.horizontal.altitude <= 0) continue
+    aboveHorizon++
+    if (s.magnitude !== null) visible++
+  }
 
   return (
     <Section
       title="Satellites réels"
       icon="satellite_alt"
       defaultOpen
-      summary={enabled ? `${aboveHorizon.length} levés / ${feed.elements.length}` : 'masqués'}
+      summary={enabled ? `${aboveHorizon} levés / ${feed.elements.length}` : 'masqués'}
     >
       <Switch
         label="Afficher les satellites"
@@ -265,18 +290,30 @@ function CelestrakSection({
         </>
       )}
 
-      {enabled && aboveHorizon.length > 0 && (
-        <List>
-          {aboveHorizon.slice(0, 20).map((el) => (
-            <SatelliteRow
-              key={el.id}
-              element={el}
-              state={states.get(el.id) ?? null}
-              selected={selectedId === el.id}
-              onClick={() => onOpen(el)}
+      {enabled && feed.elements.length > 0 && (
+        <>
+          <DataGrid columns={2}>
+            <StatTile
+              label="Au-dessus de l’horizon"
+              value={`${aboveHorizon}`}
+              tone={aboveHorizon > 0 ? 'primary' : 'neutral'}
+              icon="height"
             />
-          ))}
-        </List>
+            <StatTile
+              label="Éclairés"
+              value={`${visible}`}
+              unit={`/ ${aboveHorizon}`}
+              icon="wb_sunny"
+            />
+          </DataGrid>
+          {/* Le catalogue compte des milliers d'objets : les enumerer donnerait
+              une liste qu'on ne parcourt pas. On dit ou chercher a la place. */}
+          <p className="md-type-body-small satellites-panel__intro">
+            Chaque objet éclairé apparaît dans le ciel sous la forme d’un point blanc dont l’éclat suit sa
+            magnitude estimée. Pour en suivre un, cherchez son nom ou son numéro NORAD dans la barre de
+            recherche, ou cliquez son point : sa fiche et sa trace s’affichent alors.
+          </p>
+        </>
       )}
     </Section>
   )

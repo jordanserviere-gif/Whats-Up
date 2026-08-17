@@ -61,6 +61,17 @@
   opacity: 0.9;
 }
 
+/* Etoiles nommees et objets du ciel profond presents dans le champ. Plus
+ * discrets que les corps du systeme solaire : ils sont la pour situer, pas pour
+ * attirer l'oeil, et ils peuvent etre une douzaine a l'ecran. */
+.sky-label--fixed {
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+  margin: 8px 0 0 8px;
+  opacity: 0.78;
+}
+
 .sky-label--constellation {
   font-family: var(--md-sys-typescale-label-medium-font);
   font-size: var(--md-sys-typescale-label-medium-size);

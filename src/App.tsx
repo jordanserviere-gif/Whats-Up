@@ -3,8 +3,8 @@ import { IconButton, NavigationRail, SidePanel, Tooltip, useTheme, type NavDesti
 import { SkyCanvas } from '@/scene/SkyCanvas'
 import { SkyHud } from '@/features/SkyHud'
 import { TimelineBar } from '@/features/TimelineBar'
-import { ObjectsPanel } from '@/features/ObjectsPanel'
-import { SatellitesPanel } from '@/features/SatellitesPanel'
+import { ObjectsDetail, ObjectsPanel } from '@/features/ObjectsPanel'
+import { SatelliteDetail, SatellitesPanel } from '@/features/SatellitesPanel'
 import { SettingsPanel } from '@/features/SettingsPanel'
 import { useSkyStore, type ViewTab } from '@/state/store'
 import { useTimeEngine } from '@/state/hooks'
@@ -97,17 +97,17 @@ export function App() {
         subtitle={meta.subtitle}
         onClose={() => setPanelOpen(false)}
         className="app__panel"
+        /* La fiche de l'objet designe est ancree sous la liste : on parcourt le
+           catalogue sans jamais perdre de vue ce que l'on vient de choisir. */
+        detail={
+          tab === 'satellites' ? <SatelliteDetail /> : tab === 'reglages' ? undefined : <ObjectsDetail />
+        }
       >
-        {tab === 'ciel' && <SkyTabContent />}
+        {tab === 'ciel' && <ObjectsPanel />}
         {tab === 'objets' && <ObjectsPanel />}
         {tab === 'satellites' && <SatellitesPanel />}
         {tab === 'reglages' && <SettingsPanel />}
       </SidePanel>
     </div>
   )
-}
-
-/** L'onglet « Ciel » reprend l'essentiel : ce qui est visible maintenant. */
-function SkyTabContent() {
-  return <ObjectsPanel />
 }

@@ -12,7 +12,7 @@ import {
   computeRiseSet,
   computeSkyConditions,
 } from '@/astro/bodies'
-import { computeSatelliteState, findPasses, sampleSkyTrack } from '@/astro/satellite'
+import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
 import type { BodyId, BodyState, GeoLocation, OrbitalElements, SatellitePass } from '@/astro/types'
 
 /** Cadence de recalcul des ephemerides : 10 Hz suffit largement a l'oeil. */
@@ -121,12 +121,15 @@ export function useAllRiseSets() {
 /**
  * Nombre maximal d'objets propages simultanement.
  *
- * SGP4 coute une dizaine de microsecondes par objet et par instant : deux cents
- * satellites a 10 Hz restent sous les deux millisecondes par seconde de calcul.
- * Les groupes de constellations en comptent plusieurs milliers ; au-dela de ce
- * plafond on tronque, et l'interface le dit plutot que de ramer en silence.
+ * SGP4 coute une dizaine de microsecondes par objet et par instant. Les
+ * grandeurs communes — direction du Soleil, position de l'observateur — sont
+ * desormais calculees une fois pour tout le lot, ce qui laisse deux mille objets
+ * a 10 Hz sous une vingtaine de millisecondes par seconde de calcul.
+ *
+ * Les groupes de constellations depassent encore ce plafond. On tronque alors,
+ * et l'interface le dit plutot que de ramer en silence.
  */
-export const MAX_TRACKED_SATELLITES = 200
+export const MAX_TRACKED_SATELLITES = 2000
 
 /**
  * Satellites reels du groupe CelesTrak choisi.
@@ -228,17 +231,7 @@ export function useSatelliteStates(satellites?: readonly OrbitalElements[]) {
   const stored = useSkyStore((s) => s.satellites)
   const list = satellites ?? stored
 
-  return useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeSatelliteState>>()
-    for (const el of list) {
-      try {
-        map.set(el.id, computeSatelliteState(el, date, location))
-      } catch {
-        /* elements invalides : le satellite est simplement ignore */
-      }
-    }
-    return map
-  }, [list, date, location])
+  return useMemo(() => computeSatelliteStates(list, date, location), [list, date, location])
 }
 
 /**

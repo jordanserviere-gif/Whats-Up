@@ -40,11 +40,14 @@ function formatDistance(distanceAu: number, id: string): { value: string; unit: 
   return { value: distanceAu.toFixed(3).replace('.', ','), unit: 'ua' }
 }
 
-/** Liste des corps du systeme solaire, triee par hauteur decroissante. */
+/**
+ * Liste des corps du systeme solaire, triee par hauteur decroissante.
+ *
+ * La fiche de l'objet designe ne vit plus ici mais dans la zone ancree du
+ * panneau : on parcourt le catalogue sans perdre de vue ce qu'on a selectionne.
+ */
 export function ObjectsPanel() {
   const bodies = useBodyStates()
-  const riseSets = useAllRiseSets()
-  const selection = useSkyStore((s) => s.selection)
   const selectedBody = useSkyStore(selectedBodyId)
   const selectBody = useSkyStore((s) => s.selectBody)
   const lookAt = useSkyStore((s) => s.lookAt)
@@ -54,45 +57,56 @@ export function ObjectsPanel() {
     [bodies],
   )
   const visibleCount = sorted.filter((b) => b.visible).length
-  const selected = sorted.find((b) => b.id === selectedBody) ?? null
-  // Une etoile, un objet du ciel profond ou une constellation designes dans la
-  // scene s'affichent ici : le panneau « objets » est la fiche de tout ce qui
-  // n'est pas un satellite.
-  const fixed = selection && isFixedKind(selection.kind) ? { kind: selection.kind, id: selection.id } : null
 
   return (
-    <>
-      {fixed && <FixedObjectDetails kind={fixed.kind} id={fixed.id} />}
-
-      <Section
-        title="Au-dessus de l’horizon"
-        icon="visibility"
-        summary={`${visibleCount} / ${BODIES.length}`}
-        collapsible={false}
-      >
-        <List>
-          {sorted.map((b) => (
-            <ListItem
-              key={b.id}
-              leadingDot={bodyColor(b.id)}
-              headline={b.name}
-              supportingText={`${azimuthToCardinal(b.horizontal.azimuth)} · mag ${b.magnitude.toFixed(1).replace('.', ',')}`}
-              trailingText={formatDeg(b.horizontal.altitude, 0)}
-              selected={selectedBody === b.id}
-              className={b.visible ? undefined : 'objects-panel__below'}
-              onClick={() => {
-                selectBody(b.id)
-                lookAt(b.horizontal.azimuth, b.horizontal.altitude)
-              }}
-            />
-          ))}
-        </List>
-      </Section>
-
-      {selected && <BodyDetails state={selected} riseSet={riseSets.get(selected.id) ?? null} />}
-      {!selected && !fixed && <MoonSummaryCard />}
-    </>
+    <Section
+      title="Au-dessus de l’horizon"
+      icon="visibility"
+      summary={`${visibleCount} / ${BODIES.length}`}
+      collapsible={false}
+    >
+      <List>
+        {sorted.map((b) => (
+          <ListItem
+            key={b.id}
+            leadingDot={bodyColor(b.id)}
+            headline={b.name}
+            supportingText={`${azimuthToCardinal(b.horizontal.azimuth)} · mag ${b.magnitude.toFixed(1).replace('.', ',')}`}
+            trailingText={formatDeg(b.horizontal.altitude, 0)}
+            selected={selectedBody === b.id}
+            className={b.visible ? undefined : 'objects-panel__below'}
+            onClick={() => {
+              selectBody(b.id)
+              lookAt(b.horizontal.azimuth, b.horizontal.altitude)
+            }}
+          />
+        ))}
+      </List>
+    </Section>
   )
+}
+
+/**
+ * Fiche ancree du panneau « objets ».
+ *
+ * Elle couvre tout ce qui n'est pas un satellite : corps du systeme solaire,
+ * etoiles nommees, ciel profond, constellations. Sans selection, la Lune tient
+ * la place — c'est l'objet que l'on regarde le plus souvent, et un panneau vide
+ * n'apprendrait rien.
+ */
+export function ObjectsDetail() {
+  const bodies = useBodyStates()
+  const riseSets = useAllRiseSets()
+  const selection = useSkyStore((s) => s.selection)
+  const selectedBody = useSkyStore(selectedBodyId)
+
+  const selected = bodies.find((b) => b.id === selectedBody) ?? null
+  if (selected) return <BodyDetails state={selected} riseSet={riseSets.get(selected.id) ?? null} />
+
+  if (selection && isFixedKind(selection.kind)) {
+    return <FixedObjectDetails kind={selection.kind} id={selection.id} />
+  }
+  return <MoonSummaryCard />
 }
 
 /** Fiche detaillee d'un corps selectionne. */

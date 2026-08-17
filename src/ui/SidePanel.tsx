@@ -10,6 +10,14 @@ export interface SidePanelProps {
   onClose?: () => void
   /** Actions dans l'en-tete, a droite du titre. */
   actions?: ReactNode
+  /**
+   * Fiche de l'objet designe, ancree sous la zone defilante.
+   *
+   * Elle ne suit pas le defilement de la liste : on parcourt le catalogue tout
+   * en gardant sous les yeux ce que l'on vient de selectionner. Si la fiche
+   * elle-meme deborde, c'est elle qui defile, dans sa propre moitie d'ecran.
+   */
+  detail?: ReactNode
   /** Zone collee en bas du panneau (boutons de validation). */
   footer?: ReactNode
   side?: 'start' | 'end'
@@ -27,6 +35,7 @@ export function SidePanel({
   subtitle,
   onClose,
   actions,
+  detail,
   footer,
   side = 'end',
   className,
@@ -60,6 +69,7 @@ export function SidePanel({
         </div>
       </header>
       <div className="md-side-panel__content">{children}</div>
+      {detail && <div className="md-side-panel__detail">{detail}</div>}
       {footer && <footer className="md-side-panel__footer">{footer}</footer>}
     </aside>
   )

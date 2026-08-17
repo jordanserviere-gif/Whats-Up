@@ -62,17 +62,40 @@ function estimateMagnitude(rangeKm: number, phaseAngleDeg: number, intrinsicMag 
   return intrinsicMag + 5 * Math.log10(rangeKm / 1000) - 2.5 * Math.log10(term)
 }
 
+/**
+ * Grandeurs communes a tous les satellites observes au meme instant.
+ *
+ * Ni la direction du Soleil ni la position de l'observateur ne dependent du
+ * satellite. Les recalculer objet par objet coutait une ephemeride solaire
+ * complete par satellite et par rafraichissement : a un millier d'objets
+ * propages dix fois par seconde, ce seul calcul aurait domine tout le reste.
+ */
+export interface ObservationContext {
+  sunEci: [number, number, number]
+  observerEci: [number, number, number]
+}
+
+export function observationContext(date: Date, location: GeoLocation): ObservationContext {
+  return { sunEci: sunVectorEci(date), observerEci: observerEci(location, date) }
+}
+
 /** Etat observationnel complet d'un satellite a un instant donne. */
-export function computeSatelliteState(el: OrbitalElements, date: Date, location: GeoLocation): SatelliteState {
+export function computeSatelliteState(
+  el: OrbitalElements,
+  date: Date,
+  location: GeoLocation,
+  context?: ObservationContext,
+): SatelliteState {
+  const ctx = context ?? observationContext(date, location)
   const { position, velocity } = stateVector(el, date)
-  const obs = observerEci(location, date)
+  const obs = ctx.observerEci
   const rho: [number, number, number] = [position[0] - obs[0], position[1] - obs[1], position[2] - obs[2]]
   const rangeKm = Math.hypot(...rho)
 
   const horizontal = eciVectorToHorizontal(rho, location, date)
   const geo = eciToGeodetic(position, date)
 
-  const sun = sunVectorEci(date)
+  const sun = ctx.sunEci
   const sunlit = isSunlit(position, sun)
 
   // Angle de phase observateur-satellite-Soleil.
@@ -99,6 +122,30 @@ export function computeSatelliteState(el: OrbitalElements, date: Date, location:
     magnitude: sunlit && horizontal.altitude > 0 ? estimateMagnitude(rangeKm, phaseAngle) : null,
     time: date,
   }
+}
+
+/**
+ * Etats d'un lot de satellites au meme instant.
+ *
+ * Un jeu d'elements corrompu ne fait pas echouer le lot : il est simplement
+ * absent du resultat. Sur un catalogue de plusieurs centaines d'objets, un seul
+ * enregistrement bancal viderait sinon tout le ciel.
+ */
+export function computeSatelliteStates(
+  elements: readonly OrbitalElements[],
+  date: Date,
+  location: GeoLocation,
+): Map<string, SatelliteState> {
+  const ctx = observationContext(date, location)
+  const out = new Map<string, SatelliteState>()
+  for (const el of elements) {
+    try {
+      out.set(el.id, computeSatelliteState(el, date, location, ctx))
+    } catch {
+      /* elements inexploitables : le satellite est ignore */
+    }
+  }
+  return out
 }
 
 /**

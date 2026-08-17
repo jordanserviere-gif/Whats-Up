@@ -31,6 +31,8 @@ export function useSceneColors() {
       sunGlow: readToken('--app-body-sun-glow', '#ffe9c4'),
       selection: readToken('--app-selection-ring', '#b8c3ff'),
       onSurface: readToken('--md-sys-color-on-surface', '#e2e1ef'),
+      onSurfaceVariant: readToken('--md-sys-color-on-surface-variant', '#c4c5d6'),
+      deepSkyLabel: readToken('--app-dso-label', '#c4c5d6'),
       track: {
         sunlit: readToken('--md-sys-color-tertiary', '#d5bcf4'),
         eclipsed: readToken('--md-sys-color-outline', '#8e909f'),

@@ -5,7 +5,7 @@ import { equatorialToHorizontal, formatDeg, precessFromJ2000 } from '@/astro/coo
 import { satelliteTarget, searchTargets, type SkyTarget } from '@/astro/search'
 import { readToken } from '@/scene/sceneMath'
 import { useSkyStore } from '@/state/store'
-import { useAllSatellites, useBodyStates, useSimulatedDate } from '@/state/hooks'
+import { useAllSatellites, useBodyStates, useSatelliteStates, useSimulatedDate } from '@/state/hooks'
 import './SkySearch.css'
 
 /** Icone de repli par famille, quand l'objet n'a pas de couleur propre. */
@@ -33,15 +33,21 @@ export function SkySearch({ className }: { className?: string }) {
   const lookAt = useSkyStore((s) => s.lookAt)
   const bodies = useBodyStates()
   const satellites = useAllSatellites()
+  const satStates = useSatelliteStates(satellites)
+
+  // Les cibles satellites ne changent qu'au renouvellement du catalogue : les
+  // reconstruire a chaque frappe couterait deux mille conversions par touche.
+  const satelliteTargets = useMemo(() => satellites.map(satelliteTarget), [satellites])
 
   const results = useMemo(() => {
     if (query.trim().length === 0) return []
-    return searchTargets(query, { extra: satellites.map(satelliteTarget), limit: 10 })
-  }, [query, satellites])
+    return searchTargets(query, { extra: satelliteTargets, limit: 10 })
+  }, [query, satelliteTargets])
 
   /** Hauteur actuelle de l'objet : c'est l'information qui decide d'aller voir ou non. */
   const altitudeOf = (target: SkyTarget): number | null => {
     if (target.kind === 'body') return bodies.find((b) => b.id === target.id)?.horizontal.altitude ?? null
+    if (target.kind === 'satellite') return satStates.get(target.id)?.horizontal.altitude ?? null
     if (target.equatorialJ2000) {
       return equatorialToHorizontal(precessFromJ2000(target.equatorialJ2000, date), location, date).altitude
     }
@@ -52,7 +58,11 @@ export function SkySearch({ className }: { className?: string }) {
     const altitude = altitudeOf(t)
     const def = t.kind === 'body' ? BODY_BY_ID.get(t.id as never) : null
     const magnitude =
-      t.kind === 'body' ? (bodies.find((b) => b.id === t.id)?.magnitude ?? null) : t.magnitude
+      t.kind === 'body'
+        ? (bodies.find((b) => b.id === t.id)?.magnitude ?? null)
+        : t.kind === 'satellite'
+          ? (satStates.get(t.id)?.magnitude ?? null)
+          : t.magnitude
     return {
       id: t.id,
       headline: t.name,
@@ -76,8 +86,10 @@ export function SkySearch({ className }: { className?: string }) {
       const state = bodies.find((b) => b.id === target.id)
       if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
     } else if (target.kind === 'satellite') {
-      // La position d'un satellite change trop vite pour etre figee ici : c'est
-      // le panneau qui la reprend et recentre avec l'etat courant.
+      // Un satellite parcourt le ciel en quelques minutes : on recentre sur sa
+      // position de l'instant, et la camera le suit ensuite d'elle-meme.
+      const state = satStates.get(target.id)
+      if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
     } else if (target.equatorialJ2000) {
       const h = equatorialToHorizontal(precessFromJ2000(target.equatorialJ2000, date), location, date)
       lookAt(h.azimuth, h.altitude)

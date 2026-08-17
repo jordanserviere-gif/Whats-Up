@@ -206,6 +206,52 @@ function glowMaterial() {
   })
 }
 
+/**
+ * Reticule de selection.
+ *
+ * Un anneau de geometrie fixe voit son epaisseur croitre avec son rayon : a fort
+ * grossissement, il ceignait la Lune d'un bourrelet de trente pixels. Ici
+ * l'epaisseur est un uniform, reecrit a chaque image pour valoir un nombre
+ * constant de pixels quelle que soit la taille apparente de l'objet.
+ */
+function selectionMaterial() {
+  return new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: DoubleSide,
+    uniforms: {
+      uColor: { value: new Color('#ffffff') },
+      uOpacity: { value: 0.9 },
+      /** Epaisseur de l'anneau, en fraction du rayon exterieur. */
+      uThickness: { value: 0.12 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv * 2.0 - 1.0;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec2 vUv;
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uThickness;
+      void main() {
+        float r = length(vUv);
+        float inner = 1.0 - uThickness;
+        if (r > 1.0 || r < inner) discard;
+        // Bords adoucis sur une fraction de l'epaisseur : sans cela, l'anneau
+        // crenele des qu'il devient fin.
+        float feather = max(0.004, uThickness * 0.35);
+        float a = smoothstep(1.0, 1.0 - feather, r) * smoothstep(inner, inner + feather, r);
+        gl_FragColor = vec4(uColor, a * uOpacity);
+      }
+    `,
+  })
+}
+
 /** Geometrie partagee : tous les corps sont la meme sphere, a l'echelle pres. */
 const SPHERE = new SphereGeometry(1, 96, 64)
 
@@ -252,6 +298,7 @@ function Body({
   const isSun = state.id === 'sun'
   const surface = useMemo(() => (isSun ? sunMaterial() : bodyMaterial()), [isSun])
   const halo = useMemo(glowMaterial, [])
+  const selection = useMemo(selectionMaterial, [])
   const scratch = useRef(new Matrix4())
   const basis = useRef(new Matrix4())
 
@@ -358,8 +405,17 @@ function Body({
     const r = ring.current
     if (r) {
       r.lookAt(camera.position)
-      const base = worldSizeForPixels(44, camera as PerspectiveCamera, size.height, depth)
-      r.scale.setScalar(Math.max(base, trueRadius * discScale * 3) * (1 + 0.05 * Math.sin(clock.elapsedTime * 2.4)))
+      // Le reticule epouse le disque en gardant un ecart lisible : vingt-deux
+      // pixels de rayon minimum tant que l'objet reste ponctuel, puis un quart
+      // de rayon de marge des qu'il se resout.
+      const floor = worldSizeForPixels(22, camera as PerspectiveCamera, size.height, depth)
+      const disc = trueRadius * discScale
+      const outer = Math.max(floor, disc * 1.35) * (1 + 0.04 * Math.sin(clock.elapsedTime * 2.4))
+      r.scale.setScalar(outer)
+      // Trait de trois pixels, quelle que soit la taille apparente.
+      const outerPixels = (outer / worldSizeForPixels(1, camera as PerspectiveCamera, size.height, depth)) || 1
+      selection.uniforms.uThickness.value = Math.min(0.4, Math.max(0.02, 3 / outerPixels))
+      ;(selection.uniforms.uColor.value as Color).set(selectionColor)
     }
   })
 
@@ -373,16 +429,8 @@ function Body({
         <planeGeometry args={[1, 1]} />
       </mesh>
       {selected && (
-        <mesh ref={ring} renderOrder={24}>
-          <ringGeometry args={[0.44, 0.5, 56]} />
-          <meshBasicMaterial
-            color={selectionColor}
-            transparent
-            opacity={0.9}
-            depthWrite={false}
-            depthTest={false}
-            side={DoubleSide}
-          />
+        <mesh ref={ring} material={selection} renderOrder={24}>
+          <planeGeometry args={[2, 2]} />
         </mesh>
       )}
     </group>

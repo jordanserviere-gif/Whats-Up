@@ -76,6 +76,26 @@
   flex: none;
 }
 
+/* Fiche ancree : la liste defile au-dessus, la fiche reste en vue.
+ * Elle ne prend jamais plus de la moitie du panneau, et defile chez elle si son
+ * contenu l'exige — c'est le seul moyen de garder la liste utilisable. */
+.md-side-panel__detail {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 52%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-3);
+  padding: var(--md-sys-spacing-3);
+  border-top: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 55%, transparent);
+}
+.md-side-panel__detail > * {
+  flex: none;
+}
+
 .md-side-panel__footer {
   flex: none;
   display: flex;
@@ -99,5 +119,11 @@
   .md-side-panel--start.is-closed {
     transform: translateY(calc(100% + 76px));
     margin: 0;
+  }
+  /* La feuille est deja courte : au-dela de cette part, la liste au-dessus ne
+   * montrerait plus assez de lignes pour qu'on s'y repere. */
+  .md-side-panel__detail {
+    max-height: 46%;
+    padding: var(--md-sys-spacing-2);
   }
 }

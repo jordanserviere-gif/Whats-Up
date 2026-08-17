@@ -13,8 +13,9 @@ import {
   useSimulatedDate,
   useSkyConditions,
 } from '@/state/hooks'
-import { hexToRgb, readToken } from './sceneMath'
+import { hexToRgb, readToken, viewDirection } from './sceneMath'
 import { pickSkyTarget } from './picking'
+import { fieldLabels } from './fieldLabels'
 import { useSceneColors } from './useSceneColors'
 import { CameraRig, type PickRequest } from './CameraRig'
 import { Starfield } from './Starfield'
@@ -49,6 +50,8 @@ export function SkyCanvas() {
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
   const fov = useSkyStore((s) => s.fov)
+  const viewAzimuth = useSkyStore((s) => s.viewAzimuth)
+  const viewAltitude = useSkyStore((s) => s.viewAltitude)
   const selectedBody = useSkyStore(selectedBodyId)
   const selectedSatellite = useSkyStore(selectedSatelliteId)
   const select = useSkyStore((s) => s.select)
@@ -62,6 +65,12 @@ export function SkyCanvas() {
   if (import.meta.env.DEV) (window as unknown as { __bodyStates: unknown }).__bodyStates = bodies
   const satellites = useAllSatellites()
   const satStates = useSatelliteStates(satellites)
+  if (import.meta.env.DEV) {
+    ;(window as unknown as { __satStates: unknown }).__satStates = satellites.map((el) => {
+      const s = satStates.get(el.id)
+      return { id: el.id, name: el.name, alt: s?.horizontal.altitude ?? null, az: s?.horizontal.azimuth ?? null, mag: s?.magnitude ?? null }
+    })
+  }
 
   /**
    * Satellites dont on trace la trajectoire.
@@ -79,6 +88,7 @@ export function SkyCanvas() {
   const colors = useSceneColors()
   const textures = useBodyTextures()
   const pickMatrix = useRef(new Matrix4())
+  const fieldMatrix = useRef(new Matrix4())
 
   const moon = bodies.find((b) => b.id === 'moon')
 
@@ -153,6 +163,32 @@ export function SkyCanvas() {
     return map
   }, [])
 
+  /**
+   * Objets fixes nommes dans le champ.
+   *
+   * La recherche parcourt le catalogue du ciel profond : la relancer a chaque
+   * degre de balayage la rendrait continue. On arrondit donc la direction de
+   * visee au dixieme du champ — en dessous, aucune etiquette n'entre ni ne sort.
+   */
+  const viewQuantum = Math.max(0.05, fov * 0.1)
+  const aimKey = `${Math.round(viewAzimuth / viewQuantum)}:${Math.round(viewAltitude / viewQuantum)}:${Math.round(
+    Math.log2(fov) * 4,
+  )}`
+  const fieldLabelData = useMemo(() => {
+    if (!layers.bodyLabels) return []
+    return fieldLabels(
+      viewDirection(viewAzimuth, viewAltitude),
+      fov,
+      date,
+      location,
+      limitingMagnitude,
+      { includeStars: layers.stars, includeDeepSky: layers.deepSky },
+      fieldMatrix.current,
+    )
+    // `aimKey` resume la visee : c'est lui qui declenche le recalcul.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aimKey, date, location, limitingMagnitude, layers.bodyLabels, layers.stars, layers.deepSky])
+
   /** Etiquettes affichees par-dessus la scene. */
   const labels = useMemo(() => {
     const out: SceneLabel[] = []
@@ -180,6 +216,24 @@ export function SkyCanvas() {
           horizontal: b.horizontal,
           color: bodyColors.get(b.id) ?? colors.onSurface,
           kind: 'body',
+          // Le disque grossit avec le zoom : l'etiquette suit son bord au lieu
+          // de rester a quatorze pixels du centre, ou elle finirait posee au
+          // milieu de la planete.
+          angularRadiusDeg: (b.angularDiameter / 2) * discScale,
+        })
+      }
+
+      // Etoiles et objets du ciel profond presents dans le champ. Le seuil de
+      // magnitude suit le grossissement : au grand angle on ne nomme que les
+      // astres de premiere grandeur, en resserrant on descend plus bas.
+      for (const f of fieldLabelData) {
+        out.push({
+          id: f.id,
+          text: f.name,
+          horizontal: f.horizontal,
+          color: f.kind === 'star' ? colors.onSurfaceVariant : colors.deepSkyLabel,
+          kind: 'fixed',
+          angularRadiusDeg: f.angularRadiusDeg,
         })
       }
     }

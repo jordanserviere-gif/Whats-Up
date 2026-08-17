@@ -1,7 +1,19 @@
 import { useMemo, useRef } from 'react'
-import { BufferAttribute, BufferGeometry, Color, DoubleSide, Mesh, PerspectiveCamera, ShaderMaterial } from 'three'
+import {
+  AdditiveBlending,
+  BufferAttribute,
+  BufferGeometry,
+  Color,
+  DoubleSide,
+  Mesh,
+  PerspectiveCamera,
+  Points,
+  ShaderMaterial,
+  Sphere,
+  Vector3,
+} from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { pointSizePixels } from '@/astro/photometry'
+import { POINT_BASE_SIZE_PX, pointSizePixels } from '@/astro/photometry'
 import type { OrbitalElements, SatelliteState, TrackPoint } from '@/astro/types'
 import { horizontalToScene, sceneDepth } from './sceneMath'
 
@@ -157,7 +169,134 @@ export function SatelliteMarker({
   )
 }
 
-/** Couche complete : traces et marqueurs de tous les satellites definis. */
+/**
+ * Nuee du catalogue : un point blanc par satellite, dimensionne par sa magnitude.
+ *
+ * Un maillage par objet ne passe pas l'echelle — chaque satellite y coutait un
+ * appel de dessin, un materiau et un `useFrame`. Ici, un seul nuage de points
+ * porte le catalogue entier : les positions sont reecrites dans le meme tampon a
+ * chaque rafraichissement des ephemerides.
+ *
+ * L'eclat suit la meme loi photometrique que les etoiles, avec la magnitude
+ * estimee du satellite : ceux qui rentrent dans l'ombre de la Terre s'eteignent
+ * d'eux-memes, puisqu'ils n'ont alors plus de magnitude du tout.
+ */
+export function SatelliteField({
+  elements,
+  states,
+  limitingMagnitude,
+  excludeId,
+}: {
+  elements: readonly OrbitalElements[]
+  states: Map<string, SatelliteState>
+  limitingMagnitude: number
+  /** Objet rendu separement — le selectionne porte son propre marqueur. */
+  excludeId: string | null
+}) {
+  const points = useRef<Points>(null)
+  const { size } = useThree()
+
+  // Le tampon est dimensionne sur le catalogue, pas sur ce qui est visible :
+  // le realouer a chaque image annulerait tout le benefice du nuage unique.
+  const geometry = useMemo(() => {
+    const geo = new BufferGeometry()
+    geo.setAttribute('position', new BufferAttribute(new Float32Array(Math.max(1, elements.length) * 3), 3))
+    geo.setAttribute('satMag', new BufferAttribute(new Float32Array(Math.max(1, elements.length)), 1))
+    geo.setDrawRange(0, 0)
+    // Les satellites couvrent tout le ciel et bougent sans cesse : la sphere
+    // englobante calculee une fois serait fausse des l'image suivante.
+    geo.boundingSphere = new Sphere(new Vector3(), 1e6)
+    return geo
+  }, [elements.length])
+
+  const material = useMemo(
+    () =>
+      new ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        uniforms: {
+          uLimitMag: { value: limitingMagnitude },
+          uPixelRatio: { value: Math.min(2, typeof window === 'undefined' ? 1 : window.devicePixelRatio) },
+          uBaseSize: { value: POINT_BASE_SIZE_PX },
+        },
+        vertexShader: /* glsl */ `
+          attribute float satMag;
+          varying float vIntensity;
+          uniform float uLimitMag;
+          uniform float uPixelRatio;
+          uniform float uBaseSize;
+
+          void main() {
+            // Rapport de flux a la magnitude limite : 1 exactement a la limite.
+            float rel = pow(10.0, -0.4 * (satMag - uLimitMag));
+            float lg = log(1.0 + rel);
+            vIntensity = clamp(0.32 * lg, 0.0, 1.0);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            // Plancher d'un pixel et demi : sous cette taille un satellite
+            // disparait entre deux pixels et le ciel se met a scintiller.
+            gl_PointSize = clamp(uBaseSize * (0.55 + 0.5 * lg) * uPixelRatio, 1.5 * uPixelRatio, 40.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying float vIntensity;
+          void main() {
+            if (vIntensity < 0.004) discard;
+            vec2 d = gl_PointCoord - vec2(0.5);
+            float r = length(d) * 2.0;
+            float core = exp(-r * r * 7.0);
+            float alpha = core * vIntensity;
+            if (alpha < 0.004) discard;
+            // Un satellite ne renvoie que la lumiere du Soleil : il est blanc.
+            gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+          }
+        `,
+      }),
+    // La magnitude limite passe par un uniform, reecrit a chaque image.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
+  useFrame(() => {
+    const node = points.current
+    if (!node) return
+    material.uniforms.uLimitMag.value = limitingMagnitude
+    material.uniforms.uPixelRatio.value = Math.min(2, window.devicePixelRatio)
+
+    const position = geometry.getAttribute('position') as BufferAttribute
+    const mag = geometry.getAttribute('satMag') as BufferAttribute
+    let n = 0
+
+    for (const el of elements) {
+      if (el.id === excludeId) continue
+      const state = states.get(el.id)
+      // Sous l'horizon, le satellite est derriere la Terre : rien a dessiner.
+      if (!state || state.horizontal.altitude <= 0) continue
+      // Sans magnitude, l'objet traverse l'ombre : il n'est pas visible.
+      if (state.magnitude === null) continue
+      const [x, y, z] = horizontalToScene(state.horizontal, sceneDepth(state.rangeKm))
+      position.setXYZ(n, x, y, z)
+      mag.setX(n, state.magnitude)
+      n++
+    }
+
+    geometry.setDrawRange(0, n)
+    position.needsUpdate = true
+    mag.needsUpdate = true
+    void size
+  })
+
+  return <points ref={points} geometry={geometry} material={material} renderOrder={10} frustumCulled={false} />
+}
+
+/**
+ * Couche complete.
+ *
+ * Deux regimes cohabitent : le catalogue passe par la nuee de points, tandis que
+ * les orbites saisies a la main et l'objet selectionne gardent leur losange et
+ * leur trace. C'est la distinction utile — on suit nommement quelques objets,
+ * on regarde le reste passer.
+ */
 export function SatelliteLayer({
   elements,
   states,
@@ -175,9 +314,27 @@ export function SatelliteLayer({
   limitingMagnitude: number
   selectedId: string | null
 }) {
+  const { field, marked } = useMemo(() => {
+    const f: OrbitalElements[] = []
+    const m: OrbitalElements[] = []
+    for (const el of elements) {
+      if (el.source === 'celestrak' && el.id !== selectedId) f.push(el)
+      else m.push(el)
+    }
+    return { field: f, marked: m }
+  }, [elements, selectedId])
+
   return (
     <group>
-      {elements.map((el) => {
+      {field.length > 0 && (
+        <SatelliteField
+          elements={field}
+          states={states}
+          limitingMagnitude={limitingMagnitude}
+          excludeId={selectedId}
+        />
+      )}
+      {marked.map((el) => {
         const state = states.get(el.id)
         const track = tracks.get(el.id)
         const dimmed = selectedId !== null && selectedId !== el.id

@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { Vector3 } from 'three'
+import { PerspectiveCamera, Vector3 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { horizontalToScene } from './sceneMath'
 import type { Horizontal } from '@/astro/types'
+
+const DEG = Math.PI / 180
 
 export interface SceneLabel {
   id: string
@@ -10,7 +12,15 @@ export interface SceneLabel {
   horizontal: Horizontal
   color: string
   /** Style d'etiquette : influence la taille et l'opacite. */
-  kind: 'body' | 'satellite' | 'cardinal' | 'constellation'
+  kind: 'body' | 'satellite' | 'cardinal' | 'constellation' | 'fixed'
+  /**
+   * Rayon apparent de l'objet, en degres.
+   *
+   * L'etiquette se pose au bord du disque, pas a une distance fixe du centre :
+   * a champ resserre, Jupiter couvre plusieurs centaines de pixels et un decalage
+   * constant deposerait son nom au milieu de la planete.
+   */
+  angularRadiusDeg?: number
 }
 
 /**
@@ -61,6 +71,11 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
   }, [])
 
   useFrame(() => {
+    // Echelle de projection : un objet de rayon angulaire θ, vu pres de l'axe,
+    // occupe (hauteur / 2) · tan θ / tan(champ / 2) pixels a l'ecran.
+    const fov = (camera as PerspectiveCamera).fov ?? 60
+    const pixelsPerTan = size.height / 2 / Math.tan((fov * DEG) / 2)
+
     for (const label of labels) {
       const node = nodes.current.get(label.id)
       if (!node) continue
@@ -74,7 +89,16 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
       }
       const sx = (world.current.x * 0.5 + 0.5) * size.width
       const sy = (-world.current.y * 0.5 + 0.5) * size.height
-      node.style.transform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0)`
+
+      // Le decalage suit le disque. Il est plafonne au quart de l'ecran : sur un
+      // objet plus large que le champ, suivre le bord jetterait l'etiquette hors
+      // cadre alors que l'objet, lui, est bien la.
+      const radiusPx = label.angularRadiusDeg
+        ? Math.min(size.height / 4, Math.tan(label.angularRadiusDeg * DEG) * pixelsPerTan)
+        : 0
+      const offset = Math.round(radiusPx * 0.72)
+
+      node.style.transform = `translate3d(${Math.round(sx) + offset}px, ${Math.round(sy) + offset}px, 0)`
       node.style.opacity = '1'
     }
   })

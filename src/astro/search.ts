@@ -152,6 +152,23 @@ function catalogIndex(): IndexedTarget[] {
 export const allCatalogTargets = (): SkyTarget[] => catalogIndex().map((e) => e.target)
 
 /**
+ * Index des cibles mobiles, memorise sur l'identite du tableau recu.
+ *
+ * Le catalogue de satellites compte plusieurs milliers d'entrees et ne change
+ * qu'au renouvellement des elements. Le reindexer a chaque frappe reviendrait a
+ * replier quatre mille chaines par touche, pour un resultat identique.
+ */
+const extraIndexCache = new WeakMap<object, IndexedTarget[]>()
+
+function indexExtra(extra: readonly SkyTarget[]): IndexedTarget[] {
+  const cached = extraIndexCache.get(extra)
+  if (cached) return cached
+  const built = extra.map(indexTarget)
+  extraIndexCache.set(extra, built)
+  return built
+}
+
+/**
  * Qualite d'une correspondance, du meilleur au pire.
  * Une valeur negative signifie « pas de correspondance ».
  */
@@ -194,7 +211,7 @@ export function searchTargets(query: string, options: SearchOptions = {}): SkyTa
 
   const limit = options.limit ?? 12
   const entries = options.extra?.length
-    ? [...catalogIndex(), ...options.extra.map(indexTarget)]
+    ? [...catalogIndex(), ...indexExtra(options.extra)]
     : catalogIndex()
 
   const scored: Array<{ target: SkyTarget; rank: number }> = []
