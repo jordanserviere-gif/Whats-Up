@@ -17,7 +17,13 @@ import {
 import { getAircraftHistory } from '@/state/aircraftFeed'
 import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
-import { ATMOSPHERE_GLSL, ATMOSPHERE_HAZE_COLOR_FN, ATMOSPHERE_UNIFORM_DECLARATIONS, atmosphereUniforms } from './atmosphere'
+import {
+  ATMOSPHERE_GLSL,
+  ATMOSPHERE_HAZE_COLOR_FN,
+  ATMOSPHERE_TONEMAP_FN,
+  ATMOSPHERE_UNIFORM_DECLARATIONS,
+  atmosphereUniforms,
+} from './atmosphere'
 
 const DEG = Math.PI / 180
 
@@ -100,6 +106,7 @@ function aircraftMaterial() {
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+      ${ATMOSPHERE_TONEMAP_FN}
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec3 vView;
       uniform vec3 uColor;
@@ -230,6 +237,7 @@ function contrailMaterial() {
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+      ${ATMOSPHERE_TONEMAP_FN}
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec2 vUv;
       varying vec3 vView;

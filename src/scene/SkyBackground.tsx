@@ -4,14 +4,12 @@ import { useFrame } from '@react-three/fiber'
 import { DOME_RADIUS } from './sceneMath'
 import {
   ATMOSPHERE_GLSL,
-  ATMOSPHERE_RADIUS_M,
+  ATMOSPHERE_HAZE_COLOR_FN,
+  ATMOSPHERE_TONEMAP_FN,
+  ATMOSPHERE_UNIFORM_DECLARATIONS,
+  atmosphereUniforms,
   MIE_COEFFICIENT,
-  MIE_G,
   MIE_SCALE_HEIGHT_M,
-  PLANET_RADIUS_M,
-  RAYLEIGH_COEFFICIENTS,
-  RAYLEIGH_SCALE_HEIGHT_M,
-  SUN_INTENSITY_REF,
 } from './atmosphere'
 
 /**
@@ -32,6 +30,12 @@ import {
  * sortent directement de la geometrie Terre-atmosphere-Soleil, ce qui est
  * exactement ce qui manquait a l'ancien rendu.
  *
+ * Elle appelle `hazeColorAlong()`, exactement la fonction que les corps et les
+ * avions utilisent pour se fondre dans le ciel : un objet quasiment cote nuit
+ * (la Lune en conjonction, par exemple) doit disparaitre dans le ciel qui
+ * l'entoure, pas se detacher parce que son propre voile suit un mappage
+ * different de celui affiche autour de lui.
+ *
  * Son disque solaire est retire — la scene rend le sien, a sa distance, faute
  * de quoi la Lune ne pourrait pas l'occulter.
  */
@@ -48,59 +52,20 @@ function buildSkyMaterial(): ShaderMaterial {
 
   const fragmentShader = /* glsl */ `
     ${ATMOSPHERE_GLSL}
+    ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+    ${ATMOSPHERE_TONEMAP_FN}
+    ${ATMOSPHERE_HAZE_COLOR_FN}
 
     varying vec3 vDir;
 
-    uniform vec3 uSunDir;
-    uniform float uSunIntensity;
-    uniform float uPlanetRadius;
-    uniform float uAtmosphereRadius;
-    uniform vec3 uRayleighCoeff;
-    uniform float uMieCoeff;
-    uniform float uRayleighScaleHeight;
-    uniform float uMieScaleHeight;
-    uniform float uMieG;
-
-    uniform float uExposure;
-    uniform float uSaturation;
     uniform vec3 uNight;
     uniform vec3 uMoonDir;
     uniform float uMoonFactor;
     uniform vec3 uMoonGlow;
 
-    // Approximation filmique ACES (Narkowicz 2015).
-    //
-    // Le modele de diffusion produit des radiances physiques, bien au-dela de
-    // 1 : la scene n'applique aucun tone mapping global — les autres couleurs
-    // viennent des tokens et doivent rester fideles — on mappe donc ici, et
-    // seulement ici.
-    vec3 acesFilmic(vec3 x) {
-      return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
-    }
-
-    // La courbe filmique desature fortement les hautes lumieres : un ciel de
-    // midi en ressort laiteux. On lui rend sa couleur en reecartant les
-    // canaux autour de leur luminance, sans changer l'exposition.
-    vec3 resaturate(vec3 c, float amount) {
-      float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      return clamp(mix(vec3(luma), c, amount), 0.0, 1.0);
-    }
-
     void main() {
       vec3 dir = normalize(vDir);
-      // Observateur au sol, dans le repere centre sur la planete qu'attend
-      // atmosphere() : seule la hauteur au-dessus du sol local compte, donc
-      // poser l'observateur sur l'axe +Y suffit — inutile de reconstituer sa
-      // vraie latitude/longitude ECEF pour ce que cette passe calcule.
-      vec3 r0 = vec3(0.0, uPlanetRadius, 0.0);
-
-      vec3 raw = atmosphere(
-        dir, r0, uSunDir, uSunIntensity,
-        uPlanetRadius, uAtmosphereRadius,
-        uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG
-      );
-
-      vec3 scattered = resaturate(acesFilmic(raw * uExposure), uSaturation);
+      vec3 scattered = hazeColorAlong(dir);
 
       // --- Socle nocturne : presque noir, a peine plus clair vers l'horizon ---
       // La diffusion simple ne restitue pas l'arche crepusculaire bleue ni la
@@ -122,17 +87,7 @@ function buildSkyMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     name: 'SkyBackgroundMaterial',
     uniforms: {
-      uSunDir: { value: new Vector3(0, 1, 0) },
-      uSunIntensity: { value: SUN_INTENSITY_REF },
-      uPlanetRadius: { value: PLANET_RADIUS_M },
-      uAtmosphereRadius: { value: ATMOSPHERE_RADIUS_M },
-      uRayleighCoeff: { value: new Vector3(...RAYLEIGH_COEFFICIENTS) },
-      uMieCoeff: { value: MIE_COEFFICIENT },
-      uRayleighScaleHeight: { value: RAYLEIGH_SCALE_HEIGHT_M },
-      uMieScaleHeight: { value: MIE_SCALE_HEIGHT_M },
-      uMieG: { value: MIE_G },
-      uExposure: { value: 0.3 },
-      uSaturation: { value: 1.4 },
+      ...atmosphereUniforms(),
       uMoonDir: { value: new Vector3(0, -1, 0) },
       uMoonFactor: { value: 0 },
       uNight: { value: new Color('#03040a') },
@@ -150,17 +105,6 @@ function buildSkyMaterial(): ShaderMaterial {
 }
 
 export interface SkyBackgroundProps {
-  /**
-   * Calque « atmosphere » actif ? Coupe l'exposition d'affichage sans toucher
-   * au modele physique — la diffusion elle-meme decoule deja de l'altitude
-   * reelle du Soleil, y compris tres bas sous l'horizon : rien dans la
-   * geometrie ne permettrait de distinguer « nuit noire, calque actif » d'
-   * « atmosphere desactivee », d'ou ce signal explicite plutot qu'un seuil
-   * sur l'eclairement, qui aurait tronque le crepuscule avant l'heure.
-   */
-  enabled: boolean
-  /** Fraction du disque solaire masquee : creuse la luminance pendant une eclipse. */
-  obscuration: number
   sunAltitude: number
   sunAzimuth: number
   moonAltitude: number
@@ -169,24 +113,22 @@ export interface SkyBackgroundProps {
   nightColor: string
   moonGlowColor: string
   /**
+   * Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`. Memes
+   * unites, meme valeur que celle recue par les corps et les avions : c'est
+   * ce qui garantit qu'un objet presque cote nuit se fond dans le ciel plutot
+   * que de s'en detacher.
+   */
+  atmosphereExposure: number
+  /**
    * Trouble atmospherique — multiplie le coefficient de diffusion Mie
    * (aerosols). 1 = air standard. C'est le levier destine a la qualite de
    * l'air et a la nebulosite : plus il monte, plus l'horizon blanchit et le
    * ciel s'eclaircit, comme une vraie brume de pollution.
    */
   aerosolTurbidity?: number
-  /**
-   * Exposition appliquee avant la courbe filmique. C'est le reglage qui decide
-   * de la surexposition : au-dela de 0,4 le ciel de midi part vers le blanc.
-   */
-  exposure?: number
-  /** Correction de la desaturation induite par la courbe filmique. */
-  saturation?: number
 }
 
 export function SkyBackground({
-  enabled,
-  obscuration,
   sunAltitude,
   sunAzimuth,
   moonAltitude,
@@ -194,9 +136,8 @@ export function SkyBackground({
   lunarLux,
   nightColor,
   moonGlowColor,
+  atmosphereExposure,
   aerosolTurbidity = 1,
-  exposure = 0.3,
-  saturation = 1.4,
 }: SkyBackgroundProps) {
   const material = useMemo(buildSkyMaterial, [])
 
@@ -218,13 +159,7 @@ export function SkyBackground({
 
     u.uMieCoeff.value = MIE_COEFFICIENT * aerosolTurbidity
     u.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M * Math.sqrt(aerosolTurbidity)
-
-    // Eclipse : la luminance du Soleil chute avec la part masquee. Le plancher
-    // (8e-4) est la lumiere cendree pendant une totale — jamais tout a fait
-    // nulle, la couronne et le ciel diffus restant faiblement eclaires.
-    const eclipse = Math.pow(1 - obscuration + 8e-4 * obscuration, 0.5)
-    u.uExposure.value = exposure * (enabled ? 1 : 0) * eclipse
-    u.uSaturation.value = saturation
+    u.uAtmosphereExposure.value = atmosphereExposure
 
     u.uMoonFactor.value = moonAltitude > 0 ? Math.min(0.5, Math.max(0, lunarLux * 0.55)) : 0
 

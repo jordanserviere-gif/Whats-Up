@@ -18,7 +18,13 @@ import { bodyOrientation } from '@/astro/orientation'
 import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels } from '@/astro/photometry'
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
-import { ATMOSPHERE_GLSL, ATMOSPHERE_HAZE_COLOR_FN, ATMOSPHERE_UNIFORM_DECLARATIONS, atmosphereUniforms } from './atmosphere'
+import {
+  ATMOSPHERE_GLSL,
+  ATMOSPHERE_HAZE_COLOR_FN,
+  ATMOSPHERE_TONEMAP_FN,
+  ATMOSPHERE_UNIFORM_DECLARATIONS,
+  atmosphereUniforms,
+} from './atmosphere'
 
 const DEG = Math.PI / 180
 
@@ -76,6 +82,7 @@ function bodyMaterial() {
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+      ${ATMOSPHERE_TONEMAP_FN}
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec3 vNormal;
       varying vec3 vViewDir;
@@ -356,7 +363,11 @@ function Body({
       ;(surface.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
       surface.uniforms.uAtmosphereExposure.value = atmosphereExposure
       surface.uniforms.uEmissive.value = 0
-      surface.uniforms.uNightSide.value = state.id === 'moon' ? 0.035 : 0.008
+      // Lumiere cendree cote nuit — la Terre reflechie sur la face non
+      // eclairee de la Lune. 0,035 la rendait aussi visible qu'un authentique
+      // clair de lune sur la face nuit ; la vraie lumiere cendree est bien
+      // plus discrete, un filet a peine perceptible sur un croissant fin.
+      surface.uniforms.uNightSide.value = state.id === 'moon' ? 0.012 : 0.003
       surface.uniforms.uHasMap.value = texture ? 1 : 0
       surface.uniforms.uMap.value = texture
       // Le relief simule ne sert que sur la Lune : elle seule se resout assez.

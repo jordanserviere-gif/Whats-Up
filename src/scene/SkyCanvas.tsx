@@ -382,8 +382,7 @@ export function SkyCanvas() {
         <CameraRig canvas={host} onPick={onPick} />
 
         <SkyBackground
-          enabled={layers.atmosphere}
-          obscuration={sky.obscuration}
+          atmosphereExposure={atmosphereExposure}
           sunAltitude={sky.sunAltitude}
           sunAzimuth={sky.sunAzimuth}
           moonAltitude={layers.atmosphere ? sky.moonAltitude : -90}
