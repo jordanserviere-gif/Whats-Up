@@ -6,7 +6,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { BufferAttribute, BufferGeometry, Color, DoubleSide, LineSegments, Mesh, ShaderMaterial, Sphere, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
-import { airmass } from '@/astro/photometry'
 import {
   advanceGeodetic,
   extrapolatedGeodetic,
@@ -86,7 +85,8 @@ function aircraftMaterial() {
     side: DoubleSide,
     uniforms: {
       uColor: { value: new Color('#e9ebf1') },
-      uHaze: { value: 0 },
+      /** Distance reelle a l'appareil, en metres : longueur d'air a traverser. */
+      uRangeM: { value: 0 },
       uOpacity: { value: 1 },
       ...atmosphereUniforms(),
     },
@@ -99,10 +99,14 @@ function aircraftMaterial() {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
-    // Le voile atmospherique melange la teinte propre de l'avion vers la
-    // vraie couleur du ciel dans sa direction — la meme diffusion Rayleigh que
-    // le fond de ciel, evaluee ici le long de la ligne de visee de l'avion —
-    // plutot que vers une teinte jour/nuit globale approchee.
+    // Un avion est *dans* l'atmosphere : la colonne d'air a traverser s'arrete
+    // a lui, elle ne va pas jusqu'a l'espace. `uRangeM` borne donc l'integrale
+    // a sa distance reelle — trente kilometres d'air rasant portent bien plus
+    // de voile que dix kilometres au zenith, pour un meme appareil.
+    //
+    // Le melange empirique d'autrefois (une fraction tiree de la masse d'air)
+    // laisse place aux deux termes physiques : ce que l'air ajoute devant
+    // l'appareil, et ce qu'il laisse passer de sa propre teinte.
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
@@ -110,10 +114,12 @@ function aircraftMaterial() {
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec3 vView;
       uniform vec3 uColor;
-      uniform float uHaze;
+      uniform float uRangeM;
       uniform float uOpacity;
       void main() {
-        gl_FragColor = vec4(mix(uColor, hazeColorAlong(vView), uHaze), uOpacity);
+        vec3 transmittance;
+        vec3 haze = hazeColorTo(vView, uRangeM, transmittance);
+        gl_FragColor = vec4(uColor * transmittance + haze, uOpacity);
       }
     `,
   })
@@ -169,8 +175,7 @@ function AircraftMesh({
     const halfSpan = sceneRadiusForBody(WINGSPAN_KM / 2, rangeKm)
     m.scale.setScalar(halfSpan * 2)
 
-    const am = airmass(horizontal.altitude)
-    material.uniforms.uHaze.value = 1 - Math.exp(-0.14 * (am - 1))
+    material.uniforms.uRangeM.value = rangeKm * 1000
     ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     material.uniforms.uAtmosphereExposure.value = atmosphereExposure
     ;(material.uniforms.uColor.value as Color).setRGB(
@@ -219,7 +224,12 @@ function contrailMaterial() {
     side: DoubleSide,
     uniforms: {
       uColor: { value: new Color('#ffffff') },
-      uHaze: { value: 0 },
+      /**
+       * Distance a la tete du panache, en metres. La queue est un peu plus
+       * loin, mais la trainee ne couvre que quelques degres : l'ecart de
+       * colonne d'air entre ses deux bouts est sans effet visible.
+       */
+      uRangeM: { value: 0 },
       uOpacity: { value: 0 },
       ...atmosphereUniforms(),
     },
@@ -242,7 +252,7 @@ function contrailMaterial() {
       varying vec2 vUv;
       varying vec3 vView;
       uniform vec3 uColor;
-      uniform float uHaze;
+      uniform float uRangeM;
       uniform float uOpacity;
 
       void main() {
@@ -264,10 +274,13 @@ function contrailMaterial() {
         float alpha = radial * birth * decay * uOpacity * scatter;
         if (alpha < 0.004) discard;
 
-        // Meme voile atmospherique que la silhouette, evalue le long de sa
-        // propre ligne de visee : de nuit, ce voile est desormais reellement
-        // noir — plus de trainee qui ressort a contretemps du ciel.
-        gl_FragColor = vec4(mix(uColor, hazeColorAlong(vView), uHaze), min(alpha, 0.85));
+        // Meme traitement que la silhouette, borne a la meme distance : de
+        // nuit le voile ajoute est reellement noir — plus de trainee qui
+        // ressort a contretemps du ciel — et de jour les cristaux perdent en
+        // s'eloignant ce que l'air leur prend.
+        vec3 transmittance;
+        vec3 haze = hazeColorTo(vView, uRangeM, transmittance);
+        gl_FragColor = vec4(uColor * transmittance + haze, min(alpha, 0.85));
       }
     `,
   })
@@ -404,8 +417,7 @@ function AircraftContrail({
     position.needsUpdate = true
     uv.needsUpdate = true
 
-    const am = airmass(headView.horizontal.altitude)
-    material.uniforms.uHaze.value = 1 - Math.exp(-0.14 * (am - 1))
+    material.uniforms.uRangeM.value = headView.rangeKm * 1000
     ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     material.uniforms.uAtmosphereExposure.value = atmosphereExposure
     // Sous l'horizon rien a montrer ; sinon l'opacite suit la probabilite de

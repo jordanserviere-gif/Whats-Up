@@ -55,8 +55,6 @@ function bodyMaterial() {
       uEmissive: { value: 0 },
       uEmissiveGain: { value: 1 },
       uNightSide: { value: 0.02 },
-      uTint: { value: new Vector3(1, 1, 1) },
-      uBrightness: { value: 1 },
       /** Relief simule a partir du gradient de l'albedo : creuse les crateres. */
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
@@ -101,8 +99,6 @@ function bodyMaterial() {
       uniform float uEmissive;
       uniform float uEmissiveGain;
       uniform float uNightSide;
-      uniform vec3 uTint;
-      uniform float uBrightness;
       uniform float uRelief;
       uniform float uTexelSize;
 
@@ -139,15 +135,24 @@ function bodyMaterial() {
 
         // uNightSide porte la lumiere cendree cote nuit.
         float shade = mix(uNightSide, limb, lit);
-        vec3 col = albedo * mix(shade, uEmissiveGain, uEmissive) * uTint * uBrightness;
+        vec3 col = albedo * mix(shade, uEmissiveGain, uEmissive);
 
-        // Lumiere atmospherique diffusee entre l'observateur et l'astre, evaluee
-        // le long de la vraie ligne de visee plutot qu'une teinte globale
-        // approchee : sans elle, la face nuit d'une planete se decoupe en noir
-        // sur un ciel de jour — un trou dans le ciel. C'est ce voile, et non
-        // l'eclat de l'astre, qui rend les planetes invisibles en plein jour.
-        vec3 haze = hazeColorAlong(normalize(vDir));
-        gl_FragColor = vec4(col + haze, 1.0);
+        // Les deux moities de ce que l'atmosphere fait a un astre, evaluees le
+        // long de la vraie ligne de visee plutot qu'approchees globalement :
+        //
+        // — ce qu'elle ajoute (haze) : sans lui, la face nuit d'une planete
+        //   se decoupe en noir sur un ciel de jour, un trou dans le ciel. C'est
+        //   ce voile, et non l'eclat de l'astre, qui rend les planetes
+        //   invisibles en plein jour ;
+        // — ce qu'elle retire (transmittance) : la meme integrale, prise sur
+        //   le seul rayon primaire. C'est elle qui affaiblit et rougit un corps
+        //   bas sur l'horizon, ou la ligne de visee traverse jusqu'a quarante
+        //   fois la colonne d'air du zenith. Elle remplace ici l'extinction
+        //   photometrique en magnitudes, qui reste en revanche a sa place sur
+        //   le halo — la, l'objet est une source ponctuelle, pas une surface.
+        vec3 transmittance;
+        vec3 haze = hazeColorAlong(normalize(vDir), transmittance);
+        gl_FragColor = vec4(col * transmittance + haze, 1.0);
       }
     `,
   })
@@ -374,9 +379,11 @@ function Body({
       surface.uniforms.uRelief.value = state.id === 'moon' ? 6 : 0
       surface.uniforms.uTexelSize.value = 1 / ((texture?.image as { width?: number } | undefined)?.width ?? 2048)
       // La carte porte deja la couleur : le token ne sert qu'aux corps sans carte.
+      // Ni teinte ni assombrissement d'extinction ici : le disque les tient
+      // desormais de la transmittance calculee dans son propre nuanceur, sur la
+      // meme integrale que le ciel qui l'entoure. Les appliquer aussi ici les
+      // compterait deux fois.
       ;(surface.uniforms.uColor.value as Color).set(texture ? '#ffffff' : color)
-      ;(surface.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-      surface.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinction * 0.6)
 
       // Orientation reelle : axe de rotation et meridien origine du corps.
       const def = BODY_BY_ID.get(state.id)

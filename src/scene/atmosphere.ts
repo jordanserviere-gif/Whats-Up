@@ -70,11 +70,30 @@ export const MIE_G = 0.758
 export const SUN_INTENSITY_REF = 22
 
 /**
+ * Longueur de trajet signifiant « jusqu'au bout de l'atmosphere » — plus grande
+ * que toute traversee possible (le trajet le plus long, rasant, fait environ
+ * 1 100 km), donc sans effet sur le bornage.
+ */
+export const ATMOSPHERE_PATH_FULL = 1e9
+
+/**
  * Fonctions GLSL de diffusion, a inserer telles quelles dans un nuanceur de
- * fragment. `atmosphere()` prend la direction de visee, la position de
+ * fragment. `atmosphereScatter()` prend la direction de visee, la position de
  * l'observateur (repere centre sur la planete), la direction du Soleil, et
  * les parametres physiques ci-dessus ; elle renvoie une radiance — a passer
  * dans un tone mapping avant affichage, les valeurs depassant largement 1.
+ *
+ * Elle rend aussi, par `transmittance`, la fraction de lumiere survivant au
+ * trajet. C'est la seconde moitie de l'equation du transfert radiatif :
+ * `vu = objet × transmittance + diffuse`. La diffusion seule ne suffit pas —
+ * ajoutee sans retirer ce qu'elle prend, elle ne fait qu'eclaircir un astre
+ * qui devrait au contraire s'affaiblir et rougir en descendant sur l'horizon.
+ * La grandeur ne coute rien : la boucle accumulait deja la profondeur optique
+ * du rayon primaire pour attenuer sa propre diffusion, elle la jetait.
+ *
+ * `maxPath` borne le trajet, en metres, pour les objets *dans* l'atmosphere :
+ * un avion a trente kilometres n'en traverse qu'une fraction. Passer
+ * `ATMOSPHERE_PATH_FULL` pour tout ce qui est au-dela (astres, fond de ciel).
  */
 export const ATMOSPHERE_GLSL = /* glsl */ `
   vec2 atmosphereRsi(vec3 r0, vec3 rd, float sr) {
@@ -88,10 +107,11 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
     return vec2((-b - sqrt(d)) / (2.0 * a), (-b + sqrt(d)) / (2.0 * a));
   }
 
-  vec3 atmosphere(
+  vec3 atmosphereScatter(
     vec3 r, vec3 r0, vec3 pSun, float iSun,
     float rPlanet, float rAtmos,
-    vec3 kRlh, float kMie, float shRlh, float shMie, float g
+    vec3 kRlh, float kMie, float shRlh, float shMie, float g,
+    float maxPath, out vec3 transmittance
   ) {
     const int iSteps = 16;
     const int jSteps = 8;
@@ -99,10 +119,15 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
     pSun = normalize(pSun);
     r = normalize(r);
 
+    // Rien a traverser : l'objet est vu sans aucune atmosphere devant lui.
+    transmittance = vec3(1.0);
+
     vec2 p = atmosphereRsi(r0, r, rAtmos);
     if (p.x > p.y) return vec3(0.0);
     p.y = min(p.y, atmosphereRsi(r0, r, rPlanet).x);
-    float iStepSize = (p.y - p.x) / float(iSteps);
+    // p.y - p.x est la corde traversant la couche atmospherique ; la marche
+    // part de l'observateur (iTime = 0), qui est a l'origine du trajet.
+    float iStepSize = min(p.y - p.x, maxPath) / float(iSteps);
 
     float iTime = 0.0;
     vec3 totalRlh = vec3(0.0);
@@ -144,7 +169,24 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
       iTime += iStepSize;
     }
 
+    // Profondeur optique du seul rayon primaire, accumulee ci-dessus : c'est
+    // exactement ce que l'observateur perd entre lui et le bout du trajet.
+    transmittance = exp(-(kMie * iOdMie + kRlh * iOdRlh));
+
     return iSun * (pRlh * kRlh * totalRlh + pMie * kMie * totalMie);
+  }
+
+  /** Diffusion seule, sur toute la traversee — pour qui n'a que faire de l'extinction. */
+  vec3 atmosphere(
+    vec3 r, vec3 r0, vec3 pSun, float iSun,
+    float rPlanet, float rAtmos,
+    vec3 kRlh, float kMie, float shRlh, float shMie, float g
+  ) {
+    vec3 ignored;
+    return atmosphereScatter(
+      r, r0, pSun, iSun, rPlanet, rAtmos,
+      kRlh, kMie, shRlh, shMie, g, ${ATMOSPHERE_PATH_FULL.toExponential()}, ignored
+    );
   }
 `
 
@@ -214,15 +256,42 @@ export const ATMOSPHERE_TONEMAP_FN = /* glsl */ `
   }
 `
 
-/** Couleur du ciel le long de `dir`, dans les memes unites que `SkyBackground`. */
+/**
+ * Voile atmospherique le long de `dir`, dans les memes unites que
+ * `SkyBackground`, et transmittance associee.
+ *
+ * `hazeColorTo` rend les deux moities de l'equation du transfert : ce que
+ * l'atmosphere ajoute (retour de la fonction) et ce qu'elle laisse passer
+ * (`transmittance`). Un materiau qui n'utiliserait que la premiere ne ferait
+ * qu'eclaircir son objet ; la seconde est ce qui le fait rougir et faiblir en
+ * descendant vers l'horizon, comme n'importe quel astre reel.
+ *
+ * L'attenuation s'applique a une couleur deja en espace d'affichage, alors que
+ * la transmittance est une grandeur lineaire : le produit est donc une
+ * approximation. Elle reste juste la ou cela compte — monotone, achromatique
+ * au zenith, fortement rouge a l'horizon — et evite d'avoir a refaire toute la
+ * chaine de rendu en radiometrie lineaire pour un ecart imperceptible.
+ */
 export const ATMOSPHERE_HAZE_COLOR_FN = /* glsl */ `
-  vec3 hazeColorAlong(vec3 dir) {
+  vec3 hazeColorTo(vec3 dir, float maxPath, out vec3 transmittance) {
     vec3 r0 = vec3(0.0, uPlanetRadius, 0.0);
-    vec3 raw = atmosphere(
+    vec3 raw = atmosphereScatter(
       dir, r0, uSunDir, uSunIntensity,
       uPlanetRadius, uAtmosphereRadius,
-      uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG
+      uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG,
+      maxPath, transmittance
     );
     return atmosphereTonemap(raw * uAtmosphereExposure);
+  }
+
+  /** Diffusion et extinction sur toute la traversee — pour un astre, hors de l'atmosphere. */
+  vec3 hazeColorAlong(vec3 dir, out vec3 transmittance) {
+    return hazeColorTo(dir, ${ATMOSPHERE_PATH_FULL.toExponential()}, transmittance);
+  }
+
+  /** Diffusion seule, sur toute la traversee — pour le fond de ciel, qui n'a rien derriere lui. */
+  vec3 hazeColorAlong(vec3 dir) {
+    vec3 ignored;
+    return hazeColorAlong(dir, ignored);
   }
 `
