@@ -79,10 +79,13 @@
 }
 
 .md-section__body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.md-section__body-inner {
   display: flex;
   flex-direction: column;
   gap: var(--md-sys-spacing-3);
   padding: var(--md-sys-spacing-1) var(--md-sys-spacing-4) var(--md-sys-spacing-4);
-  min-height: 0;
-  overflow: hidden;
 }

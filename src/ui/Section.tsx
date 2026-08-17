@@ -66,7 +66,14 @@ export function Section({
           className="md-section__body"
           {...({ inert: !expanded || undefined } as Record<string, unknown>)}
         >
-          {children}
+          {/* Le remplissage vit ici, pas sur `.md-section__body` : en
+              `box-sizing: border-box`, une hauteur qui tend vers zero ne
+              peut jamais descendre sous le remplissage vertical de sa propre
+              boite — la section repliee laissait donc toujours depasser une
+              vingtaine de pixels de son contenu. En le reportant sur un
+              enfant, c'est ce **conteneur** qui se compresse a zero, et son
+              remplissage a lui disparait avec. */}
+          <div className="md-section__body-inner">{children}</div>
         </div>
       </div>
     </section>
