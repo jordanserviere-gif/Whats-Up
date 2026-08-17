@@ -199,7 +199,7 @@ export function AircraftDetail() {
           label="Trace suivie"
           value={history.length > 1 ? `${history.length} points` : 'pas encore assez de points'}
           unit={history.length > 1 ? (trackedSinceMin < 1 ? 'depuis moins d’une minute' : `depuis ${Math.round(trackedSinceMin)} min`) : undefined}
-          hint="Aucune API gratuite ne fournit d’historique de vol : cette trace n’existe que depuis que l’appareil est observé ici, pas avant."
+          hint="Aucune API gratuite ne fournit d’historique de vol : cette trace, visible dans le ciel, n’existe que depuis que l’appareil est observé ici, pas avant."
         />
 
         <Button

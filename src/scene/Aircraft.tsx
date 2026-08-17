@@ -4,7 +4,7 @@
  * coordonnees horizontales, aucune propagation a faire ici.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { BufferAttribute, BufferGeometry, Color, DoubleSide, Mesh, ShaderMaterial, Sphere, Vector3 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, DoubleSide, LineSegments, Mesh, ShaderMaterial, Sphere, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { airmass } from '@/astro/photometry'
 import {
@@ -14,6 +14,7 @@ import {
   groundDistanceKm,
   type AircraftState,
 } from '@/astro/aircraft'
+import { getAircraftHistory } from '@/state/aircraftFeed'
 import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 
@@ -395,6 +396,72 @@ function AircraftContrail({
   return <mesh ref={mesh} geometry={geometry} material={material} renderOrder={8} frustumCulled={false} />
 }
 
+/**
+ * Trace suivie de l'avion selectionne — pas un historique de vol, seulement ce
+ * qui a ete observe depuis que l'appareil est suivi ici (voir
+ * `aircraftFeed.ts`). S'eclaircit du plus ancien au plus recent, pour se lire
+ * comme un sillage plutot que comme un trait uniforme.
+ *
+ * L'historique grandit par mutation d'un tableau partage (`getAircraftHistory`) :
+ * sa reference ne change jamais, donc `useMemo` ne verrait aucun point neuf. On
+ * reconstruit la geometrie a chaque image ou sa longueur a change, plutot qu'a
+ * chaque image tout court — un simple entier compare suffit a l'economiser.
+ */
+function AircraftTrack({ hex, location, color }: { hex: string; location: GeoLocation; color: string }) {
+  const segments = useRef<LineSegments>(null)
+  const geometry = useMemo(() => {
+    const geo = new BufferGeometry()
+    geo.boundingSphere = new Sphere(new Vector3(), 1e6)
+    return geo
+  }, [])
+  const lastLength = useRef(-1)
+  const tint = useMemo(() => new Color(color), [color])
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  useFrame(() => {
+    const history = getAircraftHistory(hex)
+    if (history.length === lastLength.current) return
+    lastLength.current = history.length
+    if (history.length < 2) {
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(0), 3))
+      geometry.setAttribute('color', new BufferAttribute(new Float32Array(0), 3))
+      return
+    }
+
+    // Segments plutot que ligne continue : la meme construction que la trace
+    // satellite, sans les conflits de typage JSX de l'element `<line>`.
+    const segmentCount = history.length - 1
+    const positions = new Float32Array(segmentCount * 2 * 3)
+    const colors = new Float32Array(segmentCount * 2 * 3)
+    for (let i = 0; i < segmentCount; i++) {
+      for (let end = 0; end < 2; end++) {
+        const p = history[i + end]
+        const { horizontal, rangeKm } = geodeticToHorizontal(p.latitude, p.longitude, p.altitudeKm, location)
+        const [x, y, z] = horizontalToScene(horizontal, sceneDepth(rangeKm))
+        const vertex = i * 2 + end
+        positions[vertex * 3] = x
+        positions[vertex * 3 + 1] = y
+        positions[vertex * 3 + 2] = z
+        // Le plus ancien point s'efface presque totalement, le plus recent
+        // porte toute la couleur : ce degrade donne l'impression d'un sillage.
+        const age = 0.1 + 0.9 * ((i + end) / segmentCount)
+        colors[vertex * 3] = tint.r * age
+        colors[vertex * 3 + 1] = tint.g * age
+        colors[vertex * 3 + 2] = tint.b * age
+      }
+    }
+    geometry.setAttribute('position', new BufferAttribute(positions, 3))
+    geometry.setAttribute('color', new BufferAttribute(colors, 3))
+  })
+
+  return (
+    <lineSegments ref={segments} geometry={geometry} frustumCulled={false} renderOrder={6}>
+      <lineBasicMaterial vertexColors transparent opacity={0.8} depthWrite={false} />
+    </lineSegments>
+  )
+}
+
 /** Couche complete : un maillage et, le cas echeant, une trainee par avion visible. */
 export function AircraftLayer({
   states,
@@ -403,6 +470,7 @@ export function AircraftLayer({
   sunDirection,
   dayFactor,
   selectedHex,
+  trackColor,
 }: {
   states: readonly AircraftState[]
   location: GeoLocation
@@ -411,6 +479,8 @@ export function AircraftLayer({
   sunDirection: [number, number, number]
   dayFactor: number
   selectedHex: string | null
+  /** Couleur de la trace suivie de l'avion selectionne. */
+  trackColor: string
 }) {
   return (
     <group>
@@ -434,6 +504,7 @@ export function AircraftLayer({
           )}
         </group>
       ))}
+      {selectedHex && <AircraftTrack hex={selectedHex} location={location} color={trackColor} />}
     </group>
   )
 }

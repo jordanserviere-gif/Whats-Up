@@ -149,23 +149,30 @@ export const advanceGeodetic = (from: GeodeticPoint, distanceKm: number, bearing
  * toujours du vol reel : vent, virage, changement d'allure, et surtout
  * incertitude sur l'age de la donnee. Cet ecart est donc permanent, jamais
  * nul. L'appliquer tel quel fait sauter l'avion a chaque rafraichissement —
- * c'est exactement le « rollback » observe. On le fait fondre en une seconde
- * et demie, ce qui le rend imperceptible.
+ * c'est le « rollback » observe.
+ *
+ * Une premiere version le resorbait a une vitesse fixe (temps ecoule /
+ * duree). Ca fondait l'ecart, mais ne l'empechait pas de reculer : rien
+ * n'interdisait a la vitesse de resorption de depasser la vitesse de vol
+ * elle-meme, auquel cas l'avion recule quand meme, juste plus lentement.
+ * La bonne garantie n'est pas temporelle mais geometrique : on decompose
+ * l'ecart en une composante **le long de la route** et une **perpendiculaire**.
+ * Seule la premiere peut donner l'impression d'un recul (la seconde n'est
+ * qu'une derive laterale, jamais percue comme un retour en arriere). On la
+ * resorbe donc au rythme de la distance **reellement parcourue** par l'avion
+ * plutot qu'au rythme du temps : la resorption ne peut alors jamais aller plus
+ * vite que le vol, donc jamais faire reculer la position affichee. Au pire
+ * elle marque une pause de quelques secondes le temps de rattraper l'ecart —
+ * jamais un retour en arriere.
  */
 const CORRECTION_FADE_MS = 1500
 
-/**
- * Vitesse maximale a laquelle une correction est resorbee, en km/s.
- *
- * Une duree fixe ne suffit pas : une grosse correction resorbee en une seconde
- * et demie deplace l'avion plus vite qu'il ne vole, et le recul redevient
- * visible — surtout quand il s'eloigne en ligne de visee, ou sa progression
- * apparente est presque nulle. On etale donc les grands ecarts sur plus
- * longtemps, de facon que le glissement reste toujours lent devant le vol.
- */
-const MAX_CORRECTION_KM_PER_SEC = 0.04
-/** Plafond de duree : au-dela, la correction trainerait plus que la mesure ne dure. */
+/** Plafond de duree pour la composante laterale : au-dela, la derive trainerait trop. */
 const MAX_CORRECTION_FADE_MS = 8000
+/** Vitesse de resorption de la composante laterale, en km/s (celle-ci ne risque pas de reculer). */
+const MAX_CORRECTION_KM_PER_SEC = 0.04
+/** Kilometres par degre de latitude — la Terre est une sphere assez grande pour l'approximation. */
+const KM_PER_DEG = EARTH_RADIUS_KM * DEG
 
 /**
  * Au-dela de cet ecart, ce n'est plus une correction mais un objet different :
@@ -194,17 +201,47 @@ interface Track {
   turnRateDegPerSec: number
   /** Dernier point reellement affiche — c'est a lui qu'il faut se raccorder. */
   shown: GeodeticPoint
-  offset: { dLat: number; dLon: number; dAltKm: number }
+  /**
+   * Ecart le long de la route au moment de la correction, en kilometres,
+   * signe : positif si l'affichage etait en avance sur la nouvelle prediction.
+   * Se resorbe au rythme de la distance parcourue, jamais du temps ecoule —
+   * c'est ce qui interdit tout recul.
+   */
+  alongOffsetKm: number
+  /** Ecart perpendiculaire a la route et en altitude, resorbe par le temps : sans risque de recul. */
+  crossOffset: { dLat: number; dLon: number; dAltKm: number }
   offsetAtMs: number
-  /** Duree de resorption, proportionnee a l ecart constate. */
+  /** Duree de resorption laterale, proportionnee a l ecart constate. */
   fadeMs: number
 }
 
-const ZERO_OFFSET = { dLat: 0, dLon: 0, dAltKm: 0 }
+const ZERO_CROSS_OFFSET = { dLat: 0, dLon: 0, dAltKm: 0 }
 const tracks = new Map<string, Track>()
 
 /** Ecart de cap le plus court entre deux azimuts, dans [−180, 180]. */
 const bearingDelta = (from: number, to: number) => ((to - from + 540) % 360) - 180
+
+/**
+ * Decompose un ecart de position (en degres de latitude/longitude) en une
+ * composante le long d'un cap et une composante perpendiculaire, toutes deux
+ * en kilometres.
+ */
+function decomposeAlongTrack(dLat: number, dLon: number, atLatitudeDeg: number, trackDeg: number) {
+  const north = dLat * KM_PER_DEG
+  const east = dLon * KM_PER_DEG * Math.cos(atLatitudeDeg * DEG)
+  const trackRad = trackDeg * DEG
+  const along = north * Math.cos(trackRad) + east * Math.sin(trackRad)
+  const cross = -north * Math.sin(trackRad) + east * Math.cos(trackRad)
+  return { along, cross }
+}
+
+/** Reconstruit un ecart de latitude/longitude (en degres) a partir de ses composantes le long d'un cap. */
+function recomposeAlongTrack(along: number, cross: number, atLatitudeDeg: number, trackDeg: number) {
+  const trackRad = trackDeg * DEG
+  const north = along * Math.cos(trackRad) - cross * Math.sin(trackRad)
+  const east = along * Math.sin(trackRad) + cross * Math.cos(trackRad)
+  return { dLat: north / KM_PER_DEG, dLon: east / (KM_PER_DEG * Math.cos(atLatitudeDeg * DEG) || 1) }
+}
 
 /**
  * Position atteinte apres `seconds`, en suivant le virage en cours.
@@ -278,7 +315,8 @@ export function extrapolatedGeodetic(state: AircraftState, nowMs: number): Geode
       previousMeasuredAtMs: state.measuredAtMs,
       turnRateDegPerSec: 0,
       shown: predicted,
-      offset: ZERO_OFFSET,
+      alongOffsetKm: 0,
+      crossOffset: ZERO_CROSS_OFFSET,
       offsetAtMs: nowMs,
       fadeMs: CORRECTION_FADE_MS,
     }
@@ -292,12 +330,22 @@ export function extrapolatedGeodetic(state: AircraftState, nowMs: number): Geode
     const dLon = track.shown.longitude - predicted.longitude
     const gapKm = Math.hypot(dLat, dLon * Math.cos(predicted.latitude * DEG)) * (Math.PI / 180) * EARTH_RADIUS_KM
 
-    track.offset =
-      gapKm > MAX_SMOOTHED_KM
-        ? ZERO_OFFSET
-        : { dLat, dLon, dAltKm: track.shown.altitudeKm - predicted.altitudeKm }
-    // Duree proportionnee a l'ecart : c'est la *vitesse* du rattrapage qu'il
-    // faut garder lente, pas sa duree.
+    if (gapKm > MAX_SMOOTHED_KM) {
+      track.alongOffsetKm = 0
+      track.crossOffset = ZERO_CROSS_OFFSET
+    } else {
+      const { along, cross } = decomposeAlongTrack(dLat, dLon, predicted.latitude, state.trackDeg ?? 0)
+      track.alongOffsetKm = along
+      track.crossOffset = { dLat: 0, dLon: 0, dAltKm: track.shown.altitudeKm - predicted.altitudeKm }
+      // La composante laterale seule est reconstruite en degres, pour se
+      // recombiner ensuite avec la composante longitudinale — resorbee, elle,
+      // au rythme du vol plutot que du temps.
+      const lateral = recomposeAlongTrack(0, cross, predicted.latitude, state.trackDeg ?? 0)
+      track.crossOffset.dLat = lateral.dLat
+      track.crossOffset.dLon = lateral.dLon
+    }
+    // Duree proportionnee a l'ecart lateral : c'est la *vitesse* du rattrapage
+    // qu'il faut garder lente, pas sa duree.
     track.fadeMs = Math.min(
       MAX_CORRECTION_FADE_MS,
       Math.max(CORRECTION_FADE_MS, (gapKm / MAX_CORRECTION_KM_PER_SEC) * 1000),
@@ -306,11 +354,23 @@ export function extrapolatedGeodetic(state: AircraftState, nowMs: number): Geode
     track.measuredAtMs = state.measuredAtMs
   }
 
+  // Composante laterale : resorbee par le temps, sans risque de recul percu.
   const k = Math.max(0, 1 - (nowMs - track.offsetAtMs) / track.fadeMs)
+  const { dLat: crossDLat, dLon: crossDLon } = track.crossOffset
+
+  // Composante longitudinale : resorbee par la distance **effectivement
+  // parcourue** depuis la correction, pas par le temps. La resorption ne peut
+  // donc jamais aller plus vite que l'avion lui-meme — geometriquement, elle
+  // ne peut jamais le faire reculer, tout au plus marquer une pause.
+  const flownKm = groundDistanceKm(state, Math.max(0, nowMs - track.offsetAtMs) / 1000)
+  const alongRemainingKm =
+    Math.sign(track.alongOffsetKm) * Math.max(0, Math.abs(track.alongOffsetKm) - flownKm)
+  const along = recomposeAlongTrack(alongRemainingKm, 0, predicted.latitude, state.trackDeg ?? 0)
+
   const shown: GeodeticPoint = {
-    latitude: predicted.latitude + track.offset.dLat * k,
-    longitude: predicted.longitude + track.offset.dLon * k,
-    altitudeKm: predicted.altitudeKm + track.offset.dAltKm * k,
+    latitude: predicted.latitude + along.dLat + crossDLat * k,
+    longitude: predicted.longitude + along.dLon + crossDLon * k,
+    altitudeKm: predicted.altitudeKm + track.crossOffset.dAltKm * k,
   }
   // Memorise pour le prochain raccord. Plusieurs couches appellent cette
   // fonction par image — maillage, icone, trainee, pointage — mais toutes avec
