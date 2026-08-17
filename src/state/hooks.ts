@@ -13,6 +13,8 @@ import {
   computeSkyConditions,
 } from '@/astro/bodies'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
+import { computeAircraftState, type AircraftState } from '@/astro/aircraft'
+import { ensureAircraftPolling, getAircraftFeedSnapshot, stopAircraftPolling, subscribeAircraftFeed } from './aircraftFeed'
 import type { BodyId, BodyState, GeoLocation, OrbitalElements, SatellitePass } from '@/astro/types'
 
 /** Cadence de recalcul des ephemerides : 10 Hz suffit largement a l'oeil. */
@@ -366,3 +368,63 @@ export function useSatellitePasses(
 
   return { passes, loading }
 }
+
+/** Tolerance de decalage temporel : au-dela, l'instant simule n'est plus « maintenant ». */
+const AIRCRAFT_LIVE_TOLERANCE_MS = 5 * 60_000
+
+const EMPTY_AIRCRAFT: AircraftState[] = []
+
+export interface AircraftFeed {
+  aircraft: AircraftState[]
+  status: SourceStatus | null
+  loading: boolean
+  /**
+   * Faux si l'instant simule s'est trop eloigne du present.
+   * L'ADS-B n'a pas d'archive gratuite : reculer ou avancer la frise ne peut
+   * pas montrer des avions d'hier ou de demain, seulement ceux d'a l'instant.
+   */
+  live: boolean
+}
+
+/**
+ * Avions reels a portee du lieu d'observation, recuperes en direct.
+ *
+ * Le minuteur qui interroge le relais vit hors de React (`aircraftFeed.ts`) et
+ * survit aux montages/demontages des composants consommateurs — la barre haute
+ * reste affichee en permanence et sert de point d'ancrage naturel a
+ * l'interrogation, mais rien n'empeche la scene ou une fiche de detail de s'y
+ * abonner en parallele sans relancer de requete.
+ */
+export function useNearbyAircraft(): AircraftFeed {
+  const enabled = useSkyStore((s) => s.layers.aircraft)
+  const location = useSkyStore((s) => s.location)
+  const time = useSkyStore((s) => s.time)
+  const live = Math.abs(time - Date.now()) < AIRCRAFT_LIVE_TOLERANCE_MS
+  const active = enabled && live
+
+  // Arrondi : un tremblement de quelques metres dans la position geolocalisee
+  // ne doit pas relancer l'interrogation.
+  const lat = Math.round(location.latitude * 100) / 100
+  const lon = Math.round(location.longitude * 100) / 100
+
+  useEffect(() => {
+    if (active) ensureAircraftPolling(lat, lon)
+    else stopAircraftPolling()
+  }, [active, lat, lon])
+
+  const snapshot = useSyncExternalStore(subscribeAircraftFeed, getAircraftFeedSnapshot)
+
+  const aircraft = useMemo(() => {
+    if (!active) return EMPTY_AIRCRAFT
+    const out: AircraftState[] = []
+    for (const a of snapshot.raw) {
+      const s = computeAircraftState(a, location)
+      if (s) out.push(s)
+    }
+    return out
+  }, [active, snapshot.raw, location])
+
+  return { aircraft, status: active ? snapshot.status : null, loading: active && snapshot.loading, live }
+}
+
+export { AIRCRAFT_RADIUS_KM, getAircraftHistory, type AircraftHistoryPoint } from './aircraftFeed'

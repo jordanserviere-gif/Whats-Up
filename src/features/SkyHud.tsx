@@ -1,6 +1,6 @@
 import { Badge, Chip, ChipSet, IconButton, Surface, Toolbar, Tooltip } from '@/ui'
 import { useSkyStore, type LayerVisibility } from '@/state/store'
-import { useCelestrakSatellites, useSkyConditions } from '@/state/hooks'
+import { AIRCRAFT_RADIUS_KM, useCelestrakSatellites, useNearbyAircraft, useSkyConditions } from '@/state/hooks'
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { MAX_FOV, MIN_FOV } from '@/scene/CameraRig'
 import { SkySearch } from './SkySearch'
@@ -47,7 +47,10 @@ export function SkyHud() {
 
       <SkySearch className="sky-hud__search" />
 
-      <SatelliteToggle />
+      <div className="sky-hud__live-layers">
+        <SatelliteToggle />
+        <AircraftToggle />
+      </div>
 
       <Toolbar className="sky-hud__view-tools" vertical>
         <Tooltip content="Regarder le zénith" placement="start">
@@ -134,6 +137,52 @@ function SatelliteToggle() {
       {enabled && elements.length > 0 && (
         <button type="button" className="sky-hud__satellites-count" onClick={() => setTab('satellites')}>
           <Badge tone="tertiary">{elements.length}</Badge>
+        </button>
+      )}
+    </Toolbar>
+  )
+}
+
+/**
+ * Bascule des avions reels.
+ *
+ * Suivi en direct uniquement : l'ADS-B n'a pas d'archive gratuite, donc rien
+ * n'apparait quand la frise s'est eloignee de l'instant present — le detail
+ * dit pourquoi plutot que de laisser un bouton mysterieusement inactif.
+ */
+function AircraftToggle() {
+  const enabled = useSkyStore((s) => s.layers.aircraft)
+  const setLayer = useSkyStore((s) => s.setLayer)
+  const setTab = useSkyStore((s) => s.setTab)
+  const { aircraft, loading, status, live } = useNearbyAircraft()
+
+  const label = enabled ? 'Masquer les avions' : 'Afficher les avions'
+  const detail = !live
+    ? `Disponible en direct seulement (rayon ${AIRCRAFT_RADIUS_KM} km)`
+    : !enabled
+      ? `Positions réelles dans un rayon de ${AIRCRAFT_RADIUS_KM} km`
+      : loading && aircraft.length === 0
+        ? 'Récupération des positions…'
+        : aircraft.length === 0
+          ? 'Aucun avion dans le rayon suivi'
+          : `${aircraft.length} avions · source ${status?.origin ?? 'défaut'}`
+
+  return (
+    <Toolbar className="sky-hud__aircraft">
+      <Tooltip content={detail} placement="bottom">
+        <IconButton
+          icon="flight"
+          label={label}
+          variant="tonal"
+          selected={enabled}
+          loading={enabled && loading && aircraft.length === 0}
+          disabled={!live}
+          onClick={() => setLayer('aircraft', !enabled)}
+        />
+      </Tooltip>
+      {enabled && aircraft.length > 0 && (
+        <button type="button" className="sky-hud__aircraft-count" onClick={() => setTab('objets')}>
+          <Badge tone="tertiary">{aircraft.length}</Badge>
         </button>
       )}
     </Toolbar>

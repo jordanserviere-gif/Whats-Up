@@ -14,7 +14,11 @@
   border-radius: var(--md-sys-shape-corner-extra-small);
   background: var(--md-sys-color-inverse-surface);
   color: var(--md-sys-color-inverse-on-surface);
-  white-space: nowrap;
+  /* `nowrap` conjugue a `max-width` est un piege : passe la largeur, le texte
+   * ne s'enroule pas, il deborde. Une bulle courte n'atteint jamais sa largeur
+   * max et tient sur une ligne de toute facon ; une plus longue s'enroule
+   * proprement plutot que de sortir de sa boite. */
+  white-space: normal;
   opacity: 0;
   pointer-events: none;
   transform: scale(0.9);

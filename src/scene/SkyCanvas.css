@@ -72,6 +72,19 @@
   opacity: 0.78;
 }
 
+/* Repere d'avion : taille fixe en pixels, jamais affectee par le zoom ni par le
+ * voile atmospherique du maillage 3D — c'est le seul moyen de reperer un avion
+ * une fois son maillage reel passe sous la taille d'un pixel. Centre sur sa
+ * position, contrairement aux etiquettes de texte qui se decalent pour ne pas
+ * recouvrir le disque de l'objet. */
+.sky-label--aircraft {
+  --_icon-size: 15px;
+  translate: -50% -50%;
+  color: var(--app-body-satellite);
+  text-shadow: 0 0 4px rgb(0 0 0 / 0.7);
+  opacity: 0.92;
+}
+
 .sky-label--constellation {
   font-family: var(--md-sys-typescale-label-medium-font);
   font-size: var(--md-sys-typescale-label-medium-size);

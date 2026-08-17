@@ -21,7 +21,7 @@ export const DOME_RADIUS = 320
 /**
  * Rayon de la calotte de sol. Elle doit etre **plus proche** que les etoiles et
  * les grilles (SKY_RADIUS) pour les masquer sous l'horizon, tout en restant
- * plus lointaine que le corps le plus eloigne du systeme solaire (~90).
+ * plus lointaine que le corps le plus eloigne du systeme solaire (~73).
  */
 export const GROUND_RADIUS = 150
 
@@ -37,12 +37,34 @@ export const GROUND_RADIUS = 150
  * (voir `sceneRadiusForBody`), ce qui conserve exactement son diametre
  * apparent. Geometrie angulaire juste, profondeur juste : une eclipse se joue
  * alors toute seule dans le tampon de profondeur.
+ *
+ * **L'ordonnee a l'origine n'est pas anodine.** Elle valait −11,19, ce qui
+ * annulait la profondeur a 32,9 km et la rendait *negative* en deca. Un rayon
+ * negatif passe a `horizontalToScene` renvoie le point de l'autre cote de
+ * l'observateur, donc derriere la camera : invisible. Tant que la scene ne
+ * contenait que des objets astronomiques — le satellite le plus bas est a
+ * quelques centaines de kilometres — le defaut restait sans effet. Il est
+ * apparu avec les avions, qui vivent entre 1 et 75 km : ceux d'a cote
+ * disparaissaient purement et simplement, silhouette et trainee comprises,
+ * seule leur icone en pixels restant visible puisqu'elle est posee a
+ * `SKY_RADIUS`.
+ *
+ * L'ordonnee vaut donc maintenant la profondeur voulue a un kilometre, la
+ * distance la plus courte que la scene ait a representer. Toute la courbe est
+ * translatee d'autant : les rapports de taille sont inchanges — ils ne
+ * dependent que de `rayon / distance` —, l'ordre des occultations aussi, et le
+ * corps le plus lointain reste tres en deca de `GROUND_RADIUS`.
  */
 const DEPTH_SLOPE = 7.375
-const DEPTH_OFFSET = -11.19
+/**
+ * Profondeur attribuee a un objet a un kilometre. Confortablement au-dela du
+ * plan rapproche de la camera (0,1), pour qu'un avion presque au zenith ne
+ * vienne pas s'y faire tronquer.
+ */
+const DEPTH_AT_ONE_KM = 0.4
 
 export function sceneDepth(distanceKm: number): number {
-  return DEPTH_SLOPE * Math.log10(Math.max(1, distanceKm)) + DEPTH_OFFSET
+  return DEPTH_SLOPE * Math.log10(Math.max(1, distanceKm)) + DEPTH_AT_ONE_KM
 }
 
 /**

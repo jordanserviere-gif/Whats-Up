@@ -5,6 +5,7 @@ import { SkyHud } from '@/features/SkyHud'
 import { TimelineBar } from '@/features/TimelineBar'
 import { ObjectsDetail, ObjectsPanel } from '@/features/ObjectsPanel'
 import { SatelliteDetail, SatellitesPanel } from '@/features/SatellitesPanel'
+import { AircraftDetail } from '@/features/AircraftDetail'
 import { SettingsPanel } from '@/features/SettingsPanel'
 import { useSkyStore, type ViewTab } from '@/state/store'
 import { useTimeEngine } from '@/state/hooks'
@@ -34,6 +35,7 @@ export function App() {
   const setPlaying = useSkyStore((s) => s.setPlaying)
   const goLive = useSkyStore((s) => s.goLive)
   const satelliteCount = useSkyStore((s) => s.satellites.length)
+  const selectedAircraftHex = useSkyStore((s) => s.selectedAircraftHex)
   const { mode, toggleMode } = useTheme()
 
   // Raccourcis clavier : espace = pause, N = maintenant, Echap = fermer le panneau.
@@ -98,9 +100,17 @@ export function App() {
         onClose={() => setPanelOpen(false)}
         className="app__panel"
         /* La fiche de l'objet designe est ancree sous la liste : on parcourt le
-           catalogue sans jamais perdre de vue ce que l'on vient de choisir. */
+           catalogue sans jamais perdre de vue ce que l'on vient de choisir. Un
+           avion designe prend le pas sur le contenu habituel de l'onglet — il
+           n'appartient a aucun catalogue et n'a pas sa propre place fixe. */
         detail={
-          tab === 'satellites' ? <SatelliteDetail /> : tab === 'reglages' ? undefined : <ObjectsDetail />
+          selectedAircraftHex ? (
+            <AircraftDetail />
+          ) : tab === 'satellites' ? (
+            <SatelliteDetail />
+          ) : tab === 'reglages' ? undefined : (
+            <ObjectsDetail />
+          )
         }
       >
         {tab === 'ciel' && <ObjectsPanel />}

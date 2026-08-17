@@ -67,6 +67,8 @@ export interface LayerVisibility {
   /** Satellites reels recuperes depuis CelesTrak. */
   celestrak: boolean
   satelliteTracks: boolean
+  /** Avions reels recuperes en direct (ADS-B), dans un rayon autour du lieu. */
+  aircraft: boolean
   /** Flou lumineux autour des sources vives : le halo du Soleil en depend. */
   bloom: boolean
 }
@@ -110,6 +112,15 @@ interface SkyState {
   select: (selection: SkySelection | null) => void
   selectBody: (id: BodyId | null) => void
   selectSatellite: (id: string | null) => void
+  /**
+   * Avion designe.
+   *
+   * A part : un avion n'appartient a aucun catalogue et ne se cherche pas par
+   * nom, contrairement aux familles couvertes par `SkySelection`. Selectionner
+   * l'un efface l'autre, pour qu'une seule fiche s'affiche a la fois.
+   */
+  selectedAircraftHex: string | null
+  selectAircraft: (hex: string | null) => void
 
   // --- Calques ---
   layers: LayerVisibility
@@ -156,6 +167,7 @@ const DEFAULT_LAYERS: LayerVisibility = {
   satellites: true,
   celestrak: false,
   satelliteTracks: true,
+  aircraft: false,
   bloom: true,
 }
 
@@ -192,9 +204,11 @@ export const useSkyStore = create<SkyState>()(
       lookAt: (azimuth, altitude) => set({ lookAtTarget: { azimuth, altitude, key: Date.now() } }),
 
       selection: null,
-      select: (selection) => set({ selection }),
-      selectBody: (id) => set({ selection: id ? { kind: 'body', id } : null }),
-      selectSatellite: (id) => set({ selection: id ? { kind: 'satellite', id } : null }),
+      select: (selection) => set({ selection, selectedAircraftHex: null }),
+      selectBody: (id) => set({ selection: id ? { kind: 'body', id } : null, selectedAircraftHex: null }),
+      selectSatellite: (id) => set({ selection: id ? { kind: 'satellite', id } : null, selectedAircraftHex: null }),
+      selectedAircraftHex: null,
+      selectAircraft: (hex) => set(hex ? { selectedAircraftHex: hex, selection: null } : { selectedAircraftHex: null }),
 
       layers: DEFAULT_LAYERS,
       toggleLayer: (key) => set((s) => ({ layers: { ...s.layers, [key]: !s.layers[key] } })),

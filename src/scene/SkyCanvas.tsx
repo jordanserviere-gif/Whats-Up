@@ -4,16 +4,17 @@ import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { Matrix4, NoToneMapping } from 'three'
 import { BODIES } from '@/astro/bodies'
 import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
-import { selectedBodyId, selectedSatelliteId, useSkyStore } from '@/state/store'
+import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
 import {
   useAllSatellites,
   useBodyStates,
+  useNearbyAircraft,
   useSatelliteStates,
   useSatelliteTracks,
   useSimulatedDate,
   useSkyConditions,
 } from '@/state/hooks'
-import { hexToRgb, readToken, viewDirection } from './sceneMath'
+import { angularDistance, hexToRgb, readToken, viewDirection } from './sceneMath'
 import { pickSkyTarget } from './picking'
 import { fieldLabels } from './fieldLabels'
 import { useSceneColors } from './useSceneColors'
@@ -27,10 +28,14 @@ import { SkyBackground } from './SkyBackground'
 import { SolarSystemBodies } from './Bodies'
 import { useBodyTextures } from './useBodyTextures'
 import { SatelliteLayer } from './Satellites'
+import { AircraftLayer } from './Aircraft'
 import { LabelLayer, type SceneLabel } from './LabelLayer'
 import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
+import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
 import './SkyCanvas.css'
+
+const EMPTY_AIRCRAFT: AircraftState[] = []
 
 /**
  * Vue du ciel.
@@ -54,7 +59,9 @@ export function SkyCanvas() {
   const viewAltitude = useSkyStore((s) => s.viewAltitude)
   const selectedBody = useSkyStore(selectedBodyId)
   const selectedSatellite = useSkyStore(selectedSatelliteId)
+  const selectedAircraftHex = useSkyStore((s) => s.selectedAircraftHex)
   const select = useSkyStore((s) => s.select)
+  const selectAircraft = useSkyStore((s) => s.selectAircraft)
   const setTab = useSkyStore((s) => s.setTab)
   const lookAt = useSkyStore((s) => s.lookAt)
 
@@ -85,6 +92,16 @@ export function SkyCanvas() {
     [satellites, selectedSatellite],
   )
   const satTracks = useSatelliteTracks(tracked)
+  const aircraftFeed = useNearbyAircraft()
+  const aircraftStates = layers.aircraft ? aircraftFeed.aircraft : EMPTY_AIRCRAFT
+  if (import.meta.env.DEV) {
+    ;(window as unknown as { __aircraftStates: unknown }).__aircraftStates = aircraftStates.map((a) => ({
+      hex: a.hex,
+      az: a.horizontal.azimuth,
+      alt: a.horizontal.altitude,
+      rangeKm: a.rangeKm,
+    }))
+  }
   const colors = useSceneColors()
   const textures = useBodyTextures()
   const pickMatrix = useRef(new Matrix4())
@@ -117,14 +134,52 @@ export function SkyCanvas() {
   }, [layers.atmosphere, sky.solarLux, sky.obscuration, colors.skyDay])
 
   /**
+   * Facteur jour/nuit applique au maillage realiste des avions.
+   *
+   * Un avion ne reflechit que la lumiere du jour : sans elle, il redevient un
+   * point de navigation clignotant, pas une silhouette grise visible. Le
+   * repere en pixels fixes, lui, reste allume — c'est le seul qui vaille la
+   * nuit, comme les feux de position dans la vraie vie.
+   */
+  const dayFactor = Math.min(1, Math.max(0.12, (sky.sunAltitude + 6) / 6))
+
+  /**
    * Designation d'un objet par un clic dans la scene.
    *
    * Le balayage a deja ete ecarte en amont : ce rappel ne recoit que de vraies
-   * intentions de pointage. Un clic dans le vide deselectionne, ce qui donne un
+   * intentions de pointage. Les avions sont testes en premier — une couche
+   * mobile posee au-dessus du reste — avant de retomber sur le catalogue fixe
+   * et les satellites. Un clic dans le vide deselectionne, ce qui donne un
    * moyen evident de refermer une fiche.
    */
   const onPick = useCallback(
     (request: PickRequest) => {
+      if (layers.aircraft && aircraftStates.length > 0) {
+        let bestHex: string | null = null
+        let bestHorizontal: { azimuth: number; altitude: number } | null = null
+        let bestDistance = Number.POSITIVE_INFINITY
+        const pickNow = Date.now()
+        for (const a of aircraftStates) {
+          // On vise la position affichee a l'instant du clic, pas la derniere
+          // mesure brute : entre deux sondages, l'icone a deja glisse.
+          const geo = extrapolatedGeodetic(a, pickNow)
+          const { horizontal } = geodeticToHorizontal(geo.latitude, geo.longitude, geo.altitudeKm, location)
+          if (horizontal.altitude < -2) continue
+          const d = angularDistance(request.aim, horizontal)
+          if (d <= request.toleranceDeg && d < bestDistance) {
+            bestDistance = d
+            bestHex = a.hex
+            bestHorizontal = horizontal
+          }
+        }
+        if (bestHex && bestHorizontal) {
+          selectAircraft(bestHex)
+          setTab('objets')
+          lookAt(bestHorizontal.azimuth, bestHorizontal.altitude)
+          return
+        }
+      }
+
       const result = pickSkyTarget(
         request.direction,
         request.aim,
@@ -154,7 +209,20 @@ export function SkyCanvas() {
       setTab(result.target.kind === 'satellite' ? 'satellites' : 'objets')
       lookAt(result.horizontal.azimuth, result.horizontal.altitude)
     },
-    [date, location, layers, bodies, satellites, satStates, limitingMagnitude, select, setTab, lookAt],
+    [
+      date,
+      location,
+      layers,
+      bodies,
+      satellites,
+      satStates,
+      aircraftStates,
+      limitingMagnitude,
+      select,
+      selectAircraft,
+      setTab,
+      lookAt,
+    ],
   )
 
   const bodyColors = useMemo(() => {
@@ -254,8 +322,29 @@ export function SkyCanvas() {
       })
     }
 
+    // Repere de chaque avion : c'est lui, pas le maillage realiste, qui reste
+    // visible quel que soit le grossissement. Sa position se recalcule a
+    // chaque image (voir `resolve`) : sans ca, l'icone resterait figee entre
+    // deux sondages ADS-B, vingt secondes durant.
+    if (layers.aircraft) {
+      for (const a of aircraftStates) {
+        if (a.horizontal.altitude < -2) continue
+        out.push({
+          id: `aircraft-${a.hex}`,
+          text: 'flight',
+          horizontal: a.horizontal,
+          resolve: () => {
+            const geo = extrapolatedGeodetic(a, Date.now())
+            return geodeticToHorizontal(geo.latitude, geo.longitude, geo.altitudeKm, location).horizontal
+          },
+          color: '',
+          kind: 'aircraft',
+        })
+      }
+    }
+
     return out
-  }, [layers, bodies, satellites, satStates, selectedSatellite, colors, bodyColors, limitingMagnitude])
+  }, [layers, bodies, satellites, satStates, selectedSatellite, aircraftStates, colors, bodyColors, limitingMagnitude])
 
   // Les figures ne se lisent que sur un ciel sombre : inutile de les etiqueter
   // en plein jour, ou les etoiles qui les portent sont invisibles.
@@ -348,6 +437,16 @@ export function SkyCanvas() {
             palette={colors.track}
             limitingMagnitude={limitingMagnitude}
             selectedId={selectedSatellite}
+          />
+        )}
+
+        {layers.aircraft && aircraftStates.length > 0 && (
+          <AircraftLayer
+            states={aircraftStates}
+            location={location}
+            airlight={airlight}
+            dayFactor={dayFactor}
+            selectedHex={selectedAircraftHex}
           />
         )}
 

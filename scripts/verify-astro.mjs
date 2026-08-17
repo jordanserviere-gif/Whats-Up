@@ -29,7 +29,7 @@ import {
   buildDeepSkyGeometry,
   findDeepSkyObject,
 } from '../src/astro/deepsky.ts'
-import { equatorialToSceneMatrix, horizontalToScene, sceneDepth, sceneRadiusForBody } from '../src/scene/sceneMath.ts'
+import { GROUND_RADIUS, equatorialToSceneMatrix, horizontalToScene, sceneDepth, sceneRadiusForBody } from '../src/scene/sceneMath.ts'
 
 let failures = 0
 const check = (label, actual, expected, tolerance, unit = '') => {
@@ -337,6 +337,50 @@ console.log('\n=== 6. Eclipse totale du 12 aout 2026 ===')
     const angular = 2 * Math.asin(sceneRadiusForBody(body.radiusKm, body.distanceKm) / sceneDepth(body.distanceKm)) * RAD
     check(`${body.name} : diametre apparent preserve`, angular, body.angularDiameter, 1e-6, '°')
   }
+
+  /**
+   * La profondeur de scene doit rester strictement positive et croissante sur
+   * tout le domaine represente — d'un avion a un kilometre jusqu'a Neptune.
+   *
+   * Ce balayage repond a un defaut reel : l'ordonnee a l'origine valait
+   * −11,19, ce qui annulait la profondeur a 32,9 km puis la rendait negative.
+   * Un rayon negatif renvoie le point derriere l'observateur, et tout objet
+   * plus proche que ce seuil disparaissait — sans consequence tant que la
+   * scene n'avait que des astres, fatal des l'arrivee des avions.
+   */
+  const NEAR_PLANE = 0.1
+  const distances = []
+  for (let e = 0; e <= 10; e += 0.25) distances.push(Math.pow(10, e))
+
+  let positive = true
+  let increasing = true
+  let worst = Infinity
+  let previous = -Infinity
+  for (const d of distances) {
+    const depth = sceneDepth(d)
+    if (depth <= NEAR_PLANE) positive = false
+    if (depth <= previous) increasing = false
+    if (depth < worst) worst = depth
+    previous = depth
+  }
+
+  if (!positive) failures++
+  console.log(
+    `${positive ? 'OK  ' : 'ECHEC'} ${'profondeur : toujours devant la camera'.padEnd(52)} minimum ${worst.toFixed(2)} (plan rapproche ${NEAR_PLANE})`,
+  )
+  if (!increasing) failures++
+  console.log(
+    `${increasing ? 'OK  ' : 'ECHEC'} ${'profondeur : strictement croissante'.padEnd(52)} 1 km → 1e10 km, ordre des occultations preserve`,
+  )
+
+  // Le corps le plus lointain doit rester en deca du sol, sinon la calotte
+  // cesserait de masquer ce qui passe sous l'horizon.
+  const farthest = sceneDepth(7.4e9)
+  const insideGround = farthest < GROUND_RADIUS
+  if (!insideGround) failures++
+  console.log(
+    `${insideGround ? 'OK  ' : 'ECHEC'} ${'profondeur : Pluton en deca du sol'.padEnd(52)} ${farthest.toFixed(1)} < ${GROUND_RADIUS}`,
+  )
 }
 
 console.log('\n=== 7. Eclairement solaire des corps ===')

@@ -82,15 +82,23 @@
   justify-self: center;
 }
 
-/* --- Satellites reels --- */
-.sky-hud__satellites {
+/* --- Calques en direct : satellites, avions --- */
+.sky-hud__live-layers {
   grid-column: 3;
   grid-row: 1;
   justify-self: end;
+  display: flex;
+  align-items: center;
   gap: var(--md-sys-spacing-2);
 }
 
-.sky-hud__satellites-count {
+.sky-hud__satellites,
+.sky-hud__aircraft {
+  gap: var(--md-sys-spacing-2);
+}
+
+.sky-hud__satellites-count,
+.sky-hud__aircraft-count {
   display: grid;
   place-items: center;
   padding: 0;
@@ -181,7 +189,7 @@
     grid-column: 1 / -1;
     grid-row: 2;
   }
-  .sky-hud__satellites {
+  .sky-hud__live-layers {
     grid-column: 2;
     grid-row: 1;
   }

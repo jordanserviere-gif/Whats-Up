@@ -12,7 +12,7 @@ export interface SceneLabel {
   horizontal: Horizontal
   color: string
   /** Style d'etiquette : influence la taille et l'opacite. */
-  kind: 'body' | 'satellite' | 'cardinal' | 'constellation' | 'fixed'
+  kind: 'body' | 'satellite' | 'cardinal' | 'constellation' | 'fixed' | 'aircraft'
   /**
    * Rayon apparent de l'objet, en degres.
    *
@@ -21,6 +21,14 @@ export interface SceneLabel {
    * constant deposerait son nom au milieu de la planete.
    */
   angularRadiusDeg?: number
+  /**
+   * Position recalculee a chaque image plutot que lue telle quelle.
+   *
+   * Sert aux objets qu'on veut voir glisser en continu — un avion, par
+   * exemple, dont la mesure ADS-B n'arrive que toutes les vingt secondes —
+   * sans attendre que la liste d'etiquettes elle-meme soit reconstruite.
+   */
+  resolve?: () => Horizontal
 }
 
 /**
@@ -52,7 +60,9 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
       let node = nodes.current.get(label.id)
       if (!node) {
         node = document.createElement('span')
-        node.className = `sky-label sky-label--${label.kind}`
+        // Le repere d'un avion est un glyphe Material Symbols, pas du texte :
+        // meme convention que le composant `Icon` (nom du glyphe en contenu).
+        node.className = `sky-label sky-label--${label.kind}${label.kind === 'aircraft' ? ' md-icon' : ''}`
         container.appendChild(node)
         nodes.current.set(label.id, node)
       }
@@ -79,7 +89,7 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
     for (const label of labels) {
       const node = nodes.current.get(label.id)
       if (!node) continue
-      const [x, y, z] = horizontalToScene(label.horizontal)
+      const [x, y, z] = horizontalToScene(label.resolve ? label.resolve() : label.horizontal)
       world.current.set(x, y, z).project(camera)
 
       // z > 1 : le point est derriere la camera.
