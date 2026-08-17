@@ -1,5 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react'
 import { Icon } from './Icon'
+import { LoadingIndicator } from './LoadingIndicator'
 import { Ripple } from './Ripple'
 import { cx } from './utils'
 import './IconButton.css'
@@ -18,12 +19,27 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   width?: IconButtonWidth
   shape?: 'round' | 'square'
   selected?: boolean
+  /** Remplace le glyphe par un indicateur, le temps d'une operation en cours. */
+  loading?: boolean
   /** Libelle accessible — obligatoire, le bouton n'a pas de texte visible. */
   label: string
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { icon, selectedIcon, variant = 'standard', size = 's', width = 'default', shape = 'round', selected, label, className, disabled, ...rest },
+  {
+    icon,
+    selectedIcon,
+    variant = 'standard',
+    size = 's',
+    width = 'default',
+    shape = 'round',
+    selected,
+    loading = false,
+    label,
+    className,
+    disabled,
+    ...rest
+  },
   ref,
 ) {
   const iconSize = size === 'xs' ? 20 : size === 's' ? 24 : size === 'm' ? 24 : 32
@@ -47,7 +63,11 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       {...rest}
     >
       <Ripple disabled={disabled} />
-      <Icon name={selected && selectedIcon ? selectedIcon : icon} size={iconSize} filled={!!selected} />
+      {loading ? (
+        <LoadingIndicator size={iconSize} label={label} className="md-icon-button__loading" />
+      ) : (
+        <Icon name={selected && selectedIcon ? selectedIcon : icon} size={iconSize} filled={!!selected} />
+      )}
     </button>
   )
 })

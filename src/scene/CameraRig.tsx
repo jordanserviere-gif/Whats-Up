@@ -3,7 +3,8 @@ import { PerspectiveCamera, Vector3 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useSkyStore } from '@/state/store'
 import { clamp } from '@/ui/utils'
-import { lerpAngle, viewDirection } from './sceneMath'
+import { lerpAngle, sceneToHorizontal, viewDirection } from './sceneMath'
+import type { Horizontal } from '@/astro/types'
 
 const COMMIT_INTERVAL_MS = 100
 
@@ -12,14 +13,45 @@ export const MIN_FOV = 0.02
 export const MAX_FOV = 110
 
 /**
+ * Deplacement, en pixels, au-dela duquel un geste cesse d'etre un clic.
+ *
+ * Sans ce seuil, tout balayage du ciel se terminerait par une selection : on
+ * designerait un objet chaque fois qu'on tourne la tete. Six pixels laissent
+ * passer le tremblement de la main sans absorber une intention de pointage.
+ */
+const CLICK_SLOP_PX = 6
+/** Au-dela, le geste est une pose ou une hesitation, plus un clic. */
+const CLICK_MAX_MS = 500
+
+export interface PickRequest {
+  /** Direction visee dans le repere de la scene, unitaire. */
+  direction: [number, number, number]
+  /** La meme, en coordonnees horizontales. */
+  aim: Horizontal
+  /** Rayon de recherche, proportionne au champ affiche. */
+  toleranceDeg: number
+}
+
+/**
  * Pilotage de la camera : glisser pour balayer le ciel, molette pour zoomer.
  *
  * L'orientation vit dans une reference locale mise a jour a chaque image ; le
  * store n'est rafraichi qu'a 10 Hz, ce qui evite de reconstruire l'interface a
  * chaque pixel de deplacement.
  */
-export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) {
+export function CameraRig({
+  canvas,
+  onPick,
+}: {
+  canvas: React.RefObject<HTMLElement>
+  /** Appele quand un geste se revele etre un clic et non un balayage. */
+  onPick?: (request: PickRequest) => void
+}) {
   const { camera, gl } = useThree()
+  // Le rappel change a chaque rendu du parent : on le garde dans une reference
+  // pour ne pas reinstaller les ecouteurs de pointeur a chaque image.
+  const pickRef = useRef(onPick)
+  pickRef.current = onPick
   const azimuth = useRef(useSkyStore.getState().viewAzimuth)
   const altitude = useRef(useSkyStore.getState().viewAltitude)
   const targetAzimuth = useRef(azimuth.current)
@@ -54,6 +86,12 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
     let lastX = 0
     let lastY = 0
     let pointerId: number | null = null
+    // Origine du geste et distance parcourue : ce sont eux qui tranchent entre
+    // un clic et un balayage, au relachement.
+    let downX = 0
+    let downY = 0
+    let downTime = 0
+    let travelled = 0
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return
@@ -61,8 +99,35 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
       pointerId = e.pointerId
       lastX = e.clientX
       lastY = e.clientY
+      downX = e.clientX
+      downY = e.clientY
+      downTime = e.timeStamp
+      travelled = 0
       element.setPointerCapture(e.pointerId)
       element.classList.add('is-dragging')
+    }
+
+    /**
+     * Direction du ciel sous le pointeur.
+     *
+     * On projette le point de l'ecran dans le plan proche de la camera, puis on
+     * en fait une direction depuis l'observateur — place a l'origine. C'est la
+     * meme geometrie que celle du rendu, donc le pointage tombe exactement la ou
+     * l'objet a ete dessine.
+     */
+    const directionAt = (clientX: number, clientY: number): [number, number, number] | null => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) return null
+      const ndc = new Vector3(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+        0.5,
+      )
+      ndc.unproject(camera)
+      // La camera est a l'origine : le point deprojete est deja la direction.
+      if (ndc.lengthSq() === 0) return null
+      ndc.normalize()
+      return [ndc.x, ndc.y, ndc.z]
     }
 
     const onPointerMove = (e: PointerEvent) => {
@@ -71,6 +136,7 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
       const dy = e.clientY - lastY
       lastX = e.clientX
       lastY = e.clientY
+      travelled = Math.max(travelled, Math.hypot(e.clientX - downX, e.clientY - downY))
       // Le deplacement angulaire suit le champ de vision : le geste garde la
       // meme « prise » sur le ciel quel que soit le zoom.
       const scale = fov.current / 700
@@ -83,6 +149,18 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
       dragging = false
       pointerId = null
       element.classList.remove('is-dragging')
+
+      // Geste bref et immobile : c'est un pointage, pas un balayage.
+      if (e.type !== 'pointerup') return
+      if (travelled > CLICK_SLOP_PX || e.timeStamp - downTime > CLICK_MAX_MS) return
+      const pick = pickRef.current
+      if (!pick) return
+      const direction = directionAt(e.clientX, e.clientY)
+      if (!direction) return
+      // La tolerance suit le champ : au grand angle un degre est un pouce a bout
+      // de bras, a fort grossissement il couvrirait tout l'ecran.
+      const tolerance = clamp(fov.current * 0.035, 0.02, 2.5)
+      pick({ direction, aim: sceneToHorizontal(direction), toleranceDeg: tolerance })
     }
 
     const onWheel = (e: WheelEvent) => {
@@ -107,7 +185,7 @@ export function CameraRig({ canvas }: { canvas: React.RefObject<HTMLElement> }) 
       element.removeEventListener('pointercancel', endDrag)
       element.removeEventListener('wheel', onWheel)
     }
-  }, [canvas, gl])
+  }, [canvas, gl, camera])
 
   useFrame((_, delta) => {
     // Amortissement critique : suit le geste sans flotter.

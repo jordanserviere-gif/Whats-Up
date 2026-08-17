@@ -16,9 +16,11 @@ import {
 import { BODIES, BODY_BY_ID } from '@/astro/bodies'
 import { azimuthToCardinal, formatDeg, formatDms, formatRa } from '@/astro/coords'
 import { formatTime } from '@/astro/time'
+import { isFixedKind } from '@/astro/search'
 import { readToken } from '@/scene/sceneMath'
-import { useSkyStore } from '@/state/store'
+import { selectedBodyId, useSkyStore } from '@/state/store'
 import { useAllRiseSets, useBodyStates, useMoonInfo, useRiseSet } from '@/state/hooks'
+import { FixedObjectDetails } from './ObjectDetails'
 import { MoonPhaseDial } from './MoonPhaseDial'
 import type { BodyState, RiseSetInfo } from '@/astro/types'
 import './ObjectsPanel.css'
@@ -42,7 +44,8 @@ function formatDistance(distanceAu: number, id: string): { value: string; unit: 
 export function ObjectsPanel() {
   const bodies = useBodyStates()
   const riseSets = useAllRiseSets()
-  const selectedBody = useSkyStore((s) => s.selectedBody)
+  const selection = useSkyStore((s) => s.selection)
+  const selectedBody = useSkyStore(selectedBodyId)
   const selectBody = useSkyStore((s) => s.selectBody)
   const lookAt = useSkyStore((s) => s.lookAt)
 
@@ -52,9 +55,15 @@ export function ObjectsPanel() {
   )
   const visibleCount = sorted.filter((b) => b.visible).length
   const selected = sorted.find((b) => b.id === selectedBody) ?? null
+  // Une etoile, un objet du ciel profond ou une constellation designes dans la
+  // scene s'affichent ici : le panneau « objets » est la fiche de tout ce qui
+  // n'est pas un satellite.
+  const fixed = selection && isFixedKind(selection.kind) ? { kind: selection.kind, id: selection.id } : null
 
   return (
     <>
+      {fixed && <FixedObjectDetails kind={fixed.kind} id={fixed.id} />}
+
       <Section
         title="Au-dessus de l’horizon"
         icon="visibility"
@@ -81,7 +90,7 @@ export function ObjectsPanel() {
       </Section>
 
       {selected && <BodyDetails state={selected} riseSet={riseSets.get(selected.id) ?? null} />}
-      {!selected && <MoonSummaryCard />}
+      {!selected && !fixed && <MoonSummaryCard />}
     </>
   )
 }

@@ -1,17 +1,38 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { BodyId, GeoLocation, OrbitalElements } from '@/astro/types'
+import type { TargetKind } from '@/astro/search'
+import type { CelestrakGroup } from '@/data-sources/celestrak'
 import { defaultElements } from '@/astro/kepler'
 
 export type ViewTab = 'ciel' | 'objets' | 'satellites' | 'reglages'
 
-/** Multiplicateurs de vitesse d'ecoulement du temps. */
+/**
+ * Objet designe dans la scene ou par la recherche.
+ *
+ * Une seule selection pour toutes les familles : c'est ce qui permet de cliquer
+ * indifferemment une planete, une etoile ou un satellite et d'obtenir une fiche,
+ * sans qu'aucune couche n'ait a savoir ce que les autres ont selectionne.
+ */
+export interface SkySelection {
+  kind: TargetKind
+  id: string
+}
+
+/**
+ * Multiplicateurs de vitesse d'ecoulement du temps.
+ *
+ * Le libelle reste un multiple, y compris pour le temps reel : « temps réel »
+ * etait deux fois plus long que tous les autres et se faisait tronquer dans la
+ * serie. Le sens complet passe par `title`, lu par les technologies d'assistance
+ * comme par l'info-bulle du navigateur.
+ */
 export const TIME_SPEEDS = [
-  { value: 1, label: 'temps réel' },
-  { value: 60, label: '×60' },
-  { value: 600, label: '×600' },
-  { value: 3600, label: '×1 h/s' },
-  { value: 86400, label: '×1 j/s' },
+  { value: 1, label: '×1', title: 'temps réel' },
+  { value: 60, label: '×60', title: 'une minute par seconde' },
+  { value: 600, label: '×600', title: 'dix minutes par seconde' },
+  { value: 3600, label: '×1 h/s', title: 'une heure par seconde' },
+  { value: 86400, label: '×1 j/s', title: 'un jour par seconde' },
 ] as const
 
 export const PRESET_LOCATIONS: readonly GeoLocation[] = [
@@ -41,7 +62,10 @@ export interface LayerVisibility {
   ground: boolean
   cardinals: boolean
   atmosphere: boolean
+  /** Satellites saisis a la main dans l'outil orbital. */
   satellites: boolean
+  /** Satellites reels recuperes depuis CelesTrak. */
+  celestrak: boolean
   satelliteTracks: boolean
   /** Flou lumineux autour des sources vives : le halo du Soleil en depend. */
   bloom: boolean
@@ -81,9 +105,10 @@ interface SkyState {
   lookAt: (azimuth: number, altitude: number) => void
 
   // --- Selection ---
-  selectedBody: BodyId | null
+  selection: SkySelection | null
+  /** Selectionne un objet, quelle que soit sa famille. */
+  select: (selection: SkySelection | null) => void
   selectBody: (id: BodyId | null) => void
-  selectedSatellite: string | null
   selectSatellite: (id: string | null) => void
 
   // --- Calques ---
@@ -108,6 +133,11 @@ interface SkyState {
   /** Fenetre de trace affichee autour de l'instant courant, en minutes. */
   trackWindowMinutes: number
   setTrackWindow: (m: number) => void
+
+  // --- Catalogue CelesTrak ---
+  /** Groupe d'objets suivi. Un seul a la fois : les groupes se comptent en milliers. */
+  celestrakGroup: CelestrakGroup
+  setCelestrakGroup: (g: CelestrakGroup) => void
 }
 
 const DEFAULT_LAYERS: LayerVisibility = {
@@ -124,6 +154,7 @@ const DEFAULT_LAYERS: LayerVisibility = {
   cardinals: true,
   atmosphere: true,
   satellites: true,
+  celestrak: false,
   satelliteTracks: true,
   bloom: true,
 }
@@ -160,10 +191,10 @@ export const useSkyStore = create<SkyState>()(
       lookAtTarget: null,
       lookAt: (azimuth, altitude) => set({ lookAtTarget: { azimuth, altitude, key: Date.now() } }),
 
-      selectedBody: null,
-      selectBody: (selectedBody) => set({ selectedBody, selectedSatellite: null }),
-      selectedSatellite: null,
-      selectSatellite: (selectedSatellite) => set({ selectedSatellite, selectedBody: null }),
+      selection: null,
+      select: (selection) => set({ selection }),
+      selectBody: (id) => set({ selection: id ? { kind: 'body', id } : null }),
+      selectSatellite: (id) => set({ selection: id ? { kind: 'satellite', id } : null }),
 
       layers: DEFAULT_LAYERS,
       toggleLayer: (key) => set((s) => ({ layers: { ...s.layers, [key]: !s.layers[key] } })),
@@ -185,10 +216,13 @@ export const useSkyStore = create<SkyState>()(
       removeSatellite: (id) =>
         set((s) => ({
           satellites: s.satellites.filter((x) => x.id !== id),
-          selectedSatellite: s.selectedSatellite === id ? null : s.selectedSatellite,
+          selection: s.selection?.id === id ? null : s.selection,
         })),
       trackWindowMinutes: 90,
       setTrackWindow: (trackWindowMinutes) => set({ trackWindowMinutes }),
+
+      celestrakGroup: 'stations',
+      setCelestrakGroup: (celestrakGroup) => set({ celestrakGroup }),
     }),
     {
       name: 'ciel.state',
@@ -200,11 +234,36 @@ export const useSkyStore = create<SkyState>()(
         discScale: s.discScale,
         satellites: s.satellites,
         trackWindowMinutes: s.trackWindowMinutes,
+        celestrakGroup: s.celestrakGroup,
         fov: s.fov,
       }),
+      /**
+       * La fusion par defaut est superficielle : un `layers` enregistre par une
+       * version anterieure ecraserait le jeu par defaut et laisserait les
+       * calques ajoutes depuis a `undefined`. On refusionne donc les calques
+       * explicitement, de sorte qu'une preference conservee n'empeche jamais
+       * l'apparition d'un nouveau calque.
+       */
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<SkyState>
+        return {
+          ...current,
+          ...saved,
+          layers: { ...DEFAULT_LAYERS, ...(saved.layers ?? {}) },
+        }
+      },
     },
   ),
 )
 
 /** Instant simule sous forme de `Date`. */
 export const selectDate = (s: SkyState) => new Date(s.time)
+
+/**
+ * Selecteurs de compatibilite : les couches qui ne connaissent qu'une famille
+ * d'objets continuent de lire un identifiant simple, sans avoir a filtrer.
+ */
+export const selectedBodyId = (s: SkyState): BodyId | null =>
+  s.selection?.kind === 'body' ? (s.selection.id as BodyId) : null
+export const selectedSatelliteId = (s: SkyState): string | null =>
+  s.selection?.kind === 'satellite' ? s.selection.id : null

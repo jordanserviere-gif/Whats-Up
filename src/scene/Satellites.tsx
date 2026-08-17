@@ -77,13 +77,11 @@ export function SatelliteMarker({
   state,
   limitingMagnitude,
   selected,
-  onSelect,
 }: {
   element: OrbitalElements
   state: SatelliteState
   limitingMagnitude: number
   selected: boolean
-  onSelect: (id: string) => void
 }) {
   const mesh = useRef<Mesh>(null)
   const { camera, size } = useThree()
@@ -149,16 +147,11 @@ export function SatelliteMarker({
   })
 
   return (
-    <mesh
-      ref={mesh}
-      material={material}
-      renderOrder={11}
-      frustumCulled={false}
-      onClick={(e) => {
-        e.stopPropagation()
-        onSelect(element.id)
-      }}
-    >
+    /* La designation passe par la recherche angulaire de `picking.ts`, comme
+       pour les corps : un losange de dix-huit pixels serait cliquable, mais un
+       clic apres un balayage le serait aussi, et le ciel se selectionnerait
+       tout seul. */
+    <mesh ref={mesh} material={material} renderOrder={11} frustumCulled={false}>
       <planeGeometry args={[1, 1]} />
     </mesh>
   )
@@ -173,7 +166,6 @@ export function SatelliteLayer({
   palette,
   limitingMagnitude,
   selectedId,
-  onSelect,
 }: {
   elements: OrbitalElements[]
   states: Map<string, SatelliteState>
@@ -182,7 +174,6 @@ export function SatelliteLayer({
   palette: TrackPalette
   limitingMagnitude: number
   selectedId: string | null
-  onSelect: (id: string) => void
 }) {
   return (
     <group>
@@ -199,7 +190,6 @@ export function SatelliteLayer({
                 state={state}
                 limitingMagnitude={limitingMagnitude}
                 selected={selectedId === el.id}
-                onSelect={onSelect}
               />
             )}
           </group>

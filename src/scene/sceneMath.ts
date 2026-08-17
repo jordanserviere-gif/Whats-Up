@@ -111,9 +111,56 @@ export function equatorialDirectionToScene(
   ]
 }
 
+/**
+ * Position dans la scene vers coordonnees horizontales.
+ * Inverse exact de `horizontalToScene` : c'est par elle qu'un point de l'ecran
+ * devient une direction du ciel, donc que le pointage devient possible.
+ */
+export function sceneToHorizontal(v: readonly [number, number, number]): Horizontal {
+  const r = Math.hypot(v[0], v[1], v[2]) || 1
+  const altitude = Math.asin(Math.min(1, Math.max(-1, v[1] / r))) / DEG
+  const azimuth = (((Math.atan2(v[0], -v[2]) / DEG) % 360) + 360) % 360
+  return { azimuth, altitude }
+}
+
+/**
+ * Direction de la scene vers le repere equatorial.
+ *
+ * `equatorialToSceneMatrix` est une rotation pure : son inverse est sa
+ * transposee. Transporter la direction visee dans le repere equatorial coute
+ * une seule matrice, la ou convertir les cinq mille etoiles du catalogue dans
+ * le repere de la scene en couterait cinq mille.
+ */
+export function sceneDirectionToEquatorial(
+  v: readonly [number, number, number],
+  date: Date,
+  location: GeoLocation,
+  scratch = new Matrix4(),
+): [number, number, number] {
+  const m = equatorialToSceneMatrix(date, location, scratch).elements
+  // Transposee : eq[i] = somme sur r de M[r][i] · v[r], et M[r][i] = m[i * 4 + r].
+  return [
+    m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+    m[4] * v[0] + m[5] * v[1] + m[6] * v[2],
+    m[8] * v[0] + m[9] * v[1] + m[10] * v[2],
+  ]
+}
+
 /** Direction de visee (azimut, hauteur) vers vecteur unitaire de la scene. */
 export function viewDirection(azimuth: number, altitude: number): [number, number, number] {
   return horizontalToScene({ azimuth, altitude }, 1)
+}
+
+/**
+ * Ecart angulaire entre deux directions horizontales, en degres.
+ * Passe par le produit scalaire des vecteurs unitaires : stable jusqu'aux tres
+ * petits ecarts, la ou une difference d'azimut deviendrait absurde pres du zenith.
+ */
+export function angularDistance(a: Horizontal, b: Horizontal): number {
+  const va = horizontalToScene(a, 1)
+  const vb = horizontalToScene(b, 1)
+  const dot = va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]
+  return Math.acos(Math.min(1, Math.max(-1, dot))) / DEG
 }
 
 /** Interpolation d'angle circulaire, en degres. */

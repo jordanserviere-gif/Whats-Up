@@ -84,6 +84,37 @@ export interface RiseSetInfo {
   alwaysBelow: boolean
 }
 
+/**
+ * Elements orbitaux au format OMM (norme CCSDS), tels que CelesTrak les publie.
+ *
+ * Les noms de champs sont repris tels quels : `json2satrec` de satellite.js les
+ * attend sous cette forme exacte. Les publier ici plutot que dans la couche
+ * reseau garde la dependance dans le bon sens — les sources de donnees
+ * connaissent le domaine astronomique, l'inverse serait une inversion de couches.
+ */
+export interface GpElements {
+  OBJECT_NAME: string
+  OBJECT_ID: string
+  EPOCH: string
+  MEAN_MOTION: number
+  ECCENTRICITY: number
+  INCLINATION: number
+  RA_OF_ASC_NODE: number
+  ARG_OF_PERICENTER: number
+  MEAN_ANOMALY: number
+  NORAD_CAT_ID: number
+  ELEMENT_SET_NO: number
+  BSTAR: number
+  MEAN_MOTION_DOT: number
+  MEAN_MOTION_DDOT: number
+  EPHEMERIS_TYPE?: number
+  CLASSIFICATION_TYPE?: string
+  REV_AT_EPOCH?: number
+}
+
+/** Provenance d'un jeu d'elements : saisie manuelle ou catalogue public. */
+export type ElementSource = 'manuel' | 'celestrak'
+
 /** Elements orbitaux keplerians classiques d'un satellite terrestre. */
 export interface OrbitalElements {
   id: string
@@ -106,6 +137,19 @@ export interface OrbitalElements {
   useJ2: boolean
   /** Couleur d'affichage de la trace. */
   color: string
+  /** Provenance des elements. Absent = saisie manuelle, par retrocompatibilite. */
+  source?: ElementSource
+  /**
+   * Enregistrement OMM d'origine. Quand il est present, la propagation passe par
+   * SGP4 plutot que par le modele keplerien : c'est la seule facon de retrouver
+   * un satellite reel au bon endroit, la trainee atmospherique n'ayant pas de
+   * place dans des elements osculateurs.
+   */
+  gp?: GpElements
+  /** Identifiant NORAD, stable dans le temps. */
+  noradId?: number
+  /** Age des elements a la recuperation, en jours. Au-dela de trois, ils derivent. */
+  epochAgeDays?: number
 }
 
 /** Position instantanee d'un satellite. */

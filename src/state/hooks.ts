@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSkyStore } from './store'
+import { elementsFromGp } from '@/astro/sgp4'
+import { fetchGroup, type CelestrakGroup } from '@/data-sources/celestrak'
+import { DEFAULT_STATUS, type SourceStatus } from '@/data-sources/types'
+import { readToken } from '@/scene/sceneMath'
 import {
   BODIES,
   BODY_BY_ID,
@@ -114,15 +118,119 @@ export function useAllRiseSets() {
   }, [hour, location])
 }
 
+/**
+ * Nombre maximal d'objets propages simultanement.
+ *
+ * SGP4 coute une dizaine de microsecondes par objet et par instant : deux cents
+ * satellites a 10 Hz restent sous les deux millisecondes par seconde de calcul.
+ * Les groupes de constellations en comptent plusieurs milliers ; au-dela de ce
+ * plafond on tronque, et l'interface le dit plutot que de ramer en silence.
+ */
+export const MAX_TRACKED_SATELLITES = 200
+
+/**
+ * Satellites reels du groupe CelesTrak choisi.
+ *
+ * La recuperation est differee et tolerante : `fetchGroup` ne leve jamais, et
+ * retombe sur le cache si le reseau manque. Rien n'est place dans le store —
+ * plusieurs centaines de jeux d'elements n'ont pas a etre serialises dans le
+ * stockage local a chaque changement d'instant.
+ */
+export interface CelestrakFeed {
+  elements: OrbitalElements[]
+  loading: boolean
+  /** Statut de la source : mesuree, en cache, ou repli. Nul tant que rien n'a abouti. */
+  status: SourceStatus | null
+  /** Nombre d'objets ecartes par le plafond de propagation. */
+  truncated: number
+  /** Objets dont les elements ont plus de trois jours : leur position derive. */
+  staleCount: number
+}
+
+export function useCelestrakSatellites(): CelestrakFeed {
+  const enabled = useSkyStore((s) => s.layers.celestrak)
+  const group = useSkyStore((s) => s.celestrakGroup)
+  const [result, setResult] = useState<(CelestrakFeed & { group: CelestrakGroup }) | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    setLoading(true)
+    // Les objets du catalogue partagent une teinte, distincte des orbites
+    // saisies : on la resout au moment du chargement, donc apres le theme.
+    const color = readToken('--app-body-satellite', '#7fd6ff')
+
+    fetchGroup(group)
+      .then((sourced) => {
+        if (cancelled) return
+        if (!sourced) {
+          setResult({ group, elements: [], loading: false, status: DEFAULT_STATUS, truncated: 0, staleCount: 0 })
+          return
+        }
+        const records = sourced.value
+        const kept = records.slice(0, MAX_TRACKED_SATELLITES)
+        setResult({
+          group,
+          loading: false,
+          elements: kept.map((r) =>
+            elementsFromGp(r.gp, { id: `celestrak-${r.noradId}`, color, epochAgeDays: r.epochAgeDays }),
+          ),
+          status: sourced.status,
+          truncated: records.length - kept.length,
+          staleCount: kept.filter((r) => r.stale).length,
+        })
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [enabled, group])
+
+  // Un groupe encore en cours de chargement ne doit pas afficher le precedent :
+  // ce serait montrer des satellites qu'on a cesse de suivre.
+  const current = result && result.group === group && enabled ? result : null
+
+  return {
+    elements: current?.elements ?? EMPTY_ELEMENTS,
+    loading: enabled && loading && !current,
+    status: current?.status ?? null,
+    truncated: current?.truncated ?? 0,
+    staleCount: current?.staleCount ?? 0,
+  }
+}
+
+const EMPTY_ELEMENTS: OrbitalElements[] = []
+
+/**
+ * Tous les satellites affichables : ceux saisis a la main et ceux du catalogue.
+ * Les deux familles suivent ensuite exactement le meme chemin.
+ */
+export function useAllSatellites(): OrbitalElements[] {
+  const manual = useSkyStore((s) => s.satellites)
+  const showManual = useSkyStore((s) => s.layers.satellites)
+  const { elements: fetched } = useCelestrakSatellites()
+
+  return useMemo(() => {
+    const out: OrbitalElements[] = []
+    if (showManual) out.push(...manual)
+    out.push(...fetched)
+    return out
+  }, [manual, showManual, fetched])
+}
+
 /** Etats instantanes de tous les satellites definis. */
-export function useSatelliteStates() {
+export function useSatelliteStates(satellites?: readonly OrbitalElements[]) {
   const date = useSimulatedDate()
   const location = useSkyStore((s) => s.location)
-  const satellites = useSkyStore((s) => s.satellites)
+  const stored = useSkyStore((s) => s.satellites)
+  const list = satellites ?? stored
 
   return useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSatelliteState>>()
-    for (const el of satellites) {
+    for (const el of list) {
       try {
         map.set(el.id, computeSatelliteState(el, date, location))
       } catch {
@@ -130,17 +238,16 @@ export function useSatelliteStates() {
       }
     }
     return map
-  }, [satellites, date, location])
+  }, [list, date, location])
 }
 
 /**
  * Traces dans le ciel. Recalculees seulement toutes les 30 s de temps simule :
  * la forme de la trace evolue lentement par rapport a la position du satellite.
  */
-export function useSatelliteTracks() {
+export function useSatelliteTracks(satellites: readonly OrbitalElements[]) {
   const time = useSkyStore((s) => s.time)
   const location = useSkyStore((s) => s.location)
-  const satellites = useSkyStore((s) => s.satellites)
   const windowMinutes = useSkyStore((s) => s.trackWindowMinutes)
   const bucket = Math.floor(time / 30_000)
 

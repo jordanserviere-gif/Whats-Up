@@ -135,3 +135,13 @@
   --_content: var(--md-sys-color-inverse-on-surface);
   border-color: transparent;
 }
+
+/* L'indicateur remplace le glyphe : il herite donc de la couleur du bouton
+   plutot que de la teinte primaire par defaut. */
+.md-icon-button__loading {
+  position: relative;
+  color: inherit;
+}
+.md-icon-button__loading .md-loading__arc {
+  stroke: currentColor;
+}

@@ -1,8 +1,9 @@
-import { Chip, ChipSet, IconButton, Surface, Toolbar, Tooltip } from '@/ui'
+import { Badge, Chip, ChipSet, IconButton, Surface, Toolbar, Tooltip } from '@/ui'
 import { useSkyStore, type LayerVisibility } from '@/state/store'
-import { useSkyConditions } from '@/state/hooks'
+import { useCelestrakSatellites, useSkyConditions } from '@/state/hooks'
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { MAX_FOV, MIN_FOV } from '@/scene/CameraRig'
+import { SkySearch } from './SkySearch'
 import './SkyHud.css'
 
 /** Calques proposes en acces direct au-dessus de la scene. */
@@ -16,7 +17,7 @@ const QUICK_LAYERS: Array<{ key: keyof LayerVisibility; label: string; icon: str
   { key: 'atmosphere', label: 'Atmosphère', icon: 'wb_twilight' },
 ]
 
-/** Elements poses au-dessus de la scene : reperes de visee et calques rapides. */
+/** Elements poses au-dessus de la scene : reperes de visee, recherche et calques. */
 export function SkyHud() {
   const viewAzimuth = useSkyStore((s) => s.viewAzimuth)
   const viewAltitude = useSkyStore((s) => s.viewAltitude)
@@ -39,10 +40,14 @@ export function SkyHud() {
             {azimuthToCardinal(viewAzimuth)} {Math.round(viewAzimuth)}°
           </span>
           <span className="md-type-label-medium sky-hud__readout-sub md-numeric">
-            hauteur {formatDeg(viewAltitude, 0)} · champ {Math.round(fov)}°
+            hauteur {formatDeg(viewAltitude, 0)} · champ {formatFov(fov)}
           </span>
         </div>
       </Surface>
+
+      <SkySearch className="sky-hud__search" />
+
+      <SatelliteToggle />
 
       <Toolbar className="sky-hud__view-tools" vertical>
         <Tooltip content="Regarder le zénith" placement="start">
@@ -90,4 +95,57 @@ export function SkyHud() {
       </Surface>
     </div>
   )
+}
+
+/**
+ * Bascule des satellites reels.
+ *
+ * Le nombre d'objets suivis est affiche a meme le bouton : c'est la seule facon
+ * de savoir d'un coup d'oeil si le catalogue a bien ete recupere, s'il vient du
+ * cache, ou si le reseau a manque et qu'on regarde un ciel sans satellites.
+ */
+function SatelliteToggle() {
+  const enabled = useSkyStore((s) => s.layers.celestrak)
+  const setLayer = useSkyStore((s) => s.setLayer)
+  const setTab = useSkyStore((s) => s.setTab)
+  const { elements, loading, status } = useCelestrakSatellites()
+
+  const label = enabled ? 'Masquer les satellites' : 'Afficher les satellites'
+  const detail = !enabled
+    ? 'Objets réels depuis CelesTrak'
+    : loading
+      ? 'Récupération des éléments…'
+      : elements.length === 0
+        ? 'Aucun élément disponible hors ligne'
+        : `${elements.length} objets · source ${status?.origin ?? 'défaut'}`
+
+  return (
+    <Toolbar className="sky-hud__satellites">
+      <Tooltip content={detail} placement="bottom">
+        <IconButton
+          icon="satellite_alt"
+          label={label}
+          variant="tonal"
+          selected={enabled}
+          loading={loading}
+          onClick={() => setLayer('celestrak', !enabled)}
+        />
+      </Tooltip>
+      {enabled && elements.length > 0 && (
+        <button type="button" className="sky-hud__satellites-count" onClick={() => setTab('satellites')}>
+          <Badge tone="tertiary">{elements.length}</Badge>
+        </button>
+      )}
+    </Toolbar>
+  )
+}
+
+/**
+ * Champ affiche. Sous le degre, l'arrondi a l'entier afficherait « 0° » sur
+ * toute la plage ou se joue justement l'observation planetaire.
+ */
+function formatFov(fov: number): string {
+  if (fov >= 10) return `${Math.round(fov)}°`
+  if (fov >= 1) return `${fov.toFixed(1).replace('.', ',')}°`
+  return `${(fov * 60).toFixed(fov * 60 >= 10 ? 0 : 1).replace('.', ',')}′`
 }

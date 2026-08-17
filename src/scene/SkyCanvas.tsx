@@ -1,11 +1,12 @@
-import { useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
-import { NoToneMapping } from 'three'
+import { Matrix4, NoToneMapping } from 'three'
 import { BODIES } from '@/astro/bodies'
 import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
-import { useSkyStore } from '@/state/store'
+import { selectedBodyId, selectedSatelliteId, useSkyStore } from '@/state/store'
 import {
+  useAllSatellites,
   useBodyStates,
   useSatelliteStates,
   useSatelliteTracks,
@@ -13,8 +14,9 @@ import {
   useSkyConditions,
 } from '@/state/hooks'
 import { hexToRgb, readToken } from './sceneMath'
+import { pickSkyTarget } from './picking'
 import { useSceneColors } from './useSceneColors'
-import { CameraRig } from './CameraRig'
+import { CameraRig, type PickRequest } from './CameraRig'
 import { Starfield } from './Starfield'
 import { ConstellationLines } from './ConstellationLines'
 import { DeepSky } from './DeepSky'
@@ -47,21 +49,36 @@ export function SkyCanvas() {
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
   const fov = useSkyStore((s) => s.fov)
-  const satellites = useSkyStore((s) => s.satellites)
-  const selectedBody = useSkyStore((s) => s.selectedBody)
-  const selectedSatellite = useSkyStore((s) => s.selectedSatellite)
-  const selectBody = useSkyStore((s) => s.selectBody)
-  const selectSatellite = useSkyStore((s) => s.selectSatellite)
+  const selectedBody = useSkyStore(selectedBodyId)
+  const selectedSatellite = useSkyStore(selectedSatelliteId)
+  const select = useSkyStore((s) => s.select)
+  const setTab = useSkyStore((s) => s.setTab)
+  const lookAt = useSkyStore((s) => s.lookAt)
 
   const bodies = useBodyStates()
   const sky = useSkyConditions()
   // Miroir des ephemerides pour le navigateur automatise : il a besoin de
   // connaitre la position d'un corps pour pointer la camera dessus.
   if (import.meta.env.DEV) (window as unknown as { __bodyStates: unknown }).__bodyStates = bodies
-  const satStates = useSatelliteStates()
-  const satTracks = useSatelliteTracks()
+  const satellites = useAllSatellites()
+  const satStates = useSatelliteStates(satellites)
+
+  /**
+   * Satellites dont on trace la trajectoire.
+   *
+   * Une trace coute quatre cents propagations : la dessiner pour deux cents
+   * objets du catalogue engorgerait la boucle de rendu sans rien apprendre —
+   * deux cents traces enchevetrees ne se lisent pas. Les orbites saisies a la
+   * main gardent la leur, et le catalogue n'en montre qu'une : la selectionnee.
+   */
+  const tracked = useMemo(
+    () => satellites.filter((el) => el.source !== 'celestrak' || el.id === selectedSatellite),
+    [satellites, selectedSatellite],
+  )
+  const satTracks = useSatelliteTracks(tracked)
   const colors = useSceneColors()
   const textures = useBodyTextures()
+  const pickMatrix = useRef(new Matrix4())
 
   const moon = bodies.find((b) => b.id === 'moon')
 
@@ -88,6 +105,47 @@ export function SkyCanvas() {
     const k = 0.72 * factor * eclipse
     return [r * k, g * k, b * k]
   }, [layers.atmosphere, sky.solarLux, sky.obscuration, colors.skyDay])
+
+  /**
+   * Designation d'un objet par un clic dans la scene.
+   *
+   * Le balayage a deja ete ecarte en amont : ce rappel ne recoit que de vraies
+   * intentions de pointage. Un clic dans le vide deselectionne, ce qui donne un
+   * moyen evident de refermer une fiche.
+   */
+  const onPick = useCallback(
+    (request: PickRequest) => {
+      const result = pickSkyTarget(
+        request.direction,
+        request.aim,
+        request.toleranceDeg,
+        date,
+        location,
+        {
+          bodies: layers.bodies ? bodies : [],
+          satellites: satellites
+            .map((element) => ({ element, state: satStates.get(element.id) }))
+            .filter((e): e is { element: (typeof satellites)[number]; state: NonNullable<typeof e.state> } =>
+              Boolean(e.state),
+            ),
+          limitingMagnitude,
+          includeStars: layers.stars,
+          includeDeepSky: layers.deepSky,
+        },
+        pickMatrix.current,
+      )
+
+      if (!result) {
+        select(null)
+        return
+      }
+
+      select({ kind: result.target.kind, id: result.target.id })
+      setTab(result.target.kind === 'satellite' ? 'satellites' : 'objets')
+      lookAt(result.horizontal.azimuth, result.horizontal.altitude)
+    },
+    [date, location, layers, bodies, satellites, satStates, limitingMagnitude, select, setTab, lookAt],
+  )
 
   const bodyColors = useMemo(() => {
     const map = new Map<string, string>()
@@ -126,22 +184,24 @@ export function SkyCanvas() {
       }
     }
 
-    if (layers.satellites) {
-      for (const el of satellites) {
-        const s = satStates.get(el.id)
-        if (!s || s.horizontal.altitude < -5) continue
-        out.push({
-          id: `sat-${el.id}`,
-          text: el.name,
-          horizontal: s.horizontal,
-          color: el.color,
-          kind: 'satellite',
-        })
-      }
+    // Les satellites du catalogue se comptent par centaines : les etiqueter tous
+    // couvrirait le ciel de texte. Les orbites saisies portent leur nom, le
+    // catalogue ne nomme que l'objet selectionne.
+    for (const el of satellites) {
+      if (el.source === 'celestrak' && el.id !== selectedSatellite) continue
+      const s = satStates.get(el.id)
+      if (!s || s.horizontal.altitude < -5) continue
+      out.push({
+        id: `sat-${el.id}`,
+        text: el.name,
+        horizontal: s.horizontal,
+        color: el.color,
+        kind: 'satellite',
+      })
     }
 
     return out
-  }, [layers, bodies, satellites, satStates, colors, bodyColors, limitingMagnitude])
+  }, [layers, bodies, satellites, satStates, selectedSatellite, colors, bodyColors, limitingMagnitude])
 
   // Les figures ne se lisent que sur un ciel sombre : inutile de les etiqueter
   // en plein jour, ou les etoiles qui les portent sont invisibles.
@@ -159,12 +219,8 @@ export function SkyCanvas() {
         camera={{ fov, near: 0.1, far: 900, position: [0, 0, 0] }}
         gl={{ antialias: true, alpha: false, toneMapping: NoToneMapping }}
         dpr={[1, 2]}
-        onPointerMissed={() => {
-          selectBody(null)
-          selectSatellite(null)
-        }}
       >
-        <CameraRig canvas={host} />
+        <CameraRig canvas={host} onPick={onPick} />
 
         <SkyBackground
           solarLux={solarLux}
@@ -226,11 +282,10 @@ export function SkyCanvas() {
             textures={textures}
             selectedId={selectedBody}
             selectionColor={colors.selection}
-            onSelect={(id) => selectBody(id as never)}
           />
         )}
 
-        {layers.satellites && (
+        {satellites.length > 0 && (
           <SatelliteLayer
             elements={satellites}
             states={satStates}
@@ -239,7 +294,6 @@ export function SkyCanvas() {
             palette={colors.track}
             limitingMagnitude={limitingMagnitude}
             selectedId={selectedSatellite}
-            onSelect={selectSatellite}
           />
         )}
 

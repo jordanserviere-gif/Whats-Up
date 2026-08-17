@@ -13,25 +13,42 @@ import {
   ListItem,
   Section,
   SegmentedButton,
+  Select,
   Slider,
   StatTile,
+  Switch,
   useSnackbar,
 } from '@/ui'
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { formatDuration, formatTime } from '@/astro/time'
-import { useSkyStore } from '@/state/store'
-import { useSatellitePasses, useSatelliteStates } from '@/state/hooks'
+import { meanMotionRevPerDay, apogeeAltitude, orbitalPeriod, perigeeAltitude } from '@/astro/kepler'
+import { CELESTRAK_GROUPS, STALE_EPOCH_DAYS } from '@/data-sources/celestrak'
+import { formatAge } from '@/data-sources/types'
+import { selectedSatelliteId, useSkyStore } from '@/state/store'
+import {
+  MAX_TRACKED_SATELLITES,
+  useAllSatellites,
+  useCelestrakSatellites,
+  useSatellitePasses,
+  useSatelliteStates,
+} from '@/state/hooks'
 import { OrbitEditor } from './OrbitEditor'
 import type { OrbitalElements, SatellitePass, SatelliteState } from '@/astro/types'
 import './SatellitesPanel.css'
 
+const fr = (v: number, digits = 1) => v.toFixed(digits).replace('.', ',')
+
 /**
- * Outil satellite : definition d'une orbite par ses elements keplerians,
- * lecture de l'etat instantane et recherche des passages a venir.
+ * Outil satellite.
+ *
+ * Deux origines cohabitent : les orbites decrites a la main par leurs elements
+ * keplerians, et les objets reels du catalogue CelesTrak propages par SGP4. Une
+ * fois selectionnes, les uns et les autres se lisent de la meme facon — c'est le
+ * propagateur qui differe, pas l'observation.
  */
 export function SatellitesPanel() {
-  const satellites = useSkyStore((s) => s.satellites)
-  const selectedId = useSkyStore((s) => s.selectedSatellite)
+  const manual = useSkyStore((s) => s.satellites)
+  const selectedId = useSkyStore(selectedSatelliteId)
   const selectSatellite = useSkyStore((s) => s.selectSatellite)
   const addSatellite = useSkyStore((s) => s.addSatellite)
   const updateSatellite = useSkyStore((s) => s.updateSatellite)
@@ -39,50 +56,28 @@ export function SatellitesPanel() {
   const trackWindow = useSkyStore((s) => s.trackWindowMinutes)
   const setTrackWindow = useSkyStore((s) => s.setTrackWindow)
   const lookAt = useSkyStore((s) => s.lookAt)
-  const states = useSatelliteStates()
+  const all = useAllSatellites()
+  const states = useSatelliteStates(all)
   const { show } = useSnackbar()
 
-  const selected = satellites.find((s) => s.id === selectedId) ?? null
+  const selected = all.find((s) => s.id === selectedId) ?? null
 
-  if (satellites.length === 0) {
-    return (
-      <Card variant="filled" shape="extra-large">
-        <CardHeader
-          icon="satellite_alt"
-          overline="Outil satellite"
-          title="Aucune orbite définie"
-          subtitle="Saisissez des éléments orbitaux pour voir la trace apparaître dans le ciel"
-        />
-        <CardBody>
-          <p className="md-type-body-medium satellites-panel__intro">
-            Un satellite se décrit par six nombres : la taille et la forme de son ellipse (demi-grand axe,
-            excentricité), l’orientation de son plan (inclinaison, longitude du nœud ascendant, argument du
-            périgée) et sa position à une date de référence (anomalie moyenne).
-          </p>
-          <Button
-            variant="filled"
-            icon="add"
-            size="m"
-            fullWidth
-            onClick={() => {
-              addSatellite()
-              show('Satellite créé — ajustez ses éléments orbitaux')
-            }}
-          >
-            Créer une orbite
-          </Button>
-        </CardBody>
-      </Card>
-    )
+  const openSatellite = (el: OrbitalElements) => {
+    selectSatellite(el.id)
+    const state = states.get(el.id)
+    if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
   }
 
   return (
     <>
+      <CelestrakSection onOpen={openSatellite} selectedId={selectedId} />
+
       <Section
-        title="Satellites suivis"
-        icon="satellite_alt"
-        summary={`${satellites.length}`}
-        collapsible={false}
+        title="Orbites saisies"
+        icon="edit_note"
+        summary={`${manual.length}`}
+        collapsible={manual.length > 0}
+        defaultOpen
         actions={
           <Button
             variant="text"
@@ -90,36 +85,32 @@ export function SatellitesPanel() {
             icon="add"
             onClick={() => {
               addSatellite()
-              show('Satellite créé')
+              show('Satellite créé — ajustez ses éléments orbitaux')
             }}
           >
             Ajouter
           </Button>
         }
       >
-        <List>
-          {satellites.map((el) => {
-            const state = states.get(el.id)
-            return (
-              <ListItem
+        {manual.length === 0 ? (
+          <p className="md-type-body-medium satellites-panel__intro">
+            Un satellite se décrit par six nombres : la taille et la forme de son ellipse (demi-grand axe,
+            excentricité), l’orientation de son plan (inclinaison, longitude du nœud ascendant, argument du
+            périgée) et sa position à une date de référence (anomalie moyenne).
+          </p>
+        ) : (
+          <List>
+            {manual.map((el) => (
+              <SatelliteRow
                 key={el.id}
-                leadingDot={el.color}
-                headline={el.name}
-                supportingText={
-                  state
-                    ? `${azimuthToCardinal(state.horizontal.azimuth)} · ${Math.round(state.altitudeKm)} km · ${state.sunlit ? 'éclairé' : 'dans l’ombre'}`
-                    : 'éléments invalides'
-                }
-                trailingText={state ? formatDeg(state.horizontal.altitude, 0) : '—'}
+                element={el}
+                state={states.get(el.id) ?? null}
                 selected={selectedId === el.id}
-                onClick={() => {
-                  selectSatellite(el.id)
-                  if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
-                }}
+                onClick={() => openSatellite(el)}
               />
-            )
-          })}
-        </List>
+            ))}
+          </List>
+        )}
 
         <Slider
           label="Longueur de la trace affichée"
@@ -128,7 +119,7 @@ export function SatellitesPanel() {
           step={10}
           value={trackWindow}
           showValue
-          format={(v) => (v >= 60 ? `${(v / 60).toFixed(1).replace('.', ',')} h` : `${v} min`)}
+          format={(v) => (v >= 60 ? `${fr(v / 60)} h` : `${v} min`)}
           onChange={setTrackWindow}
         />
       </Section>
@@ -136,20 +127,208 @@ export function SatellitesPanel() {
       {selected && (
         <>
           <SatelliteLiveCard element={selected} state={states.get(selected.id) ?? null} />
-          <Section title="Éléments orbitaux" icon="edit" defaultOpen>
-            <OrbitEditor
-              element={selected}
-              onChange={(patch) => updateSatellite(selected.id, patch)}
-              onRemove={() => {
-                removeSatellite(selected.id)
-                show(`« ${selected.name} » supprimé`)
-              }}
-            />
-          </Section>
+          {selected.source === 'celestrak' ? (
+            <CatalogElements element={selected} />
+          ) : (
+            <Section title="Éléments orbitaux" icon="edit" defaultOpen>
+              <OrbitEditor
+                element={selected}
+                onChange={(patch) => updateSatellite(selected.id, patch)}
+                onRemove={() => {
+                  removeSatellite(selected.id)
+                  show(`« ${selected.name} » supprimé`)
+                }}
+              />
+            </Section>
+          )}
           <PassesSection element={selected} />
         </>
       )}
     </>
+  )
+}
+
+/** Ligne de liste commune aux deux origines. */
+function SatelliteRow({
+  element,
+  state,
+  selected,
+  onClick,
+}: {
+  element: OrbitalElements
+  state: SatelliteState | null
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <ListItem
+      leadingDot={element.color}
+      headline={element.name}
+      supportingText={
+        state
+          ? `${azimuthToCardinal(state.horizontal.azimuth)} · ${Math.round(state.altitudeKm)} km · ${
+              state.sunlit ? 'éclairé' : 'dans l’ombre'
+            }`
+          : 'éléments invalides'
+      }
+      trailingText={state ? formatDeg(state.horizontal.altitude, 0) : '—'}
+      selected={selected}
+      onClick={onClick}
+    />
+  )
+}
+
+/**
+ * Satellites reels.
+ *
+ * La section reste visible meme calque eteint : c'est la qu'on choisit quel
+ * groupe suivre, et l'interrupteur y est le pendant du bouton de la barre haute.
+ */
+function CelestrakSection({
+  onOpen,
+  selectedId,
+}: {
+  onOpen: (el: OrbitalElements) => void
+  selectedId: string | null
+}) {
+  const enabled = useSkyStore((s) => s.layers.celestrak)
+  const setLayer = useSkyStore((s) => s.setLayer)
+  const group = useSkyStore((s) => s.celestrakGroup)
+  const setGroup = useSkyStore((s) => s.setCelestrakGroup)
+  const feed = useCelestrakSatellites()
+  const states = useSatelliteStates(feed.elements)
+
+  // Les objets levés d'abord : c'est la seule partie de la liste qu'on peut voir.
+  const sorted = [...feed.elements].sort(
+    (a, b) =>
+      (states.get(b.id)?.horizontal.altitude ?? -90) - (states.get(a.id)?.horizontal.altitude ?? -90),
+  )
+  const aboveHorizon = sorted.filter((el) => (states.get(el.id)?.horizontal.altitude ?? -90) > 0)
+
+  return (
+    <Section
+      title="Satellites réels"
+      icon="satellite_alt"
+      defaultOpen
+      summary={enabled ? `${aboveHorizon.length} levés / ${feed.elements.length}` : 'masqués'}
+    >
+      <Switch
+        label="Afficher les satellites"
+        supportingText="Éléments publics CelesTrak, propagés par SGP4"
+        checked={enabled}
+        onChange={(v) => setLayer('celestrak', v)}
+      />
+
+      <Select
+        label="Groupe suivi"
+        leadingIcon="category"
+        value={group}
+        options={CELESTRAK_GROUPS.map((g) => ({ value: g.id, label: g.label }))}
+        onChange={(v) => setGroup(v as typeof group)}
+        disabled={!enabled}
+      />
+
+      {enabled && feed.loading && <LinearProgress />}
+
+      {enabled && !feed.loading && feed.elements.length === 0 && (
+        <p className="md-type-body-medium satellites-panel__empty">
+          Aucun élément disponible : le réseau n’a pas répondu et rien n’est en cache. Les orbites saisies
+          plus bas restent utilisables.
+        </p>
+      )}
+
+      {enabled && feed.status && (
+        <>
+          <DataRow
+            icon="cloud_download"
+            label="Source"
+            value={feed.status.origin}
+            unit={feed.status.ageMs !== null ? formatAge(feed.status.ageMs) : undefined}
+            hint="CelesTrak demande la mise en cache de ses réponses : elles sont conservées six heures."
+          />
+          {feed.truncated > 0 && (
+            <DataRow
+              icon="filter_list"
+              label="Objets non suivis"
+              value={`${feed.truncated}`}
+              hint={`Le groupe dépasse le plafond de ${MAX_TRACKED_SATELLITES} objets propagés simultanément.`}
+            />
+          )}
+          {feed.staleCount > 0 && (
+            <DataRow
+              icon="schedule"
+              label="Éléments vieillis"
+              value={`${feed.staleCount}`}
+              hint={`Au-delà de ${STALE_EPOCH_DAYS} jours, la propagation SGP4 dérive sensiblement.`}
+            />
+          )}
+        </>
+      )}
+
+      {enabled && aboveHorizon.length > 0 && (
+        <List>
+          {aboveHorizon.slice(0, 20).map((el) => (
+            <SatelliteRow
+              key={el.id}
+              element={el}
+              state={states.get(el.id) ?? null}
+              selected={selectedId === el.id}
+              onClick={() => onOpen(el)}
+            />
+          ))}
+        </List>
+      )}
+    </Section>
+  )
+}
+
+/**
+ * Elements d'un objet du catalogue, en lecture seule.
+ *
+ * Les modifier n'aurait aucun effet : la propagation part de l'enregistrement
+ * OMM d'origine, pas de ces valeurs. Les afficher sans les rendre modifiables
+ * est la seule presentation honnete.
+ */
+function CatalogElements({ element }: { element: OrbitalElements }) {
+  const period = orbitalPeriod(element.semiMajorAxisKm) / 60
+  const stale = (element.epochAgeDays ?? 0) > STALE_EPOCH_DAYS
+
+  return (
+    <Section title="Éléments du catalogue" icon="inventory_2" defaultOpen={false} summary="lecture seule">
+      <DataRow label="Identifiant NORAD" value={element.noradId !== undefined ? `${element.noradId}` : '—'} />
+      <DataRow
+        label="Époque des éléments"
+        value={new Date(element.epoch).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+        unit={element.epochAgeDays !== undefined ? `il y a ${fr(element.epochAgeDays)} j` : undefined}
+        emphasis={stale}
+      />
+      <Divider />
+      <DataRow label="Demi-grand axe" value={Math.round(element.semiMajorAxisKm).toLocaleString('fr-FR')} unit="km" />
+      <DataRow label="Excentricité" value={element.eccentricity.toFixed(6).replace('.', ',')} />
+      <DataRow label="Inclinaison" value={fr(element.inclination, 3)} unit="°" />
+      <DataRow label="Nœud ascendant" value={fr(element.raan, 3)} unit="°" />
+      <DataRow label="Argument du périgée" value={fr(element.argPerigee, 3)} unit="°" />
+      <DataRow label="Anomalie moyenne" value={fr(element.meanAnomaly, 3)} unit="°" />
+      <Divider />
+      <DataRow label="Période" value={fr(period)} unit="min" />
+      <DataRow label="Révolutions par jour" value={fr(meanMotionRevPerDay(element.semiMajorAxisKm), 4)} />
+      <DataRow
+        label="Périgée / apogée"
+        value={`${Math.round(perigeeAltitude(element.semiMajorAxisKm, element.eccentricity))} / ${Math.round(
+          apogeeAltitude(element.semiMajorAxisKm, element.eccentricity),
+        )}`}
+        unit="km"
+      />
+      {stale && (
+        <Badge tone="error" icon="warning">
+          éléments vieux de plus de {STALE_EPOCH_DAYS} jours
+        </Badge>
+      )}
+      <p className="md-type-body-small satellites-panel__intro">
+        La propagation utilise l’enregistrement OMM d’origine et le modèle SGP4 qui l’accompagne. Les valeurs
+        ci-dessus en sont dérivées pour la lecture ; les modifier n’aurait aucun effet sur la trajectoire.
+      </p>
+    </Section>
   )
 }
 
@@ -170,7 +349,7 @@ function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline="Position instantanée"
+        overline={element.source === 'celestrak' ? 'Objet CelesTrak' : 'Position instantanée'}
         title={element.name}
         subtitle={above ? 'au-dessus de l’horizon' : 'sous l’horizon'}
         trailing={
@@ -181,10 +360,15 @@ function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state
       />
       <CardBody>
         <DataGrid columns={2}>
-          <StatTile label="Hauteur" value={formatDeg(state.horizontal.altitude, 1)} tone={above ? 'primary' : 'neutral'} icon="height" />
+          <StatTile
+            label="Hauteur"
+            value={formatDeg(state.horizontal.altitude, 1)}
+            tone={above ? 'primary' : 'neutral'}
+            icon="height"
+          />
           <StatTile
             label="Azimut"
-            value={`${state.horizontal.azimuth.toFixed(1).replace('.', ',')}°`}
+            value={`${fr(state.horizontal.azimuth)}°`}
             unit={azimuthToCardinal(state.horizontal.azimuth)}
             icon="explore"
           />
@@ -193,20 +377,18 @@ function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state
         </DataGrid>
 
         <Divider />
-        <DataRow
-          label="Point au sol"
-          value={`${state.latitude.toFixed(2).replace('.', ',')}°, ${state.longitude.toFixed(2).replace('.', ',')}°`}
-        />
+        <DataRow label="Point au sol" value={`${fr(state.latitude, 2)}°, ${fr(state.longitude, 2)}°`} />
         <DataRow
           label="Vitesse radiale"
-          value={`${state.rangeRateKm > 0 ? '+' : '−'}${Math.abs(state.rangeRateKm).toFixed(2).replace('.', ',')}`}
+          value={`${state.rangeRateKm > 0 ? '+' : '−'}${fr(Math.abs(state.rangeRateKm), 2)}`}
           unit="km/s"
           hint={state.rangeRateKm > 0 ? 'le satellite s’éloigne' : 'le satellite se rapproche'}
         />
         <DataRow
           label="Magnitude estimée"
-          value={state.magnitude !== null ? state.magnitude.toFixed(1).replace('.', ',') : '—'}
+          value={state.magnitude !== null ? fr(state.magnitude) : '—'}
           emphasis={state.magnitude !== null && state.magnitude < 3}
+          hint="Modèle sphérique diffusant à magnitude intrinsèque type : un ordre de grandeur, pas une prévision."
         />
 
         <Button
@@ -233,12 +415,7 @@ function PassesSection({ element }: { element: OrbitalElements }) {
   const { passes, loading } = useSatellitePasses(element, location, hours, filter === 'visibles')
 
   return (
-    <Section
-      title="Prochains passages"
-      icon="radar"
-      defaultOpen
-      summary={loading ? '…' : `${passes.length}`}
-    >
+    <Section title="Prochains passages" icon="radar" defaultOpen summary={loading ? '…' : `${passes.length}`}>
       <SegmentedButton
         ariaLabel="Filtrer les passages"
         fullWidth
@@ -292,9 +469,9 @@ function PassRow({ pass, onSelect }: { pass: SatellitePass; onSelect: () => void
       leadingIcon={pass.visible ? 'visibility' : 'visibility_off'}
       overline={pass.start.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
       headline={`${formatTime(pass.start)} → ${formatTime(pass.end)}`}
-      supportingText={`${azimuthToCardinal(pass.startAzimuth)} → ${azimuthToCardinal(pass.endAzimuth)} · ${formatDuration(duration)}${
-        pass.maxMagnitude !== null ? ` · mag ${pass.maxMagnitude.toFixed(1).replace('.', ',')}` : ''
-      }`}
+      supportingText={`${azimuthToCardinal(pass.startAzimuth)} → ${azimuthToCardinal(pass.endAzimuth)} · ${formatDuration(
+        duration,
+      )}${pass.maxMagnitude !== null ? ` · mag ${fr(pass.maxMagnitude)}` : ''}`}
       trailingText={formatDeg(pass.peakAltitude, 0)}
       onClick={onSelect}
     />

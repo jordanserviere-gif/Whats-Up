@@ -1,0 +1,14 @@
+.sky-search {
+  /* La barre reste lisible sans jamais manger la scene : elle s'etire jusqu'a
+   * une largeur confortable, puis se contente de ce que la grille lui laisse. */
+  width: 100%;
+  max-width: 440px;
+  min-width: 0;
+  justify-self: center;
+}
+
+@media (max-width: 900px) {
+  .sky-search {
+    max-width: none;
+  }
+}

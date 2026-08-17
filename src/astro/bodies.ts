@@ -4,7 +4,15 @@
  * d'arc pour les planetes, largement suffisante pour une vue du ciel.
  */
 import * as A from 'astronomy-engine'
-import { DEG, RAD, angularSeparation, norm360, parallacticAngle } from './coords'
+import {
+  DEG,
+  RAD,
+  angularSeparation,
+  equatorialToHorizontal,
+  norm360,
+  parallacticAngle,
+  precessFromJ2000,
+} from './coords'
 import { skyLuminance } from './photometry'
 import type { BodyId, BodyState, Equatorial, GeoLocation, RiseSetInfo } from './types'
 
@@ -157,6 +165,45 @@ export function computeRiseSet(def: BodyDefinition, date: Date, location: GeoLoc
     transitAltitude: transit ? transit.hor.altitude : null,
     circumpolar: neverCrosses && altNow > 0,
     alwaysBelow: neverCrosses && altNow <= 0,
+  }
+}
+
+/**
+ * Lever, culmination et coucher d'un objet fixe — etoile ou objet du ciel profond.
+ *
+ * `astronomy-engine` reserve huit emplacements d'astres definis par
+ * l'utilisateur : on en occupe un le temps du calcul, ce qui donne acces aux
+ * memes recherches d'evenements que pour les planetes, refraction et parallaxe
+ * comprises. La distance declaree est arbitrairement lointaine : a mille
+ * annees-lumiere, la parallaxe annuelle est nulle a la precision de l'affichage.
+ */
+export function computeFixedRiseSet(eqJ2000: Equatorial, date: Date, location: GeoLocation): RiseSetInfo {
+  const observer = observerOf(location)
+  const slot = A.Body.Star1
+  // `DefineStar` attend l'ascension droite en heures sidérales, epoque J2000.
+  A.DefineStar(slot, eqJ2000.ra / 15, eqJ2000.dec, 1000)
+
+  const start = new Date(date.getTime() - 12 * 3600 * 1000)
+  const rise = A.SearchRiseSet(slot, observer, +1, start, 2)
+  const set = A.SearchRiseSet(slot, observer, -1, start, 2)
+
+  let transit: A.HourAngleEvent | null = null
+  try {
+    transit = A.SearchHourAngle(slot, observer, 0, start)
+  } catch {
+    transit = null
+  }
+
+  const neverCrosses = !rise && !set
+  const hor = equatorialToHorizontal(precessFromJ2000(eqJ2000, date), location, date)
+
+  return {
+    rise: rise ? rise.date : null,
+    set: set ? set.date : null,
+    transit: transit ? transit.time.date : null,
+    transitAltitude: transit ? transit.hor.altitude : null,
+    circumpolar: neverCrosses && hor.altitude > 0,
+    alwaysBelow: neverCrosses && hor.altitude <= 0,
   }
 }
 

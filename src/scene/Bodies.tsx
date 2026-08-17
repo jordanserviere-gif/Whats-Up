@@ -223,7 +223,6 @@ interface BodyProps {
   airlight: [number, number, number]
   selected: boolean
   selectionColor: string
-  onSelect: (id: string) => void
 }
 
 /**
@@ -243,7 +242,6 @@ function Body({
   airlight,
   selected,
   selectionColor,
-  onSelect,
 }: BodyProps) {
   const group = useRef<Group>(null)
   const sphere = useRef<Mesh>(null)
@@ -367,16 +365,10 @@ function Body({
 
   return (
     <group ref={group}>
-      <mesh
-        ref={sphere}
-        geometry={SPHERE}
-        material={surface}
-        renderOrder={20}
-        onClick={(e) => {
-          e.stopPropagation()
-          onSelect(state.id)
-        }}
-      />
+      {/* Aucun gestionnaire de clic ici : la designation se fait par recherche
+          angulaire (voir `picking.ts`). Un trace de rayons ne trouverait de toute
+          facon rien a viser sur un disque plus petit qu'un pixel. */}
+      <mesh ref={sphere} geometry={SPHERE} material={surface} renderOrder={20} />
       <mesh ref={glow} material={halo} renderOrder={21}>
         <planeGeometry args={[1, 1]} />
       </mesh>
@@ -524,7 +516,6 @@ export function SolarSystemBodies({
   textures,
   selectedId,
   selectionColor,
-  onSelect,
 }: {
   states: BodyState[]
   date: Date
@@ -537,7 +528,6 @@ export function SolarSystemBodies({
   textures: Map<string, Texture>
   selectedId: string | null
   selectionColor: string
-  onSelect: (id: string) => void
 }) {
   const saturn = states.find((s) => s.id === 'saturn')
 
@@ -557,7 +547,6 @@ export function SolarSystemBodies({
           airlight={airlight}
           selected={selectedId === state.id}
           selectionColor={selectionColor}
-          onSelect={onSelect}
         />
       ))}
       {saturn && (

@@ -79,6 +79,16 @@ export const MESSIER_OBJECTS: DeepSkyObject[] = RAW.messier
   .filter((o): o is DeepSkyObject => o !== null)
   .sort((a, b) => a.messier - b.messier)
 
+/**
+ * Tous les objets du catalogue, prets pour la recherche textuelle.
+ *
+ * Le catalogue tient en moins de deux mille entrees : on l'indexe entierement
+ * plutot que d'arbitrer a l'avance ce que l'observateur a le droit de chercher.
+ * Les noms restent sous leur forme de catalogue, en anglais — c'est ainsi qu'ils
+ * sont publies, et les traduire les rendrait introuvables.
+ */
+export const DEEP_SKY_INDEX: readonly DeepSkyObject[] = Array.from({ length: RAW.count }, (_, i) => objectAt(i))
+
 /** Recherche par identifiant de catalogue (« NGC0224 ») ou numero Messier (« M31 »). */
 export function findDeepSkyObject(query: string): DeepSkyObject | null {
   const q = query.trim().toUpperCase().replace(/\s+/g, '')

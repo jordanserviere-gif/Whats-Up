@@ -11,6 +11,7 @@
  * a la colonne pres.
  */
 import { fetchJson } from './fetchJson'
+import type { GpElements } from '@/astro/types'
 import type { Sourced } from './types'
 
 const BASE = 'https://celestrak.org/NORAD/elements/gp.php'
@@ -39,25 +40,7 @@ export type CelestrakGroup = (typeof CELESTRAK_GROUPS)[number]['id']
  * Les noms de champs suivent la norme OMM du CCSDS ; ils sont repris tels quels
  * parce que `json2satrec` les attend sous cette forme exacte.
  */
-export interface GpRecord {
-  OBJECT_NAME: string
-  OBJECT_ID: string
-  EPOCH: string
-  MEAN_MOTION: number
-  ECCENTRICITY: number
-  INCLINATION: number
-  RA_OF_ASC_NODE: number
-  ARG_OF_PERICENTER: number
-  MEAN_ANOMALY: number
-  EPHEMERIS_TYPE: number
-  CLASSIFICATION_TYPE: string
-  NORAD_CAT_ID: number
-  ELEMENT_SET_NO: number
-  REV_AT_EPOCH: number
-  BSTAR: number
-  MEAN_MOTION_DOT: number
-  MEAN_MOTION_DDOT: number
-}
+export type GpRecord = GpElements
 
 export interface SatelliteRecord {
   /** Identifiant NORAD, stable dans le temps — sert de cle. */

@@ -11,8 +11,21 @@ import {
   eciVectorToHorizontal,
   observerEci,
 } from './coords'
-import { orbitalPeriod, propagate } from './kepler'
+import { orbitalPeriod, propagate, type StateVectorKm } from './kepler'
+import { propagateGp } from './sgp4'
 import type { GeoLocation, OrbitalElements, SatellitePass, SatelliteState, TrackPoint } from './types'
+
+/**
+ * Aiguillage entre les deux propagateurs.
+ *
+ * Un jeu d'elements sait comment il doit etre propage : les elements moyens
+ * d'un catalogue passent par SGP4, les elements osculateurs saisis a la main
+ * par le modele keplerien. Ce choix se fait ici, une seule fois, et tout ce qui
+ * suit — etat instantane, trace, recherche de passages — l'ignore.
+ */
+function stateVector(el: OrbitalElements, date: Date): StateVectorKm {
+  return el.gp ? propagateGp(el.gp, date) : propagate(el, date)
+}
 
 /** Direction geocentrique du Soleil dans le repere equatorial de la date, en km. */
 function sunVectorEci(date: Date): [number, number, number] {
@@ -51,7 +64,7 @@ function estimateMagnitude(rangeKm: number, phaseAngleDeg: number, intrinsicMag 
 
 /** Etat observationnel complet d'un satellite a un instant donne. */
 export function computeSatelliteState(el: OrbitalElements, date: Date, location: GeoLocation): SatelliteState {
-  const { position, velocity } = propagate(el, date)
+  const { position, velocity } = stateVector(el, date)
   const obs = observerEci(location, date)
   const rho: [number, number, number] = [position[0] - obs[0], position[1] - obs[1], position[2] - obs[2]]
   const rangeKm = Math.hypot(...rho)
@@ -126,7 +139,7 @@ export function sampleGroundTrack(
   const out = []
   for (let i = 0; i <= steps; i++) {
     const t = new Date(start.getTime() + (periodMs * i) / steps)
-    const geo = eciToGeodetic(propagate(el, t).position, t)
+    const geo = eciToGeodetic(stateVector(el, t).position, t)
     out.push({ time: t, ...geo })
   }
   return out
