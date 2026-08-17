@@ -1,6 +1,5 @@
 /** Conversions temporelles et formatage. */
 
-export const MS_PER_MINUTE = 60_000
 export const MS_PER_HOUR = 3_600_000
 export const MS_PER_DAY = 86_400_000
 
@@ -20,7 +19,7 @@ export function julianCenturies(date: Date): number {
  */
 export function gmstDegrees(date: Date): number {
   const jd = julianDay(date)
-  const t = (jd - 2451545.0) / 36525
+  const t = julianCenturies(date)
   const gmst =
     280.46061837 + 360.98564736629 * (jd - 2451545.0) + 0.000387933 * t * t - (t * t * t) / 38710000
   return ((gmst % 360) + 360) % 360
@@ -43,11 +42,6 @@ export function formatTime(date: Date, withSeconds = false): string {
 /** Formatage de date long, ex. « sam. 16 août 2026 ». */
 export function formatDate(date: Date): string {
   return date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-/** Formatage court pour la frise, ex. « 16/08 21:30 ». */
-export function formatDateTimeShort(date: Date): string {
-  return `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} ${formatTime(date)}`
 }
 
 /** Duree en secondes vers « 4 min 32 s » ou « 1 h 05 ». */

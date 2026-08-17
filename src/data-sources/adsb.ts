@@ -10,16 +10,6 @@ import { relayAttempts } from './corsRelay'
 import type { Sourced } from './types'
 
 const BASE = 'https://opendata.adsb.fi/api/v2/lat'
-/**
- * Cadence de rafraichissement.
- *
- * adsb.fi republie ses positions toutes les cinq a dix secondes, mais le
- * relais qui rend l'appel possible (voir `corsRelay.ts`) peut a lui seul
- * prendre une quinzaine de secondes a repondre. Vingt secondes laissent le
- * temps a une interrogation lente de se terminer avant que la suivante ne
- * parte.
- */
-export const ADSB_POLL_MS = 20_000
 
 /**
  * Duree de validite de l'instantane en cache.

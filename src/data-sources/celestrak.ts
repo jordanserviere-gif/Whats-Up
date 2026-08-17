@@ -102,10 +102,3 @@ export function fetchGroup(group: CelestrakGroup): Promise<Sourced<SatelliteReco
     },
   )
 }
-
-/** Recherche un objet par identifiant NORAD dans un groupe deja recupere. */
-export const findByNorad = (records: SatelliteRecord[], noradId: number): SatelliteRecord | null =>
-  records.find((r) => r.noradId === noradId) ?? null
-
-/** Identifiant NORAD de la Station spatiale internationale. */
-export const ISS_NORAD_ID = 25544

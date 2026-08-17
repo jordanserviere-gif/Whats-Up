@@ -85,13 +85,4 @@ export function writeCache<T>(key: string, payload: T, ttlMs: number): Promise<v
   return transact('readwrite', (store) => store.put(entry)).then(() => undefined)
 }
 
-export function deleteCache(key: string): Promise<void> {
-  return transact('readwrite', (store) => store.delete(key)).then(() => undefined)
-}
-
-/** Vide entierement le cache — utile depuis le panneau Reglages. */
-export function clearCache(): Promise<void> {
-  return transact('readwrite', (store) => store.clear()).then(() => undefined)
-}
-
 export const isExpired = (entry: CacheEntry): boolean => Date.now() > entry.expiresAt

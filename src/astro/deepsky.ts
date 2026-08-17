@@ -35,7 +35,6 @@ const RAW = deepSkyData as RawDeepSky
 export const DEEP_SKY_COUNT = RAW.count
 export const DEEP_SKY_MAG_LIMIT = RAW.magLimit
 export const DEEP_SKY_TYPES = RAW.typeNames
-export const DEEP_SKY_TYPE_LABELS = RAW.typeLabels
 
 export interface DeepSkyObject {
   index: number
@@ -192,6 +191,3 @@ export function buildDeepSkyGeometry(date: Date, magnitudeLimit = DEEP_SKY_MAG_L
   cachedGeometry = geometry
   return geometry
 }
-
-/** Retrouve l'objet du catalogue derriere un indice du tampon de rendu. */
-export const deepSkyObjectAt = (catalogIndex: number): DeepSkyObject => objectAt(catalogIndex)

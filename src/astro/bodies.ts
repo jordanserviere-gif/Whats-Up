@@ -276,22 +276,3 @@ export function computeMoonInfo(date: Date): MoonInfo {
  */
 export const computeSkyConditions = skyLuminance
 export type { SkyLuminance as SkyConditions, TwilightPhase } from './photometry'
-
-/** Suit la trajectoire apparente d'un corps sur une fenetre temporelle. */
-export function sampleBodyTrack(
-  def: BodyDefinition,
-  location: GeoLocation,
-  start: Date,
-  hours: number,
-  steps = 96,
-): Array<{ time: Date; azimuth: number; altitude: number }> {
-  const observer = observerOf(location)
-  const out: Array<{ time: Date; azimuth: number; altitude: number }> = []
-  for (let i = 0; i <= steps; i++) {
-    const t = new Date(start.getTime() + (hours * 3600 * 1000 * i) / steps)
-    const eq = A.Equator(def.body, t, observer, true, true)
-    const hor = A.Horizon(t, observer, eq.ra, eq.dec, 'normal')
-    out.push({ time: t, azimuth: hor.azimuth, altitude: hor.altitude })
-  }
-  return out
-}

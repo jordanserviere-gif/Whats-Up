@@ -18,9 +18,9 @@
  * `verify-astro.mjs` mesure l'ecart contre `ecfToLookAngles`, qui suit lui la
  * voie officielle, et le maintient sous le seuil declare.
  */
-import { gstime, json2satrec, propagate as sgp4Propagate, type SatRec } from 'satellite.js'
+import { json2satrec, propagate as sgp4Propagate, type SatRec } from 'satellite.js'
 import type { StateVectorKm } from './kepler'
-import { DEG, EARTH_MU, RAD, norm360 } from './coords'
+import { EARTH_MU } from './coords'
 import type { GpElements, OrbitalElements } from './types'
 
 /**
@@ -73,13 +73,6 @@ export function propagateGp(gp: GpElements, date: Date): StateVectorKm {
   }
 }
 
-/**
- * Temps sideral de Greenwich, en degres.
- * Expose pour la verification : c'est le pivot de la voie officielle
- * TEME → ECEF → angles de visee.
- */
-export const greenwichSiderealDegrees = (date: Date) => norm360(gstime(date) * RAD)
-
 /** Demi-grand axe deduit du mouvement moyen OMM, en km. */
 function semiMajorAxisFromOmm(revPerDay: number): number {
   const n = (revPerDay * 2 * Math.PI) / 86400
@@ -117,6 +110,3 @@ export function elementsFromGp(
     epochAgeDays: options.epochAgeDays,
   }
 }
-
-/** Inclinaison en radians — commodite des controles de coherence. */
-export const inclinationRadians = (gp: GpElements) => gp.INCLINATION * DEG

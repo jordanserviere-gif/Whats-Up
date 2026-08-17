@@ -18,7 +18,7 @@ import { fetchNearbyAircraft, type AdsbAircraft } from '@/data-sources/adsb'
 import type { SourceStatus } from '@/data-sources/types'
 
 export const AIRCRAFT_RADIUS_KM = 75
-/** Cadence d'interrogation du relais, alignee sur celle du client ADS-B. */
+/** Cadence d'interrogation du relais. */
 const POLL_MS = 12_000
 /** Fenetre conservee pour la trainee et la trace : au-dela, un point n'apprend plus rien. */
 const HISTORY_WINDOW_MS = 8 * 60_000

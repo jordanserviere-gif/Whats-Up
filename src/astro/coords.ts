@@ -36,25 +36,6 @@ export function equatorialToHorizontal(eq: Equatorial, location: GeoLocation, da
   return { azimuth: norm360(azimuth * RAD), altitude: altitude * RAD }
 }
 
-/** Horizontal vers vecteur cartesien de la sphere celeste locale.
- * Repere de la scene : +Y = zenith, -Z = nord, +X = est. */
-export function horizontalToVector(h: Horizontal, radius = 1): [number, number, number] {
-  const alt = h.altitude * DEG
-  const az = h.azimuth * DEG
-  const ca = Math.cos(alt)
-  return [radius * ca * Math.sin(az), radius * Math.sin(alt), -radius * ca * Math.cos(az)]
-}
-
-/** Vecteur de la scene vers coordonnees horizontales. */
-export function vectorToHorizontal(v: [number, number, number]): Horizontal {
-  const [x, y, z] = v
-  const r = Math.hypot(x, y, z) || 1
-  return {
-    altitude: Math.asin(y / r) * RAD,
-    azimuth: norm360(Math.atan2(x, -z) * RAD),
-  }
-}
-
 /**
  * Angle parallactique : rotation entre « nord celeste » et « zenith » vue depuis
  * l'observateur. Sert a orienter la phase lunaire a l'ecran.
@@ -100,17 +81,6 @@ export function precessFromJ2000(eq: Equatorial, date: Date): Equatorial {
     ra: norm360((Math.atan2(a, b) + zzr) * RAD),
     dec: Math.asin(Math.min(1, Math.max(-1, c))) * RAD,
   }
-}
-
-/** Rayon terrestre geocentrique a une latitude geodesique, km. */
-export function geocentricRadius(latitudeDeg: number): number {
-  const lat = latitudeDeg * DEG
-  const f = EARTH_FLATTENING
-  const a = EARTH_RADIUS_KM
-  const b = a * (1 - f)
-  const num = (a * a * Math.cos(lat)) ** 2 + (b * b * Math.sin(lat)) ** 2
-  const den = (a * Math.cos(lat)) ** 2 + (b * Math.sin(lat)) ** 2
-  return Math.sqrt(num / den)
 }
 
 /**

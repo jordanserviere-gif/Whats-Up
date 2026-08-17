@@ -148,8 +148,6 @@ function catalogIndex(): IndexedTarget[] {
   return staticIndex
 }
 
-/** Toutes les cibles fixes, pour le pointage a la souris. */
-export const allCatalogTargets = (): SkyTarget[] => catalogIndex().map((e) => e.target)
 
 /**
  * Index des cibles mobiles, memorise sur l'identite du tableau recu.
@@ -231,9 +229,4 @@ export function searchTargets(query: string, options: SearchOptions = {}): SkyTa
   })
 
   return scored.slice(0, limit).map((s) => s.target)
-}
-
-/** Retrouve une cible fixe par son identifiant. */
-export function findTargetById(id: string): SkyTarget | null {
-  return catalogIndex().find((e) => e.target.id === id)?.target ?? null
 }

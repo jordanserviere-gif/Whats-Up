@@ -11,7 +11,7 @@ import {
   eciVectorToHorizontal,
   observerEci,
 } from './coords'
-import { orbitalPeriod, propagate, type StateVectorKm } from './kepler'
+import { propagate, type StateVectorKm } from './kepler'
 import { propagateGp } from './sgp4'
 import type { GeoLocation, OrbitalElements, SatellitePass, SatelliteState, TrackPoint } from './types'
 
@@ -171,23 +171,6 @@ export function sampleSkyTrack(
       sunlit: s.sunlit,
       rangeKm: s.rangeKm,
     })
-  }
-  return out
-}
-
-/** Trace au sol (latitude/longitude) sur une ou plusieurs revolutions. */
-export function sampleGroundTrack(
-  el: OrbitalElements,
-  start: Date,
-  revolutions = 1,
-  steps = 240,
-): Array<{ time: Date; latitude: number; longitude: number; altitudeKm: number }> {
-  const periodMs = orbitalPeriod(el.semiMajorAxisKm) * 1000 * revolutions
-  const out = []
-  for (let i = 0; i <= steps; i++) {
-    const t = new Date(start.getTime() + (periodMs * i) / steps)
-    const geo = eciToGeodetic(stateVector(el, t).position, t)
-    out.push({ time: t, ...geo })
   }
   return out
 }
