@@ -54,8 +54,20 @@ export function Section({
         )}
         {actions && <div className="md-section__actions">{actions}</div>}
       </div>
-      <div id={id} className="md-section__body" hidden={!expanded}>
-        {children}
+      {/* La hauteur repliee n'est jamais connue a l'avance (contenu variable) :
+          le ressort porte donc sur `grid-template-rows`, pas sur une hauteur
+          fixe — c'est la seule facon d'animer « jusqu'a la hauteur naturelle »
+          en CSS pur. `inert` retire le contenu replie du clavier et des
+          lecteurs d'ecran, comme le faisait `hidden` avant, sans quoi les
+          boutons d'une section fermee resteraient atteignables par tabulation. */}
+      <div className="md-section__body-frame">
+        <div
+          id={id}
+          className="md-section__body"
+          {...({ inert: !expanded || undefined } as Record<string, unknown>)}
+        >
+          {children}
+        </div>
       </div>
     </section>
   )

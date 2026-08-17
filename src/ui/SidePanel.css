@@ -102,7 +102,7 @@
   gap: var(--md-sys-spacing-2);
   justify-content: flex-end;
   padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
-  border-top: 1px solid var(--md-sys-color-outline-variant);
+  border-top: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface-container);
 }
 

@@ -100,10 +100,17 @@ export function TimelineBar() {
               }}
             />
           ) : (
-            <button type="button" className="timeline__clock-button" onClick={() => setEditing(true)}>
-              <span className="timeline__time md-numeric">{formatTime(date, true)}</span>
-              <span className="md-type-label-medium timeline__date">{formatDate(date)}</span>
-            </button>
+            <Tooltip content="Régler la date et l’heure" placement="bottom">
+              <button
+                type="button"
+                className="timeline__clock-button"
+                aria-label="Régler la date et l’heure"
+                onClick={() => setEditing(true)}
+              >
+                <span className="timeline__time md-numeric">{formatTime(date, true)}</span>
+                <span className="md-type-label-medium timeline__date">{formatDate(date)}</span>
+              </button>
+            </Tooltip>
           )}
           <div className="timeline__badges">
             {live ? (
@@ -133,7 +140,7 @@ export function TimelineBar() {
           </Tooltip>
           <Tooltip content="Revenir à maintenant" placement="top">
             <IconButton
-              icon="my_location"
+              icon="restore"
               label="Revenir à l’instant présent"
               variant="tonal"
               selected={live}

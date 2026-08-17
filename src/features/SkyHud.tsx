@@ -135,9 +135,16 @@ function SatelliteToggle() {
         />
       </Tooltip>
       {enabled && elements.length > 0 && (
-        <button type="button" className="sky-hud__satellites-count" onClick={() => setTab('satellites')}>
-          <Badge tone="tertiary">{elements.length}</Badge>
-        </button>
+        <Tooltip content="Voir la liste des satellites" placement="bottom">
+          <button
+            type="button"
+            className="sky-hud__satellites-count"
+            aria-label={`Voir la liste des satellites — ${elements.length} suivis`}
+            onClick={() => setTab('satellites')}
+          >
+            <Badge tone="tertiary">{elements.length}</Badge>
+          </button>
+        </Tooltip>
       )}
     </Toolbar>
   )
@@ -181,9 +188,16 @@ function AircraftToggle() {
         />
       </Tooltip>
       {enabled && aircraft.length > 0 && (
-        <button type="button" className="sky-hud__aircraft-count" onClick={() => setTab('objets')}>
-          <Badge tone="tertiary">{aircraft.length}</Badge>
-        </button>
+        <Tooltip content="Voir la liste des avions" placement="bottom">
+          <button
+            type="button"
+            className="sky-hud__aircraft-count"
+            aria-label={`Voir la liste des avions — ${aircraft.length} suivis`}
+            onClick={() => setTab('objets')}
+          >
+            <Badge tone="tertiary">{aircraft.length}</Badge>
+          </button>
+        </Tooltip>
       )}
     </Toolbar>
   )

@@ -58,7 +58,7 @@
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
   font-family: var(--md-ref-typeface-mono);
-  font-size: 15px;
+  font-size: var(--md-sys-typescale-title-medium-size);
 }
 
 .timeline__badges {
