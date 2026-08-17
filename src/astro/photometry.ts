@@ -93,6 +93,23 @@ export function lightPollutionLux(rank: number): number {
   return Math.max(0, excess)
 }
 
+/**
+ * Magnitude limite a l'oeil nu deduite de la brillance du fond de ciel
+ * (relation de Schaefer, 1990) — et non de l'eclairement horizontal.
+ *
+ * Les deux ne sont pas interchangeables, et c'est la tout le probleme. Sous la
+ * Lune, l'essentiel de l'eclairement arrive **directement** de l'astre : une
+ * pleine lune donne 0,27 lux au sol pour un fond de ciel autour de
+ * 18 mag/arcsec². Une pollution lumineuse qui produirait le meme eclairement
+ * l'obtiendrait presque entierement par le ciel lui-meme, donc avec un fond
+ * bien plus clair et une magnitude limite bien plus basse. Les paliers en lux
+ * de `LIMIT_MAG_ANCHORS` sont cales sur le premier regime ; ils surestimaient
+ * de pres de deux magnitudes ce qu'on voit reellement depuis un centre-ville.
+ */
+export function limitingMagnitudeFromSkyBrightness(sqm: number): number {
+  return 7.93 - 5 * Math.log10(Math.pow(10, 4.316 - sqm / 5) + 1)
+}
+
 /** Magnitude limite a l'oeil nu selon l'eclairement ambiant. */
 const LIMIT_MAG_ANCHORS: ReadonlyArray<[lux: number, magnitude: number]> = [
   [0.0002, 6.6],
@@ -265,7 +282,18 @@ export function skyLuminance(date: Date, location: GeoLocation, pollutionLux = 0
     moonAltitude: moonHor.altitude,
     moonIllumination,
     obscuration,
-    limitingMagnitude: interpolateLogX(LIMIT_MAG_ANCHORS, illuminance),
+    // Deux regimes, chacun avec sa loi, et c'est le plus contraignant qui
+    // decide : l'eclairement direct (Soleil, Lune) passe par les paliers en
+    // lux, la pollution lumineuse par la brillance de fond qu'elle impose. Un
+    // site vierge n'active pas le second — sa classe donne 6,6, soit deja plus
+    // que ce que le premier autorise.
+    limitingMagnitude:
+      pollutionLux > 0
+        ? Math.min(
+            interpolateLogX(LIMIT_MAG_ANCHORS, illuminance),
+            limitingMagnitudeFromSkyBrightness(skySurfaceBrightness(AIRGLOW_LUX + pollutionLux)),
+          )
+        : interpolateLogX(LIMIT_MAG_ANCHORS, illuminance),
     darkness,
     twilight,
   }
@@ -318,10 +346,47 @@ export function pointSizePixels(magnitude: number, limitingMagnitude: number): n
   return POINT_BASE_SIZE_PX * (0.7 + 0.55 * Math.log(1 + rel))
 }
 
-/** Opacite de rendu d'une source ponctuelle : elle s'eteint sous la limite. */
+/** Echelle de la dynamique d'eclat des sources ponctuelles. */
+export const POINT_BRIGHTNESS_SCALE = 0.28
+/**
+ * Seuil de perception, en magnitudes relatives a la limite.
+ *
+ * La magnitude limite n'est pas une valeur ou l'etoile brille encore : c'est
+ * par definition celle ou elle cesse d'etre percue. La seule courbe
+ * logarithmique laissait pourtant une etoile quatre magnitudes plus faible
+ * encore dessinee a un demi pour cent d'opacite — invisible seule, mais
+ * multipliee par les milliers d'entrees d'un catalogue, elle constellait
+ * d'etoiles un ciel de centre-ville qui aurait du n'en montrer qu'une
+ * poignee.
+ *
+ * D'ou ce seuil, applique **par-dessus** la courbe logarithmique plutot qu'a
+ * sa place : le logarithme garde la dynamique entre une etoile de premiere
+ * grandeur et une de quatrieme, le seuil se charge d'eteindre franchement ce
+ * qui passe sous la limite. Une magnitude au-dessus d'elle l'etoile est encore
+ * pleine, a la limite elle n'est plus qu'un soupcon, une demi-magnitude en
+ * dessous elle n'est plus la du tout.
+ */
+export const POINT_VISIBILITY_FADE_START = -1
+export const POINT_VISIBILITY_FADE_END = 0.5
+
+const smoothstep = (edge0: number, edge1: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
+
+/**
+ * Opacite de rendu d'une source ponctuelle : elle s'eteint sous la limite.
+ *
+ * Le champ d'etoiles et le ciel profond refont ce calcul dans leurs nuanceurs,
+ * pour l'appliquer par point sans repasser par le processeur — les constantes
+ * ci-dessus y sont injectees telles quelles, de sorte que les courbes ne
+ * puissent pas diverger.
+ */
 export function pointIntensity(magnitude: number, limitingMagnitude: number): number {
-  const rel = Math.pow(10, -0.4 * (magnitude - limitingMagnitude))
-  return Math.min(1, Math.max(0, 0.28 * Math.log(1 + rel)))
+  const delta = magnitude - limitingMagnitude
+  const rel = Math.pow(10, -0.4 * delta)
+  const gate = 1 - smoothstep(POINT_VISIBILITY_FADE_START, POINT_VISIBILITY_FADE_END, delta)
+  return Math.min(1, Math.max(0, POINT_BRIGHTNESS_SCALE * Math.log(1 + rel) * gate))
 }
 
 /**

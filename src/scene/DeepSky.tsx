@@ -13,7 +13,12 @@ import {
 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { buildDeepSkyGeometry, DEEP_SKY_TYPES } from '@/astro/deepsky'
-import { skySurfaceBrightness } from '@/astro/photometry'
+import {
+  POINT_BRIGHTNESS_SCALE,
+  POINT_VISIBILITY_FADE_END,
+  POINT_VISIBILITY_FADE_START,
+  skySurfaceBrightness,
+} from '@/astro/photometry'
 import type { GeoLocation } from '@/astro/types'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 
@@ -206,9 +211,12 @@ export function DeepSky({
             float contrast = uSkySb - vSb;
             opacity = clamp((contrast + 1.5) / 3.5, 0.0, 1.0);
           } else {
-            // Dimensions inconnues : on retombe sur la loi des sources ponctuelles.
-            float rel = pow(10.0, -0.4 * (vMag - uLimitMag));
-            opacity = clamp(0.28 * log(1.0 + rel), 0.0, 1.0);
+            // Dimensions inconnues : on retombe sur la loi des sources
+            // ponctuelles — meme courbe que pointIntensity(), voir photometry.ts.
+            float delta = vMag - uLimitMag;
+            float rel = pow(10.0, -0.4 * delta);
+            float gate = 1.0 - smoothstep(${POINT_VISIBILITY_FADE_START.toFixed(1)}, ${POINT_VISIBILITY_FADE_END.toFixed(1)}, delta);
+            opacity = clamp(${POINT_BRIGHTNESS_SCALE} * log(1.0 + rel) * gate, 0.0, 1.0);
           }
 
           // Un objet reste toujours plus tenu que les etoiles qui l'entourent.

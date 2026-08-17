@@ -2,7 +2,13 @@ import { useMemo, useRef } from 'react'
 import { AdditiveBlending, BufferAttribute, BufferGeometry, Matrix4, Points, ShaderMaterial } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { buildStarGeometry } from '@/astro/catalog'
-import { EXTINCTION_COEFFICIENT, POINT_BASE_SIZE_PX } from '@/astro/photometry'
+import {
+  EXTINCTION_COEFFICIENT,
+  POINT_BASE_SIZE_PX,
+  POINT_BRIGHTNESS_SCALE,
+  POINT_VISIBILITY_FADE_END,
+  POINT_VISIBILITY_FADE_START,
+} from '@/astro/photometry'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 import type { GeoLocation } from '@/astro/types'
 
@@ -85,11 +91,17 @@ export function Starfield({
             float x = min(airmass(altDeg), 12.0);
             float extinction = uExtinctionK * x;
 
-            // Rapport de flux a la magnitude limite : 1 exactement a la limite.
-            float rel = pow(10.0, -0.4 * (starMag + extinction - uLimitMag));
+            // Ecart a la magnitude limite, et rapport de flux correspondant :
+            // 1 exactement a la limite.
+            float delta = starMag + extinction - uLimitMag;
+            float rel = pow(10.0, -0.4 * delta);
             float lg = log(1.0 + rel);
 
-            vIntensity = clamp(0.28 * lg, 0.0, 1.0);
+            // Meme courbe que pointIntensity() — voir photometry.ts. Le
+            // logarithme porte la dynamique, le seuil eteint franchement ce qui
+            // passe sous la limite. Les constantes viennent de la, pas d'ici.
+            float gate = 1.0 - smoothstep(${POINT_VISIBILITY_FADE_START.toFixed(1)}, ${POINT_VISIBILITY_FADE_END.toFixed(1)}, delta);
+            vIntensity = clamp(${POINT_BRIGHTNESS_SCALE} * lg * gate, 0.0, 1.0);
             // Rougissement par l'extinction, normalise sur le rouge.
             float xr = max(0.0, x - 1.0);
             vColor = starColor * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));

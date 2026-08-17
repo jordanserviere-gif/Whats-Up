@@ -21,7 +21,15 @@ import { gmstDegrees, lstDegrees } from '../src/astro/time.ts'
 import { orbitalPeriod, propagate } from '../src/astro/kepler.ts'
 import { computeSatelliteState } from '../src/astro/satellite.ts'
 import { computeBodyState, BODIES, BODY_BY_ID } from '../src/astro/bodies.ts'
-import { AIRGLOW_LUX, airmass, diskObscuration, skyLuminance, skySurfaceBrightness } from '../src/astro/photometry.ts'
+import {
+  AIRGLOW_LUX,
+  airmass,
+  bortleSkyBrightness,
+  diskObscuration,
+  lightPollutionLux,
+  skyLuminance,
+  skySurfaceBrightness,
+} from '../src/astro/photometry.ts'
 import {
   DEEP_SKY_COUNT,
   DEEP_SKY_MAG_LIMIT,
@@ -249,6 +257,30 @@ console.log('\n=== 5. Photometrie et geometrie d’occultation ===')
     `${okDay ? 'OK  ' : 'ECHEC'} ${'midi d’ete : eclairement plausible'.padEnd(52)} ${Math.round(daySky.illuminance)} lx (attendu 40 000 – 130 000)`,
   )
   check('midi : la magnitude limite exclut les etoiles', daySky.limitingMagnitude, -4.2, 1.2, ' mag')
+
+  // Pollution lumineuse : l'echelle de Bortle doit rendre les magnitudes
+  // limites de la litterature. C'est le garde-fou du reglage — un ciel de
+  // centre-ville doit effacer tout ce qui est plus faible que la troisieme
+  // grandeur, pas seulement ternir le fond.
+  {
+    const attendu = [
+      [1, 6.6],
+      [3, 6.4],
+      [5, 5.8],
+      [7, 4.3],
+      [9, 2.9],
+    ]
+    for (const [rang, nelm] of attendu) {
+      const s = skyLuminance(darkNight ? new Date(darkNight.ms) : noon, paris, lightPollutionLux(rang))
+      check(
+        `Bortle ${rang} (${bortleSkyBrightness(rang).toFixed(1)} mag/arcsec²) : magnitude limite`,
+        s.limitingMagnitude,
+        nelm,
+        0.25,
+        ' mag',
+      )
+    }
+  }
 
   // Masse d'air : valeurs de reference, et surtout absence de divergence sous
   // l'horizon — c'est la que la formule de Pickering brute part a l'infini.
