@@ -59,12 +59,21 @@
 
 .md-side-panel__content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 var(--md-sys-spacing-3) var(--md-sys-spacing-4);
   display: flex;
   flex-direction: column;
   gap: var(--md-sys-spacing-3);
+}
+
+/* Une colonne flexible comprime ses enfants avant de defiler : sections et
+ * fiches se retrouvaient tassees, et leur `overflow: hidden` amputait le
+ * contenu — jusqu'a six cents pixels dans les reglages. On leur rend leur
+ * hauteur naturelle, et c'est le panneau qui defile. */
+.md-side-panel__content > * {
+  flex: none;
 }
 
 .md-side-panel__footer {

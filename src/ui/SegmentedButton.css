@@ -10,10 +10,19 @@
   display: flex;
   width: 100%;
 }
+/* Pleine largeur : les segments se partagent la place a parts egales, et le
+ * plancher a zero laisse l'ellipse du libelle absorber ce qui ne tient pas. */
+.md-segmented--full .md-segmented__item {
+  flex: 1 1 0;
+  min-width: 0;
+}
 
 .md-segmented__item {
   position: relative;
-  flex: 1;
+  /* Serie posee dans un flux : chaque segment prend la largeur de son libelle.
+   * Un partage a parts egales — `flex: 1`, donc base nulle — ferait dependre la
+   * largeur du groupe de rien, et tous les libelles s'y tronqueraient. */
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -70,6 +79,9 @@
 
 .md-segmented__label {
   position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 720px) {

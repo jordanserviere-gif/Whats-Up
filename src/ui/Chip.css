@@ -4,6 +4,9 @@
   align-items: center;
   gap: var(--md-sys-spacing-2);
   height: 36px;
+  /* Une puce ne se comprime jamais : son libelle est deja court, et le rogner
+   * la rend illisible. Dans une serie defilante, c'est la serie qui glisse. */
+  flex: none;
   padding-inline: var(--md-sys-spacing-3);
   border: var(--md-sys-outline-width-thin) solid var(--_outline, transparent);
   border-radius: var(--md-sys-shape-corner-small);
@@ -109,6 +112,17 @@
   overflow-x: auto;
   padding-bottom: var(--md-sys-spacing-1);
   scrollbar-width: none;
+  /* Le fondu des bords tient lieu d'ascenseur : il dit qu'il reste des puces
+   * au-dela sans occuper de hauteur, ce qu'une barre ferait au-dessus de la
+   * scene. La marge interieure du fondu vaut celle d'une puce, pour ne jamais
+   * mordre sur un libelle. */
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--md-sys-spacing-3),
+    #000 calc(100% - var(--md-sys-spacing-3)),
+    transparent 100%
+  );
 }
 .md-chip-set--scroll::-webkit-scrollbar {
   display: none;

@@ -7,6 +7,11 @@ export interface Segment<T extends string> {
   value: T
   label: string
   icon?: string
+  /**
+   * Libelle developpe, quand l'abreviation affichee ne se suffit pas.
+   * Sert d'etiquette accessible et d'info-bulle native.
+   */
+  title?: string
   /** Masque le libelle sous les petits ecrans. */
   compact?: boolean
 }
@@ -46,6 +51,8 @@ export function SegmentedButton<T extends string>({
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={seg.title}
+            title={seg.title}
             className={cx('md-segmented__item', selected && 'is-selected')}
             onClick={() => onChange(seg.value)}
           >

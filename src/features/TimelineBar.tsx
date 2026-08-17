@@ -154,7 +154,7 @@ export function TimelineBar() {
         <SegmentedButton
           className="timeline__speed"
           ariaLabel="Vitesse d’écoulement du temps"
-          segments={TIME_SPEEDS.map((s) => ({ value: String(s.value), label: s.label, compact: true }))}
+          segments={TIME_SPEEDS.map((s) => ({ value: String(s.value), label: s.label, title: s.title }))}
           value={String(speed)}
           onChange={(v) => setSpeed(Number(v))}
         />

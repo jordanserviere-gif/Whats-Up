@@ -8,8 +8,25 @@
   width: 100%;
 }
 
+.md-slider__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--md-sys-spacing-3);
+}
+
 .md-slider__label {
   color: var(--md-sys-color-on-surface-variant);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-slider__readout {
+  flex: none;
+  color: var(--md-sys-color-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .md-slider__track-row {
@@ -93,6 +110,14 @@
   color: var(--md-sys-color-inverse-on-surface);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  /* Indicateur de valeur au sens Material : il ne se montre qu'a la
+   * manipulation, sinon il masquerait le libelle place juste au-dessus. */
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+.md-slider__track-row:hover .md-slider__value,
+.md-slider__track-row:focus-within .md-slider__value {
+  opacity: 1;
 }
 
 /* L'input natif porte l'interaction ; il est invisible mais actif. */
