@@ -17,6 +17,68 @@ import {
 import { getAircraftHistory } from '@/state/aircraftFeed'
 import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
+import {
+  ATMOSPHERE_GLSL,
+  ATMOSPHERE_RADIUS_M,
+  MIE_COEFFICIENT,
+  MIE_G,
+  MIE_SCALE_HEIGHT_M,
+  PLANET_RADIUS_M,
+  RAYLEIGH_COEFFICIENTS,
+  RAYLEIGH_SCALE_HEIGHT_M,
+  SUN_INTENSITY_REF,
+} from './atmosphere'
+
+/**
+ * Uniforms communs a la silhouette et a la trainee pour evaluer la meme
+ * diffusion atmospherique que le fond de ciel (`SkyBackground.tsx`), le long
+ * de leur propre ligne de visee plutot que sous une teinte globale
+ * approchee. C'est ce qui manquait pour qu'un avion pres de l'horizon se
+ * fonde vraiment dans le ciel du moment, et qu'une trainee cesse de
+ * ressortir une fois la nuit tombee : les deux se decolorent desormais avec
+ * la meme physique que le ciel qui les entoure.
+ */
+function atmosphereUniforms() {
+  return {
+    uSunDir: { value: new Vector3(0, 1, 0) },
+    uSunIntensity: { value: SUN_INTENSITY_REF },
+    uPlanetRadius: { value: PLANET_RADIUS_M },
+    uAtmosphereRadius: { value: ATMOSPHERE_RADIUS_M },
+    uRayleighCoeff: { value: new Vector3(...RAYLEIGH_COEFFICIENTS) },
+    uMieCoeff: { value: MIE_COEFFICIENT },
+    uRayleighScaleHeight: { value: RAYLEIGH_SCALE_HEIGHT_M },
+    uMieScaleHeight: { value: MIE_SCALE_HEIGHT_M },
+    uMieG: { value: MIE_G },
+    /** Meme exposition que le fond de ciel — voir `SkyCanvas.tsx` — pour que la teinte du voile lui reste identique. */
+    uAtmosphereExposure: { value: 0 },
+  }
+}
+
+const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `
+  uniform vec3 uSunDir;
+  uniform float uSunIntensity;
+  uniform float uPlanetRadius;
+  uniform float uAtmosphereRadius;
+  uniform vec3 uRayleighCoeff;
+  uniform float uMieCoeff;
+  uniform float uRayleighScaleHeight;
+  uniform float uMieScaleHeight;
+  uniform float uMieG;
+  uniform float uAtmosphereExposure;
+`
+
+/** Couleur du ciel le long de `dir`, dans les memes unites que `SkyBackground`. */
+const ATMOSPHERE_HAZE_COLOR_FN = /* glsl */ `
+  vec3 hazeColorAlong(vec3 dir) {
+    vec3 r0 = vec3(0.0, uPlanetRadius, 0.0);
+    vec3 raw = atmosphere(
+      dir, r0, uSunDir, uSunIntensity,
+      uPlanetRadius, uAtmosphereRadius,
+      uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG
+    );
+    return 1.0 - exp(-uAtmosphereExposure * raw);
+  }
+`
 
 const DEG = Math.PI / 180
 
@@ -79,25 +141,33 @@ function aircraftMaterial() {
     side: DoubleSide,
     uniforms: {
       uColor: { value: new Color('#e9ebf1') },
-      uHazeColor: { value: new Color('#000000') },
       uHaze: { value: 0 },
       uOpacity: { value: 1 },
+      ...atmosphereUniforms(),
     },
     vertexShader: /* glsl */ `
+      varying vec3 vView;
       void main() {
+        // L'observateur est a l'origine : la position dans le monde donne
+        // directement la direction sous laquelle on voit ce point.
+        vView = normalize((modelMatrix * vec4(position, 1.0)).xyz);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     // Le voile atmospherique melange la teinte propre de l'avion vers la
-    // couleur du ciel dans sa direction : c'est la meme idee que la diffusion
-    // de Rayleigh qui blanchit et bleuit un objet lointain bas sur l'horizon.
+    // vraie couleur du ciel dans sa direction — la meme diffusion Rayleigh que
+    // le fond de ciel, evaluee ici le long de la ligne de visee de l'avion —
+    // plutot que vers une teinte jour/nuit globale approchee.
     fragmentShader: /* glsl */ `
+      ${ATMOSPHERE_GLSL}
+      ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+      ${ATMOSPHERE_HAZE_COLOR_FN}
+      varying vec3 vView;
       uniform vec3 uColor;
-      uniform vec3 uHazeColor;
       uniform float uHaze;
       uniform float uOpacity;
       void main() {
-        gl_FragColor = vec4(mix(uColor, uHazeColor, uHaze), uOpacity);
+        gl_FragColor = vec4(mix(uColor, hazeColorAlong(vView), uHaze), uOpacity);
       }
     `,
   })
@@ -116,14 +186,17 @@ function aircraftMaterial() {
 function AircraftMesh({
   state,
   location,
-  airlight,
+  sunDirection,
+  atmosphereExposure,
   dayFactor,
   selected,
 }: {
   state: AircraftState
   location: GeoLocation
-  /** Teinte du ciel diurne dans la meme direction — reprise telle quelle des corps. */
-  airlight: [number, number, number]
+  /** Direction du Soleil dans le repere de la scene, unitaire. */
+  sunDirection: [number, number, number]
+  /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
+  atmosphereExposure: number
   /** Facteur jour/nuit : un avion ne se voit quasiment plus une fois la nuit tombee. */
   dayFactor: number
   selected: boolean
@@ -152,7 +225,8 @@ function AircraftMesh({
 
     const am = airmass(horizontal.altitude)
     material.uniforms.uHaze.value = 1 - Math.exp(-0.14 * (am - 1))
-    ;(material.uniforms.uHazeColor.value as Color).setRGB(airlight[0], airlight[1], airlight[2])
+    ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
+    material.uniforms.uAtmosphereExposure.value = atmosphereExposure
     ;(material.uniforms.uColor.value as Color).setRGB(
       selected ? 1 : 0.914,
       selected ? 1 : 0.925,
@@ -199,11 +273,9 @@ function contrailMaterial() {
     side: DoubleSide,
     uniforms: {
       uColor: { value: new Color('#ffffff') },
-      uHazeColor: { value: new Color('#000000') },
       uHaze: { value: 0 },
       uOpacity: { value: 0 },
-      /** Direction du Soleil dans le repere de la scene. */
-      uSunDir: { value: new Vector3(0, 1, 0) },
+      ...atmosphereUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -217,13 +289,14 @@ function contrailMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
+      ${ATMOSPHERE_GLSL}
+      ${ATMOSPHERE_UNIFORM_DECLARATIONS}
+      ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec2 vUv;
       varying vec3 vView;
       uniform vec3 uColor;
-      uniform vec3 uHazeColor;
       uniform float uHaze;
       uniform float uOpacity;
-      uniform vec3 uSunDir;
 
       void main() {
         // vUv.x traverse le panache, vUv.y le parcourt. Aucun bord net : le
@@ -244,9 +317,10 @@ function contrailMaterial() {
         float alpha = radial * birth * decay * uOpacity * scatter;
         if (alpha < 0.004) discard;
 
-        // Meme voile atmospherique que la silhouette : au ras de l'horizon, la
-        // trainee se fond dans la couleur du ciel au lieu de rester blanche.
-        gl_FragColor = vec4(mix(uColor, uHazeColor, uHaze), min(alpha, 0.85));
+        // Meme voile atmospherique que la silhouette, evalue le long de sa
+        // propre ligne de visee : de nuit, ce voile est desormais reellement
+        // noir — plus de trainee qui ressort a contretemps du ciel.
+        gl_FragColor = vec4(mix(uColor, hazeColorAlong(vView), uHaze), min(alpha, 0.85));
       }
     `,
   })
@@ -261,14 +335,15 @@ function contrailMaterial() {
 function AircraftContrail({
   state,
   location,
-  airlight,
   sunDirection,
+  atmosphereExposure,
   dayFactor,
 }: {
   state: AircraftState
   location: GeoLocation
-  airlight: [number, number, number]
   sunDirection: [number, number, number]
+  /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
+  atmosphereExposure: number
   dayFactor: number
 }) {
   const mesh = useRef<Mesh>(null)
@@ -384,8 +459,8 @@ function AircraftContrail({
 
     const am = airmass(headView.horizontal.altitude)
     material.uniforms.uHaze.value = 1 - Math.exp(-0.14 * (am - 1))
-    ;(material.uniforms.uHazeColor.value as Color).setRGB(airlight[0], airlight[1], airlight[2])
     ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
+    material.uniforms.uAtmosphereExposure.value = atmosphereExposure
     // Sous l'horizon rien a montrer ; sinon l'opacite suit la probabilite de
     // condensation a l'altitude courante et la lumiere du jour.
     const visible = headView.horizontal.altitude > -1 ? state.contrailLikelihood * dayFactor : 0
@@ -466,17 +541,18 @@ function AircraftTrack({ hex, location, color }: { hex: string; location: GeoLoc
 export function AircraftLayer({
   states,
   location,
-  airlight,
   sunDirection,
+  atmosphereExposure,
   dayFactor,
   selectedHex,
   trackColor,
 }: {
   states: readonly AircraftState[]
   location: GeoLocation
-  airlight: [number, number, number]
   /** Direction du Soleil dans le repere de la scene, unitaire. */
   sunDirection: [number, number, number]
+  /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
+  atmosphereExposure: number
   dayFactor: number
   selectedHex: string | null
   /** Couleur de la trace suivie de l'avion selectionne. */
@@ -489,7 +565,8 @@ export function AircraftLayer({
           <AircraftMesh
             state={s}
             location={location}
-            airlight={airlight}
+            sunDirection={sunDirection}
+            atmosphereExposure={atmosphereExposure}
             dayFactor={dayFactor}
             selected={s.hex === selectedHex}
           />
@@ -497,8 +574,8 @@ export function AircraftLayer({
             <AircraftContrail
               state={s}
               location={location}
-              airlight={airlight}
               sunDirection={sunDirection}
+              atmosphereExposure={atmosphereExposure}
               dayFactor={dayFactor}
             />
           )}

@@ -123,7 +123,6 @@ export function SkyCanvas() {
   // magnitude limite fixee au catalogue, aucune diffusion diurne.
   const limitingMagnitude = layers.atmosphere ? sky.limitingMagnitude : 6.6
   const illuminance = layers.atmosphere ? sky.illuminance : 2e-4
-  const solarLux = layers.atmosphere ? sky.solarLux : 0
 
   /**
    * Voile atmospherique vu dans la direction des astres.
@@ -142,6 +141,19 @@ export function SkyCanvas() {
     const k = 0.72 * factor * eclipse
     return [r * k, g * k, b * k]
   }, [layers.atmosphere, sky.solarLux, sky.obscuration, colors.skyDay])
+
+  /**
+   * Exposition de la diffusion atmospherique reelle (voir `atmosphere.ts`),
+   * partagee par le fond de ciel et le voile des avions/trainees — meme
+   * formule que `SkyBackground`, pour que les deux s'eteignent exactement au
+   * meme rythme pendant une eclipse ou en vue depuis l'espace plutot que de
+   * deriver chacun de son cote.
+   */
+  const atmosphereExposure = useMemo(() => {
+    if (!layers.atmosphere) return 0
+    const eclipse = Math.pow(1 - sky.obscuration + 8e-4 * sky.obscuration, 0.5)
+    return 0.3 * eclipse
+  }, [layers.atmosphere, sky.obscuration])
 
   /**
    * Facteur jour/nuit applique au maillage realiste des avions.
@@ -388,7 +400,7 @@ export function SkyCanvas() {
         <CameraRig canvas={host} onPick={onPick} />
 
         <SkyBackground
-          solarLux={solarLux}
+          enabled={layers.atmosphere}
           obscuration={sky.obscuration}
           sunAltitude={sky.sunAltitude}
           sunAzimuth={sky.sunAzimuth}
@@ -396,7 +408,6 @@ export function SkyCanvas() {
           moonAzimuth={moon?.horizontal.azimuth ?? 0}
           lunarLux={layers.atmosphere ? sky.lunarLux : 0}
           nightColor={colors.skyZenith}
-          twilightColor={colors.twilight}
           moonGlowColor={colors.moonGlow}
         />
 
@@ -466,8 +477,8 @@ export function SkyCanvas() {
           <AircraftLayer
             states={aircraftStates}
             location={location}
-            airlight={airlight}
             sunDirection={sunDirection}
+            atmosphereExposure={atmosphereExposure}
             dayFactor={dayFactor}
             selectedHex={selectedAircraftHex}
             trackColor={colors.selection}

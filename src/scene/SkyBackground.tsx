@@ -1,15 +1,18 @@
 import { useMemo } from 'react'
-import { BackSide, Color, ShaderMaterial, UniformsUtils, Vector3, type IUniform } from 'three'
-import { Sky as ThreeSky } from 'three/examples/jsm/objects/Sky.js'
+import { BackSide, Color, ShaderMaterial, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { DOME_RADIUS } from './sceneMath'
-
-/** `Sky.SkyShader` est declare `object` dans les typages de three : on le precise. */
-interface SkyShaderDefinition {
-  uniforms: Record<string, IUniform>
-  vertexShader: string
-  fragmentShader: string
-}
+import {
+  ATMOSPHERE_GLSL,
+  ATMOSPHERE_RADIUS_M,
+  MIE_COEFFICIENT,
+  MIE_G,
+  MIE_SCALE_HEIGHT_M,
+  PLANET_RADIUS_M,
+  RAYLEIGH_COEFFICIENTS,
+  RAYLEIGH_SCALE_HEIGHT_M,
+  SUN_INTENSITY_REF,
+} from './atmosphere'
 
 /**
  * Fond de ciel — ciel nocturne et atmosphere diurne en **une seule passe opaque**.
@@ -22,98 +25,120 @@ interface SkyShaderDefinition {
  * sombre que sa propre couronne. Fusionner les deux supprime la classe entiere
  * de ces bugs d'ordre.
  *
- * La diffusion atmospherique reprend le modele de Preetham livre avec three.js
- * (`objects/Sky.js`) : Rayleigh pour le bleu du zenith, Mie pour le halo
- * solaire et le blanchiment vers l'horizon. Son disque solaire est retire — la
- * scene rend le sien, a sa distance, faute de quoi la Lune ne pourrait pas
- * l'occulter.
+ * La diffusion vient desormais d'une vraie integrale de diffusion simple
+ * (Rayleigh + Mie, voir `atmosphere.ts`), pas d'un modele empirique (Preetham)
+ * complete a la main d'un degrade crepusculaire invente. La forme et la
+ * couleur du halo solaire — y compris son rougissement bas sur l'horizon —
+ * sortent directement de la geometrie Terre-atmosphere-Soleil, ce qui est
+ * exactement ce qui manquait a l'ancien rendu.
+ *
+ * Son disque solaire est retire — la scene rend le sien, a sa distance, faute
+ * de quoi la Lune ne pourrait pas l'occulter.
  */
 function buildSkyMaterial(): ShaderMaterial {
-  const shader = ThreeSky.SkyShader as unknown as SkyShaderDefinition
+  const vertexShader = /* glsl */ `
+    varying vec3 vDir;
+    void main() {
+      // La sphere est centree a l'origine, sans echelle : la position locale
+      // est deja, une fois normalisee, la direction de visee.
+      vDir = position;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `
 
-  const fragmentShader = shader.fragmentShader
-    .replace(
-      'varying vec3 vWorldPosition;',
-      `varying vec3 vWorldPosition;
+  const fragmentShader = /* glsl */ `
+    ${ATMOSPHERE_GLSL}
 
-      uniform float uAtmosphere;
-      uniform float uExposure;
-      uniform float uSaturation;
-      uniform vec3 uMoonDir;
-      uniform float uMoonFactor;
-      uniform float uTwilightFactor;
-      uniform vec3 uNight;
-      uniform vec3 uMoonGlow;
-      uniform vec3 uTwilight;
+    varying vec3 vDir;
 
-      // Approximation filmique ACES (Narkowicz 2015).
-      //
-      // Le modele de Preetham produit des luminances physiques, bien au-dela de
-      // 1 : l'exemple three.js s'appuie sur le tone mapping du rendu pour les
-      // ramener a l'ecran. La scene n'en applique aucun — les autres couleurs
-      // viennent des tokens et doivent rester fideles — on mappe donc ici, et
-      // seulement ici. Sans cette courbe, le ciel sature uniformement au blanc.
-      vec3 acesFilmic(vec3 x) {
-        return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
-      }
+    uniform vec3 uSunDir;
+    uniform float uSunIntensity;
+    uniform float uPlanetRadius;
+    uniform float uAtmosphereRadius;
+    uniform vec3 uRayleighCoeff;
+    uniform float uMieCoeff;
+    uniform float uRayleighScaleHeight;
+    uniform float uMieScaleHeight;
+    uniform float uMieG;
 
-      // La courbe filmique desature fortement les hautes lumieres : un ciel de
-      // midi en ressort laiteux. On lui rend sa couleur en reecartant les
-      // canaux autour de leur luminance, ce qui restitue un bleu franc sans
-      // avoir a rabaisser l'exposition — donc sans assombrir la scene.
-      vec3 resaturate(vec3 c, float amount) {
-        float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-        return clamp(mix(vec3(luma), c, amount), 0.0, 1.0);
-      }`,
-    )
-    // Le disque solaire du modele ferait doublon avec le Soleil de la scene,
-    // et surtout il ne serait jamais occulte par la Lune.
-    .replace('L0 += ( vSunE * 19000.0 * Fex ) * sundisk;', '// disque solaire rendu separement')
-    .replace(
-      'gl_FragColor = vec4( retColor, 1.0 );',
-      `
+    uniform float uExposure;
+    uniform float uSaturation;
+    uniform vec3 uNight;
+    uniform vec3 uMoonDir;
+    uniform float uMoonFactor;
+    uniform vec3 uMoonGlow;
+
+    // Approximation filmique ACES (Narkowicz 2015).
+    //
+    // Le modele de diffusion produit des radiances physiques, bien au-dela de
+    // 1 : la scene n'applique aucun tone mapping global — les autres couleurs
+    // viennent des tokens et doivent rester fideles — on mappe donc ici, et
+    // seulement ici.
+    vec3 acesFilmic(vec3 x) {
+      return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+    }
+
+    // La courbe filmique desature fortement les hautes lumieres : un ciel de
+    // midi en ressort laiteux. On lui rend sa couleur en reecartant les
+    // canaux autour de leur luminance, sans changer l'exposition.
+    vec3 resaturate(vec3 c, float amount) {
+      float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      return clamp(mix(vec3(luma), c, amount), 0.0, 1.0);
+    }
+
+    void main() {
+      vec3 dir = normalize(vDir);
+      // Observateur au sol, dans le repere centre sur la planete qu'attend
+      // atmosphere() : seule la hauteur au-dessus du sol local compte, donc
+      // poser l'observateur sur l'axe +Y suffit — inutile de reconstituer sa
+      // vraie latitude/longitude ECEF pour ce que cette passe calcule.
+      vec3 r0 = vec3(0.0, uPlanetRadius, 0.0);
+
+      vec3 raw = atmosphere(
+        dir, r0, uSunDir, uSunIntensity,
+        uPlanetRadius, uAtmosphereRadius,
+        uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG
+      );
+
+      vec3 scattered = resaturate(acesFilmic(raw * uExposure), uSaturation);
+
       // --- Socle nocturne : presque noir, a peine plus clair vers l'horizon ---
-      float h = clamp( direction.y, -1.0, 1.0 );
-      vec3 night = mix( uNight * 1.6, uNight, smoothstep( 0.0, 0.45, h ) );
+      // La diffusion simple ne restitue pas l'arche crepusculaire bleue ni la
+      // lueur du ciel nocturne (airglow, pollution lumineuse) : ce socle reste
+      // necessaire en dessous, pas pour imiter le crepuscule — la geometrie
+      // s'en charge desormais — mais pour que les etoiles se detachent d'un
+      // fond jamais completement noir.
+      float h = clamp(dir.y, -1.0, 1.0);
+      vec3 night = mix(uNight * 1.6, uNight, smoothstep(0.0, 0.45, h));
 
       // Diffusion autour de la Lune levee : elle aussi eclaire l'atmosphere.
-      float toMoon = max( 0.0, dot( direction, normalize( uMoonDir ) ) );
-      night += uMoonGlow * uMoonFactor * ( 0.25 + 0.75 * pow( toMoon, 6.0 ) );
+      float toMoon = max(0.0, dot(dir, normalize(uMoonDir)));
+      night += uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
 
-      // --- Lueur crepusculaire basse, centree sur l'azimut solaire ---
-      // Elle prend le relais sous l'horizon, la ou le modele de Preetham s'eteint.
-      vec3 horizontalDir = vec3( direction.x, 0.0, direction.z );
-      vec3 horizontalSun = vec3( vSunDirection.x, 0.0, vSunDirection.z );
-      float towardSun = length( horizontalDir ) < 1e-4 || length( horizontalSun ) < 1e-4
-        ? 0.0
-        : max( 0.0, dot( normalize( horizontalDir ), normalize( horizontalSun ) ) );
-      float low = exp( -pow( max( 0.0, h ) / 0.3, 2.0 ) );
-      vec3 dusk = uTwilight * uTwilightFactor * low * pow( towardSun, 2.2 );
-
-      // --- Composition additive ---
-      // Le fond de ciel est toujours present ; la lumiere solaire diffusee s'y
-      // ajoute. Pendant une eclipse totale, uExposure s'effondre et l'on
-      // retombe naturellement sur le ciel nocturne, sans traitement dedie.
-      vec3 scattered = resaturate( acesFilmic( retColor * uExposure ), uSaturation ) * uAtmosphere;
-      gl_FragColor = vec4( night + scattered + dusk, 1.0 );
-      `,
-    )
+      gl_FragColor = vec4(night + scattered, 1.0);
+    }
+  `
 
   return new ShaderMaterial({
     name: 'SkyBackgroundMaterial',
     uniforms: {
-      ...UniformsUtils.clone(shader.uniforms),
-      uAtmosphere: { value: 0 },
+      uSunDir: { value: new Vector3(0, 1, 0) },
+      uSunIntensity: { value: SUN_INTENSITY_REF },
+      uPlanetRadius: { value: PLANET_RADIUS_M },
+      uAtmosphereRadius: { value: ATMOSPHERE_RADIUS_M },
+      uRayleighCoeff: { value: new Vector3(...RAYLEIGH_COEFFICIENTS) },
+      uMieCoeff: { value: MIE_COEFFICIENT },
+      uRayleighScaleHeight: { value: RAYLEIGH_SCALE_HEIGHT_M },
+      uMieScaleHeight: { value: MIE_SCALE_HEIGHT_M },
+      uMieG: { value: MIE_G },
       uExposure: { value: 0.3 },
       uSaturation: { value: 1.4 },
       uMoonDir: { value: new Vector3(0, -1, 0) },
       uMoonFactor: { value: 0 },
-      uTwilightFactor: { value: 0 },
       uNight: { value: new Color('#03040a') },
       uMoonGlow: { value: new Color('#7d8fc4') },
-      uTwilight: { value: new Color('#ff9d5c') },
     },
-    vertexShader: shader.vertexShader,
+    vertexShader,
     fragmentShader,
     side: BackSide,
     // Opaque et sans test de profondeur : c'est le fond, il est peint en premier
@@ -125,8 +150,15 @@ function buildSkyMaterial(): ShaderMaterial {
 }
 
 export interface SkyBackgroundProps {
-  /** Part de l'eclairement due au Soleil, occultation comprise. */
-  solarLux: number
+  /**
+   * Calque « atmosphere » actif ? Coupe l'exposition d'affichage sans toucher
+   * au modele physique — la diffusion elle-meme decoule deja de l'altitude
+   * reelle du Soleil, y compris tres bas sous l'horizon : rien dans la
+   * geometrie ne permettrait de distinguer « nuit noire, calque actif » d'
+   * « atmosphere desactivee », d'ou ce signal explicite plutot qu'un seuil
+   * sur l'eclairement, qui aurait tronque le crepuscule avant l'heure.
+   */
+  enabled: boolean
   /** Fraction du disque solaire masquee : creuse la luminance pendant une eclipse. */
   obscuration: number
   sunAltitude: number
@@ -135,14 +167,17 @@ export interface SkyBackgroundProps {
   moonAzimuth: number
   lunarLux: number
   nightColor: string
-  twilightColor: string
   moonGlowColor: string
-  /** Trouble atmospherique : 2 = air tres pur, 10 = brume urbaine. */
-  turbidity?: number
-  rayleigh?: number
+  /**
+   * Trouble atmospherique — multiplie le coefficient de diffusion Mie
+   * (aerosols). 1 = air standard. C'est le levier destine a la qualite de
+   * l'air et a la nebulosite : plus il monte, plus l'horizon blanchit et le
+   * ciel s'eclaircit, comme une vraie brume de pollution.
+   */
+  aerosolTurbidity?: number
   /**
    * Exposition appliquee avant la courbe filmique. C'est le reglage qui decide
-   * de la surexposition : au-dela de 0,2 le ciel de midi part vers le blanc.
+   * de la surexposition : au-dela de 0,4 le ciel de midi part vers le blanc.
    */
   exposure?: number
   /** Correction de la desaturation induite par la courbe filmique. */
@@ -150,7 +185,7 @@ export interface SkyBackgroundProps {
 }
 
 export function SkyBackground({
-  solarLux,
+  enabled,
   obscuration,
   sunAltitude,
   sunAzimuth,
@@ -158,12 +193,10 @@ export function SkyBackground({
   moonAzimuth,
   lunarLux,
   nightColor,
-  twilightColor,
   moonGlowColor,
-  turbidity = 2,
-  rayleigh = 3,
-  exposure = 0.14,
-  saturation = 1.45,
+  aerosolTurbidity = 1,
+  exposure = 0.3,
+  saturation = 1.4,
 }: SkyBackgroundProps) {
   const material = useMemo(buildSkyMaterial, [])
 
@@ -173,11 +206,7 @@ export function SkyBackground({
     // Repere de la scene : +X est, +Y zenith, −Z nord.
     const alt = (sunAltitude * Math.PI) / 180
     const az = (sunAzimuth * Math.PI) / 180
-    ;(u.sunPosition.value as Vector3).set(
-      Math.cos(alt) * Math.sin(az),
-      Math.sin(alt),
-      -Math.cos(alt) * Math.cos(az),
-    )
+    ;(u.uSunDir.value as Vector3).set(Math.cos(alt) * Math.sin(az), Math.sin(alt), -Math.cos(alt) * Math.cos(az))
 
     const malt = (moonAltitude * Math.PI) / 180
     const maz = (moonAzimuth * Math.PI) / 180
@@ -187,29 +216,19 @@ export function SkyBackground({
       -Math.cos(malt) * Math.cos(maz),
     )
 
-    u.turbidity.value = turbidity
-    u.rayleigh.value = rayleigh
-    u.mieCoefficient.value = 0.005
-    u.mieDirectionalG.value = 0.8
+    u.uMieCoeff.value = MIE_COEFFICIENT * aerosolTurbidity
+    u.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M * Math.sqrt(aerosolTurbidity)
 
-    // Fondu geometrique : l'atmosphere s'eteint au crepuscule nautique. On se
-    // fonde sur l'eclairement qu'aurait un Soleil non occulte, pour que le
-    // fondu suive la course du Soleil et non l'eclipse.
-    const geometricLux = solarLux / Math.max(1e-6, 1 - obscuration + 8e-4 * obscuration)
-    u.uAtmosphere.value = Math.min(1, Math.max(0, (Math.log10(Math.max(1e-6, geometricLux)) + 2) / 4))
-
-    // Exposition : c'est ici que l'eclipse agit. L'exposant adoucit la chute,
-    // sans quoi la totalite virerait au noir plutot qu'au crepuscule.
-    u.uExposure.value = exposure * Math.pow(1 - obscuration + 8e-4 * obscuration, 0.5)
+    // Eclipse : la luminance du Soleil chute avec la part masquee. Le plancher
+    // (8e-4) est la lumiere cendree pendant une totale — jamais tout a fait
+    // nulle, la couronne et le ciel diffus restant faiblement eclaires.
+    const eclipse = Math.pow(1 - obscuration + 8e-4 * obscuration, 0.5)
+    u.uExposure.value = exposure * (enabled ? 1 : 0) * eclipse
     u.uSaturation.value = saturation
 
-    // Le crepuscule culmine autour de 25 lux, entre chien et loup.
-    const logSolar = Math.log10(Math.max(1e-6, solarLux))
-    u.uTwilightFactor.value = 0.55 * Math.exp(-Math.pow((logSolar - 1.4) / 1.5, 2))
     u.uMoonFactor.value = moonAltitude > 0 ? Math.min(0.5, Math.max(0, lunarLux * 0.55)) : 0
 
     ;(u.uNight.value as Color).set(nightColor)
-    ;(u.uTwilight.value as Color).set(twilightColor)
     ;(u.uMoonGlow.value as Color).set(moonGlowColor)
   })
 
