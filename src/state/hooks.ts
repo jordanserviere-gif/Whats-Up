@@ -13,7 +13,7 @@ import {
   computeSkyConditions,
 } from '@/astro/bodies'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
-import { computeAircraftState, type AircraftState } from '@/astro/aircraft'
+import { computeAircraftState, forgetAircraftTracks, type AircraftState } from '@/astro/aircraft'
 import { ensureAircraftPolling, getAircraftFeedSnapshot, stopAircraftPolling, subscribeAircraftFeed } from './aircraftFeed'
 import type { BodyId, BodyState, GeoLocation, OrbitalElements, SatellitePass } from '@/astro/types'
 
@@ -415,12 +415,17 @@ export function useNearbyAircraft(): AircraftFeed {
   const snapshot = useSyncExternalStore(subscribeAircraftFeed, getAircraftFeedSnapshot)
 
   const aircraft = useMemo(() => {
-    if (!active) return EMPTY_AIRCRAFT
+    if (!active) {
+      forgetAircraftTracks(new Set())
+      return EMPTY_AIRCRAFT
+    }
     const out: AircraftState[] = []
     for (const a of snapshot.raw) {
       const s = computeAircraftState(a, location)
       if (s) out.push(s)
     }
+    // Les appareils sortis du rayon n'ont plus de raccord a memoriser.
+    forgetAircraftTracks(new Set(out.map((a) => a.hex)))
     return out
   }, [active, snapshot.raw, location])
 

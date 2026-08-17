@@ -95,12 +95,22 @@ export function SkyCanvas() {
   const aircraftFeed = useNearbyAircraft()
   const aircraftStates = layers.aircraft ? aircraftFeed.aircraft : EMPTY_AIRCRAFT
   if (import.meta.env.DEV) {
-    ;(window as unknown as { __aircraftStates: unknown }).__aircraftStates = aircraftStates.map((a) => ({
-      hex: a.hex,
-      az: a.horizontal.azimuth,
-      alt: a.horizontal.altitude,
-      rangeKm: a.rangeKm,
-    }))
+    // La position **affichee** compte autant que la mesure brute : c'est elle
+    // qui doit avancer sans a-coup. Les exposer separement est ce qui permet de
+    // verifier l'extrapolation au lieu de la supposer bonne.
+    ;(window as unknown as { __aircraftStates: unknown }).__aircraftStates = aircraftStates.map((a) => {
+      const shown = extrapolatedGeodetic(a, Date.now())
+      const view = geodeticToHorizontal(shown.latitude, shown.longitude, shown.altitudeKm, location)
+      return {
+        hex: a.hex,
+        az: a.horizontal.azimuth,
+        alt: a.horizontal.altitude,
+        rangeKm: a.rangeKm,
+        measuredAtMs: a.measuredAtMs,
+        shownAz: view.horizontal.azimuth,
+        shownAlt: view.horizontal.altitude,
+      }
+    })
   }
   const colors = useSceneColors()
   const textures = useBodyTextures()

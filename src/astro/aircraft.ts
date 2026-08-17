@@ -142,25 +142,97 @@ export const advanceGeodetic = (from: GeodeticPoint, distanceKm: number, bearing
   advance(from, distanceKm, bearingDeg, climbKm)
 
 /**
- * Ecart residuel entre la position affichee et la mesure qui vient d'arriver,
+ * Ecart entre la position affichee et celle que donne la mesure qui arrive,
  * resorbe progressivement plutot que d'un coup.
  *
- * Meme datee correctement, une prediction a vitesse constante s'ecarte du vol
- * reel — virage, changement d'allure. Appliquer la correction telle quelle
- * ferait sursauter l'avion a chaque rafraichissement ; on la fait donc fondre
- * en une seconde et demie, ce qui la rend imperceptible.
+ * Meme datee correctement, une prediction a vitesse constante s'ecarte
+ * toujours du vol reel : vent, virage, changement d'allure, et surtout
+ * incertitude sur l'age de la donnee. Cet ecart est donc permanent, jamais
+ * nul. L'appliquer tel quel fait sauter l'avion a chaque rafraichissement —
+ * c'est exactement le « rollback » observe. On le fait fondre en une seconde
+ * et demie, ce qui le rend imperceptible.
  */
 const CORRECTION_FADE_MS = 1500
 
-interface Correction {
+/**
+ * Vitesse maximale a laquelle une correction est resorbee, en km/s.
+ *
+ * Une duree fixe ne suffit pas : une grosse correction resorbee en une seconde
+ * et demie deplace l'avion plus vite qu'il ne vole, et le recul redevient
+ * visible — surtout quand il s'eloigne en ligne de visee, ou sa progression
+ * apparente est presque nulle. On etale donc les grands ecarts sur plus
+ * longtemps, de facon que le glissement reste toujours lent devant le vol.
+ */
+const MAX_CORRECTION_KM_PER_SEC = 0.04
+/** Plafond de duree : au-dela, la correction trainerait plus que la mesure ne dure. */
+const MAX_CORRECTION_FADE_MS = 8000
+
+/**
+ * Au-dela de cet ecart, ce n'est plus une correction mais un objet different :
+ * avion reapparu apres une longue absence, ou identifiant reattribue. On saute
+ * alors franchement plutot que de faire glisser l'appareil sur des kilometres.
+ */
+const MAX_SMOOTHED_KM = 8
+
+/**
+ * Vitesse de virage retenue au maximum, en degres par seconde.
+ *
+ * Un virage standard vaut trois degres par seconde, et un avion de ligne en
+ * croisiere reste bien en deca. Borner protege d'un cap aberrant sur une seule
+ * mesure, qui ferait partir la prediction en vrille.
+ */
+const MAX_TURN_RATE_DEG_S = 3
+
+/** Pas d'integration du virage : au-dela, l'arc ne gagne plus en fidelite. */
+const TURN_STEPS = 8
+
+interface Track {
   measuredAtMs: number
-  dLat: number
-  dLon: number
-  dAltKm: number
-  appliedAtMs: number
+  /** Cap de la mesure precedente, pour en deduire la vitesse de virage. */
+  previousTrackDeg: number | null
+  previousMeasuredAtMs: number
+  turnRateDegPerSec: number
+  /** Dernier point reellement affiche — c'est a lui qu'il faut se raccorder. */
+  shown: GeodeticPoint
+  offset: { dLat: number; dLon: number; dAltKm: number }
+  offsetAtMs: number
+  /** Duree de resorption, proportionnee a l ecart constate. */
+  fadeMs: number
 }
 
-const corrections = new Map<string, Correction>()
+const ZERO_OFFSET = { dLat: 0, dLon: 0, dAltKm: 0 }
+const tracks = new Map<string, Track>()
+
+/** Ecart de cap le plus court entre deux azimuts, dans [−180, 180]. */
+const bearingDelta = (from: number, to: number) => ((to - from + 540) % 360) - 180
+
+/**
+ * Position atteinte apres `seconds`, en suivant le virage en cours.
+ *
+ * Une extrapolation en ligne droite suffit tant que l'avion vole droit, mais
+ * s'ecarte vite des qu'il tourne : la prediction part a l'exterieur du virage,
+ * et la mesure suivante la ramene en arriere — c'est une des sources du recul.
+ * On integre donc l'arc par petits pas, le cap evoluant a la vitesse de virage
+ * constatee entre les deux dernieres mesures.
+ */
+function predictAlongTurn(state: AircraftState, seconds: number, turnRateDegPerSec: number): GeodeticPoint {
+  let point: GeodeticPoint = {
+    latitude: state.latitude,
+    longitude: state.longitude,
+    altitudeKm: state.altitudeKm,
+  }
+  const climbKmPerSec = ((state.verticalRateFtMin ?? 0) / 60) * 0.0003048
+  const steps = Math.abs(turnRateDegPerSec) < 0.01 ? 1 : TURN_STEPS
+  const dtStep = seconds / steps
+
+  for (let i = 0; i < steps; i++) {
+    // Cap au milieu du pas : c'est le point milieu qui rend l'integration juste
+    // au premier ordre plutot que systematiquement en retard.
+    const bearing = (state.trackDeg ?? 0) + turnRateDegPerSec * dtStep * (i + 0.5)
+    point = advance(point, groundDistanceKm(state, dtStep), bearing, climbKmPerSec * dtStep)
+  }
+  return point
+}
 
 /**
  * Position extrapolee entre deux mesures.
@@ -179,52 +251,75 @@ export function extrapolatedGeodetic(state: AircraftState, nowMs: number): Geode
   const dt = Math.min(Math.max(0, (nowMs - state.measuredAtMs) / 1000), 60)
   const raw: GeodeticPoint = { latitude: state.latitude, longitude: state.longitude, altitudeKm: state.altitudeKm }
 
+  let track = tracks.get(state.hex)
+
+  // La vitesse de virage se met a jour a l'arrivee d'une mesure, avant de
+  // servir a la prediction : elle vient de l'ecart de cap entre les deux
+  // dernieres, rapporte au temps qui les separe.
+  if (track && track.measuredAtMs !== state.measuredAtMs) {
+    const span = (state.measuredAtMs - track.previousMeasuredAtMs) / 1000
+    if (track.previousTrackDeg !== null && state.trackDeg !== null && span > 0.5) {
+      const rate = bearingDelta(track.previousTrackDeg, state.trackDeg) / span
+      track.turnRateDegPerSec = Math.max(-MAX_TURN_RATE_DEG_S, Math.min(MAX_TURN_RATE_DEG_S, rate))
+    }
+    track.previousTrackDeg = state.trackDeg
+    track.previousMeasuredAtMs = state.measuredAtMs
+  }
+
   const predicted =
     dt === 0 || (!state.groundSpeedKt && !state.verticalRateFtMin)
       ? raw
-      : advance(
-          raw,
-          groundDistanceKm(state, dt),
-          state.trackDeg ?? 0,
-          ((state.verticalRateFtMin ?? 0) / 60) * dt * 0.0003048,
-        )
+      : predictAlongTurn(state, dt, track?.turnRateDegPerSec ?? 0)
 
-  // Nouvelle mesure : on retient l'ecart avec ce qui etait affiche juste avant,
-  // pour le resorber au lieu de le faire subir d'un seul coup.
-  const previous = corrections.get(state.hex)
-  if (!previous || previous.measuredAtMs !== state.measuredAtMs) {
-    const carried = previous ? residual(previous, nowMs) : { dLat: 0, dLon: 0, dAltKm: 0 }
-    const before = previous
-      ? {
-          latitude: predicted.latitude + carried.dLat,
-          longitude: predicted.longitude + carried.dLon,
-          altitudeKm: predicted.altitudeKm + carried.dAltKm,
-        }
-      : predicted
-    corrections.set(state.hex, {
+  if (!track) {
+    track = {
       measuredAtMs: state.measuredAtMs,
-      dLat: before.latitude - predicted.latitude,
-      dLon: before.longitude - predicted.longitude,
-      dAltKm: before.altitudeKm - predicted.altitudeKm,
-      appliedAtMs: nowMs,
-    })
+      previousTrackDeg: state.trackDeg,
+      previousMeasuredAtMs: state.measuredAtMs,
+      turnRateDegPerSec: 0,
+      shown: predicted,
+      offset: ZERO_OFFSET,
+      offsetAtMs: nowMs,
+      fadeMs: CORRECTION_FADE_MS,
+    }
+    tracks.set(state.hex, track)
+  } else if (track.measuredAtMs !== state.measuredAtMs) {
+    // Une mesure vient d'arriver. L'ecart entre ce qui etait affiche a l'image
+    // precedente et ce que la nouvelle mesure predit devient une correction a
+    // resorber. C'est le point cle : sans memoire du **dernier point affiche**,
+    // il n'y a rien a quoi se raccorder, et le saut est inevitable.
+    const dLat = track.shown.latitude - predicted.latitude
+    const dLon = track.shown.longitude - predicted.longitude
+    const gapKm = Math.hypot(dLat, dLon * Math.cos(predicted.latitude * DEG)) * (Math.PI / 180) * EARTH_RADIUS_KM
+
+    track.offset =
+      gapKm > MAX_SMOOTHED_KM
+        ? ZERO_OFFSET
+        : { dLat, dLon, dAltKm: track.shown.altitudeKm - predicted.altitudeKm }
+    // Duree proportionnee a l'ecart : c'est la *vitesse* du rattrapage qu'il
+    // faut garder lente, pas sa duree.
+    track.fadeMs = Math.min(
+      MAX_CORRECTION_FADE_MS,
+      Math.max(CORRECTION_FADE_MS, (gapKm / MAX_CORRECTION_KM_PER_SEC) * 1000),
+    )
+    track.offsetAtMs = nowMs
+    track.measuredAtMs = state.measuredAtMs
   }
 
-  const offset = residual(corrections.get(state.hex)!, nowMs)
-  return {
-    latitude: predicted.latitude + offset.dLat,
-    longitude: predicted.longitude + offset.dLon,
-    altitudeKm: predicted.altitudeKm + offset.dAltKm,
+  const k = Math.max(0, 1 - (nowMs - track.offsetAtMs) / track.fadeMs)
+  const shown: GeodeticPoint = {
+    latitude: predicted.latitude + track.offset.dLat * k,
+    longitude: predicted.longitude + track.offset.dLon * k,
+    altitudeKm: predicted.altitudeKm + track.offset.dAltKm * k,
   }
-}
-
-/** Part de la correction encore a appliquer, decroissante jusqu'a zero. */
-function residual(c: Correction, nowMs: number) {
-  const k = Math.max(0, 1 - (nowMs - c.appliedAtMs) / CORRECTION_FADE_MS)
-  return { dLat: c.dLat * k, dLon: c.dLon * k, dAltKm: c.dAltKm * k }
+  // Memorise pour le prochain raccord. Plusieurs couches appellent cette
+  // fonction par image — maillage, icone, trainee, pointage — mais toutes avec
+  // le meme instant, donc elles y ecrivent la meme valeur.
+  track.shown = shown
+  return shown
 }
 
 /** Oublie les avions disparus du flux, pour que la table ne croisse pas sans fin. */
-export function forgetAircraftCorrections(liveHexes: ReadonlySet<string>) {
-  for (const hex of corrections.keys()) if (!liveHexes.has(hex)) corrections.delete(hex)
+export function forgetAircraftTracks(liveHexes: ReadonlySet<string>) {
+  for (const hex of tracks.keys()) if (!liveHexes.has(hex)) tracks.delete(hex)
 }
