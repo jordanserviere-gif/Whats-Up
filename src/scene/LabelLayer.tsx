@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { horizontalToScene, rectilinearToStereographicNdc } from './sceneMath'
+import { horizontalToScene } from './sceneMath'
 import type { Horizontal } from '@/astro/types'
 
 const DEG = Math.PI / 180
@@ -82,12 +82,8 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
 
   useFrame(() => {
     // Echelle de projection : un objet de rayon angulaire θ, vu pres de l'axe,
-    // occupe (hauteur / 2) · tan θ / tan(champ / 2) pixels a l'ecran. Approchee au
-    // centre : la deformation stereographique change legerement ce rapport pres
-    // du bord, mais l'ecart ne se voit que sur le decalage de l'etiquette, pas
-    // sur sa position — sans consequence perceptible.
+    // occupe (hauteur / 2) · tan θ / tan(champ / 2) pixels a l'ecran.
     const fov = (camera as PerspectiveCamera).fov ?? 60
-    const aspect = size.width / size.height
     const pixelsPerTan = size.height / 2 / Math.tan((fov * DEG) / 2)
 
     for (const label of labels) {
@@ -97,19 +93,12 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
       world.current.set(x, y, z).project(camera)
 
       // z > 1 : le point est derriere la camera.
-      if (world.current.z > 1) {
+      if (world.current.z > 1 || Math.abs(world.current.x) > 1.15 || Math.abs(world.current.y) > 1.15) {
         node.style.opacity = '0'
         continue
       }
-      // Le rendu deforme l'image en stereographique (voir StereographicProjection) :
-      // l'etiquette doit suivre la meme deformation pour rester sur son objet.
-      const [wx, wy] = rectilinearToStereographicNdc(world.current.x, world.current.y, aspect, fov)
-      if (Math.abs(wx) > 1.15 || Math.abs(wy) > 1.15) {
-        node.style.opacity = '0'
-        continue
-      }
-      const sx = (wx * 0.5 + 0.5) * size.width
-      const sy = (-wy * 0.5 + 0.5) * size.height
+      const sx = (world.current.x * 0.5 + 0.5) * size.width
+      const sy = (-world.current.y * 0.5 + 0.5) * size.height
 
       // Le decalage suit le disque. Il est plafonne au quart de l'ecran : sur un
       // objet plus large que le champ, suivre le bord jetterait l'etiquette hors

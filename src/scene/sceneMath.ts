@@ -303,56 +303,6 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
-/**
- * Angle au-dela duquel les deux fonctions ci-dessous refusent de s'aventurer.
- *
- * La tangente diverge a 90° : `tan(theta)` y explose et change de signe juste
- * apres. Aucun objet du ciel n'a de raison de s'en approcher — meme au champ
- * maximal, seuls les coins d'un ecran tres large l'effleurent — donc on plafonne
- * plutot que de laisser passer une valeur infinie ou negative.
- */
-const STEREO_ANGLE_CLAMP = 89 * DEG
-
-/**
- * Coordonnee NDC rectiligne (celle que rend `Camera.project`) vers la
- * coordonnee affichee a l'ecran une fois le rendu deforme en projection
- * stereographique — voir `StereographicProjection.tsx` pour le nuanceur qui
- * applique la meme formule, en sens inverse, sur l'image rendue.
- *
- * `x` et `y` sont dans [−1, 1] ; `fovDeg` est le champ vertical affiche.
- * Sert a repositionner les etiquettes HTML pour qu'elles restent en phase
- * avec les objets qu'elles designent.
- */
-export function rectilinearToStereographicNdc(x: number, y: number, aspect: number, fovDeg: number): [number, number] {
-  const halfFov = (fovDeg * DEG) / 2
-  const tanHalfFov = Math.tan(halfFov)
-  const tanHalfFovHalf = Math.tan(halfFov / 2)
-  const rIn = Math.hypot(x * aspect, y)
-  if (rIn < 1e-6) return [x, y]
-  const theta = Math.min(Math.atan(rIn * tanHalfFov), STEREO_ANGLE_CLAMP)
-  const rOut = Math.tan(theta / 2) / tanHalfFovHalf
-  const scale = rOut / rIn
-  return [x * scale, y * scale]
-}
-
-/**
- * Inverse de la precedente : une coordonnee ecran (dans l'espace deforme
- * effectivement affiche) vers la coordonnee NDC rectiligne qu'attend
- * `Vector3.unproject` — c'est par elle que le pointage a la souris retombe
- * sur l'objet reellement dessine sous le curseur, une fois le rendu deforme.
- */
-export function stereographicToRectilinearNdc(x: number, y: number, aspect: number, fovDeg: number): [number, number] {
-  const halfFov = (fovDeg * DEG) / 2
-  const tanHalfFov = Math.tan(halfFov)
-  const tanHalfFovHalf = Math.tan(halfFov / 2)
-  const rOut = Math.hypot(x * aspect, y)
-  if (rOut < 1e-6) return [x, y]
-  const theta = Math.min(2 * Math.atan(rOut * tanHalfFovHalf), STEREO_ANGLE_CLAMP)
-  const rIn = Math.tan(theta) / tanHalfFov
-  const scale = rIn / rOut
-  return [x * scale, y * scale]
-}
-
 /** Lit une couleur de token CSS resolue sur `document.documentElement`. */
 export function readToken(token: string, fallback = '#ffffff'): string {
   if (typeof window === 'undefined') return fallback

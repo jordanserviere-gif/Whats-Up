@@ -3,7 +3,7 @@ import { PerspectiveCamera, Vector3 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useSkyStore } from '@/state/store'
 import { clamp } from '@/ui/utils'
-import { lerpAngle, sceneToHorizontal, stereographicToRectilinearNdc, viewDirection } from './sceneMath'
+import { lerpAngle, sceneToHorizontal, viewDirection } from './sceneMath'
 import type { Horizontal } from '@/astro/types'
 
 const COMMIT_INTERVAL_MS = 100
@@ -118,19 +118,11 @@ export function CameraRig({
     const directionAt = (clientX: number, clientY: number): [number, number, number] | null => {
       const rect = element.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return null
-      // Le rendu affiche est deforme en stereographique (voir
-      // StereographicProjection) : l'ecran sous le curseur ne correspond donc
-      // plus directement a la projection rectiligne qu'attend `unproject`. On
-      // retrouve d'abord la coordonnee rectiligne equivalente.
-      const screenX = ((clientX - rect.left) / rect.width) * 2 - 1
-      const screenY = -((clientY - rect.top) / rect.height) * 2 + 1
-      const [x, y] = stereographicToRectilinearNdc(
-        screenX,
-        screenY,
-        rect.width / rect.height,
-        (camera as PerspectiveCamera).fov ?? 60,
+      const ndc = new Vector3(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+        0.5,
       )
-      const ndc = new Vector3(x, y, 0.5)
       ndc.unproject(camera)
       // La camera est a l'origine : le point deprojete est deja la direction.
       if (ndc.lengthSq() === 0) return null

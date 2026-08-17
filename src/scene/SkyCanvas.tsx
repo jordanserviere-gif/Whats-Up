@@ -30,7 +30,6 @@ import { useBodyTextures } from './useBodyTextures'
 import { SatelliteLayer } from './Satellites'
 import { AircraftLayer } from './Aircraft'
 import { LabelLayer, type SceneLabel } from './LabelLayer'
-import { StereographicProjection } from './StereographicProjection'
 import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
 import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
@@ -483,25 +482,17 @@ export function SkyCanvas() {
           <ConstellationLabels labels={constellationLabelData} host={labelHost} color={colors.constellationLabel} />
         )}
 
-        {/* Toujours montee, contrairement au halo : la projection stereographique
-            n'est pas une option d'affichage, c'est la facon dont la scene se
-            projette. Placee avant le halo — voir `StereographicProjection.tsx` —
-            pour qu'il se redistribue avec le reste de l'image plutot que de s'en
-            detacher pres du bord. */}
-        <EffectComposer multisampling={0}>
-          {
-            [
-              <StereographicProjection key="stereo" />,
-              // Le tampon en virgule flottante laisse passer les valeurs superieures a
-              // 1 : c'est ce qui permet au Soleil, rendu a intensite 6, de deborder en
-              // halo lumineux plutot que d'etre simplement ecrete au blanc. Seuil a 1 :
-              // le ciel, ramene sous 1 par la courbe filmique, ne deborde pas.
-              layers.bloom && (
-                <Bloom key="bloom" mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={1.2} radius={0.8} />
-              ),
-            ].filter((child): child is JSX.Element => Boolean(child))
-          }
-        </EffectComposer>
+        {/* Le tampon en virgule flottante laisse passer les valeurs superieures a
+            1 : c'est ce qui permet au Soleil, rendu a intensite 6, de deborder en
+            halo lumineux plutot que d'etre simplement ecrete au blanc. */}
+        {layers.bloom && (
+          <EffectComposer multisampling={0}>
+            {/* Seuil a 1 : le ciel, ramene sous 1 par la courbe filmique, ne
+                deborde pas. Seules les vraies sources — le Soleil, rendu a
+                intensite 6 — alimentent le halo. */}
+            <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={1.2} radius={0.8} />
+          </EffectComposer>
+        )}
       </Canvas>
       <div className="sky-labels" ref={labelHost} aria-hidden="true" />
     </div>
