@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useSkyStore } from './store'
 import { elementsFromGp } from '@/astro/sgp4'
 import { fetchGroup, type CelestrakGroup } from '@/data-sources/celestrak'
@@ -150,55 +150,96 @@ export interface CelestrakFeed {
   staleCount: number
 }
 
+/**
+ * Etat partage du flux CelesTrak.
+ *
+ * Le hook est appele par la barre haute, le panneau et la scene. Avec un etat
+ * local par appelant, chacun lancait sa propre recuperation et conservait sa
+ * propre copie des elements : quatre requetes pour un meme groupe, et surtout
+ * quatre tableaux d'identites differentes, ce qui ruinait toute memorisation en
+ * aval. L'etat vit donc ici, hors de React, et les composants s'y abonnent.
+ */
+interface FeedState extends CelestrakFeed {
+  group: CelestrakGroup | null
+}
+
+const IDLE_FEED: FeedState = {
+  group: null,
+  elements: [],
+  loading: false,
+  status: null,
+  truncated: 0,
+  staleCount: 0,
+}
+
+let feedState: FeedState = IDLE_FEED
+let feedRequest: CelestrakGroup | null = null
+const feedListeners = new Set<() => void>()
+
+function publishFeed(next: FeedState) {
+  feedState = next
+  for (const listener of feedListeners) listener()
+}
+
+function ensureFeed(group: CelestrakGroup) {
+  // Une recuperation par groupe, quel que soit le nombre d'abonnes.
+  if (feedRequest === group) return
+  feedRequest = group
+  publishFeed({ ...IDLE_FEED, group, loading: true })
+
+  // Les objets du catalogue partagent une teinte, distincte des orbites
+  // saisies : on la resout au moment du chargement, donc apres le theme.
+  const color = readToken('--app-body-satellite', '#7fd6ff')
+
+  fetchGroup(group).then((sourced) => {
+    // Un groupe a pu changer pendant la requete : le resultat est alors perime.
+    if (feedRequest !== group) return
+    if (!sourced) {
+      publishFeed({ ...IDLE_FEED, group, status: DEFAULT_STATUS })
+      return
+    }
+    const records = sourced.value
+    const kept = records.slice(0, MAX_TRACKED_SATELLITES)
+    publishFeed({
+      group,
+      loading: false,
+      elements: kept.map((r) =>
+        elementsFromGp(r.gp, { id: `celestrak-${r.noradId}`, color, epochAgeDays: r.epochAgeDays }),
+      ),
+      status: sourced.status,
+      truncated: records.length - kept.length,
+      staleCount: kept.filter((r) => r.stale).length,
+    })
+  })
+}
+
+const subscribeFeed = (listener: () => void) => {
+  feedListeners.add(listener)
+  return () => {
+    feedListeners.delete(listener)
+  }
+}
+
 export function useCelestrakSatellites(): CelestrakFeed {
   const enabled = useSkyStore((s) => s.layers.celestrak)
   const group = useSkyStore((s) => s.celestrakGroup)
-  const [result, setResult] = useState<(CelestrakFeed & { group: CelestrakGroup }) | null>(null)
-  const [loading, setLoading] = useState(false)
+  const shared = useSyncExternalStore(subscribeFeed, () => feedState)
 
   useEffect(() => {
-    if (!enabled) return
-    let cancelled = false
-    setLoading(true)
-    // Les objets du catalogue partagent une teinte, distincte des orbites
-    // saisies : on la resout au moment du chargement, donc apres le theme.
-    const color = readToken('--app-body-satellite', '#7fd6ff')
-
-    fetchGroup(group)
-      .then((sourced) => {
-        if (cancelled) return
-        if (!sourced) {
-          setResult({ group, elements: [], loading: false, status: DEFAULT_STATUS, truncated: 0, staleCount: 0 })
-          return
-        }
-        const records = sourced.value
-        const kept = records.slice(0, MAX_TRACKED_SATELLITES)
-        setResult({
-          group,
-          loading: false,
-          elements: kept.map((r) =>
-            elementsFromGp(r.gp, { id: `celestrak-${r.noradId}`, color, epochAgeDays: r.epochAgeDays }),
-          ),
-          status: sourced.status,
-          truncated: records.length - kept.length,
-          staleCount: kept.filter((r) => r.stale).length,
-        })
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    if (enabled) ensureFeed(group)
+    else {
+      feedRequest = null
+      publishFeed(IDLE_FEED)
     }
   }, [enabled, group])
 
   // Un groupe encore en cours de chargement ne doit pas afficher le precedent :
   // ce serait montrer des satellites qu'on a cesse de suivre.
-  const current = result && result.group === group && enabled ? result : null
+  const current = enabled && shared.group === group ? shared : null
 
   return {
     elements: current?.elements ?? EMPTY_ELEMENTS,
-    loading: enabled && loading && !current,
+    loading: Boolean(current?.loading),
     status: current?.status ?? null,
     truncated: current?.truncated ?? 0,
     staleCount: current?.staleCount ?? 0,
@@ -224,6 +265,28 @@ export function useAllSatellites(): OrbitalElements[] {
   }, [manual, showManual, fetched])
 }
 
+/**
+ * Memoire d'une seule entree pour la propagation d'un lot.
+ *
+ * Cinq composants demandent les memes etats au meme instant — la scene, la
+ * recherche, la barre haute, le panneau et sa fiche. Chacun avait son propre
+ * `useMemo` : le catalogue etait donc propage cinq fois par rafraichissement.
+ * Comme tous partagent desormais le meme tableau d'elements, une memoire d'une
+ * entree suffit a ramener le travail a une seule passe.
+ */
+let statesKey: { list: readonly OrbitalElements[]; time: number; location: GeoLocation } | null = null
+let statesValue: ReturnType<typeof computeSatelliteStates> = new Map()
+
+function satelliteStatesFor(list: readonly OrbitalElements[], date: Date, location: GeoLocation) {
+  const time = date.getTime()
+  if (statesKey && statesKey.list === list && statesKey.time === time && statesKey.location === location) {
+    return statesValue
+  }
+  statesValue = computeSatelliteStates(list, date, location)
+  statesKey = { list, time, location }
+  return statesValue
+}
+
 /** Etats instantanes de tous les satellites definis. */
 export function useSatelliteStates(satellites?: readonly OrbitalElements[]) {
   const date = useSimulatedDate()
@@ -231,7 +294,7 @@ export function useSatelliteStates(satellites?: readonly OrbitalElements[]) {
   const stored = useSkyStore((s) => s.satellites)
   const list = satellites ?? stored
 
-  return useMemo(() => computeSatelliteStates(list, date, location), [list, date, location])
+  return useMemo(() => satelliteStatesFor(list, date, location), [list, date, location])
 }
 
 /**

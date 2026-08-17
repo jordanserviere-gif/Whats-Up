@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   AdditiveBlending,
   BufferAttribute,
@@ -194,7 +194,6 @@ export function SatelliteField({
   excludeId: string | null
 }) {
   const points = useRef<Points>(null)
-  const { size } = useThree()
 
   // Le tampon est dimensionne sur le catalogue, pas sur ce qui est visible :
   // le realouer a chaque image annulerait tout le benefice du nuage unique.
@@ -283,8 +282,12 @@ export function SatelliteField({
     geometry.setDrawRange(0, n)
     position.needsUpdate = true
     mag.needsUpdate = true
-    void size
   })
+
+  // Le tampon est realoue quand le catalogue change de taille : sans liberation
+  // explicite, chaque changement de groupe laisserait le precedent sur la carte.
+  useEffect(() => () => geometry.dispose(), [geometry])
+  useEffect(() => () => material.dispose(), [material])
 
   return <points ref={points} geometry={geometry} material={material} renderOrder={10} frustumCulled={false} />
 }
