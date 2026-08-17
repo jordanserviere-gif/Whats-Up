@@ -52,10 +52,26 @@ function isSunlit(satEci: readonly [number, number, number], sunEci: readonly [n
 }
 
 /**
+ * Magnitude intrinseque par defaut : la magnitude qu'aurait l'objet a 1000 km,
+ * pleine phase. Ni CelesTrak ni les elements orbitaux ne donnent la taille
+ * reelle d'un satellite — impossible donc d'estimer sa brillance propre. On
+ * retient la valeur d'un corps mort ou d'un etage de fusee de taille moyenne,
+ * la categorie la plus frequente du catalogue, plutot que celle de
+ * l'ISS : −1,3 est le calibre d'un objet exceptionnel (109 metres de
+ * panneaux solaires, le plus grand et le plus reflechissant en orbite), pas
+ * celui d'un satellite quelconque. L'appliquer a tout le catalogue rendait
+ * plusieurs milliers d'objets plus brillants que n'importe quelle etoile.
+ */
+const DEFAULT_INTRINSIC_MAG = 4.5
+/** Calibre reel de l'ISS, le seul objet dont la taille est connue avec certitude. */
+const ISS_INTRINSIC_MAG = -1.3
+const ISS_NORAD_ID = 25544
+
+/**
  * Magnitude visuelle estimee d'un satellite, modele standard a magnitude
  * intrinseque et fonction de phase diffuse (Lambert spherique).
  */
-function estimateMagnitude(rangeKm: number, phaseAngleDeg: number, intrinsicMag = -1.3): number {
+function estimateMagnitude(rangeKm: number, phaseAngleDeg: number, intrinsicMag: number): number {
   const phase = phaseAngleDeg * DEG
   const fraction = (1 + Math.cos(phase)) / 2
   const term = Math.max(1e-4, fraction)
@@ -119,7 +135,14 @@ export function computeSatelliteState(
     latitude: geo.latitude,
     longitude: geo.longitude,
     sunlit,
-    magnitude: sunlit && horizontal.altitude > 0 ? estimateMagnitude(rangeKm, phaseAngle) : null,
+    magnitude:
+      sunlit && horizontal.altitude > 0
+        ? estimateMagnitude(
+            rangeKm,
+            phaseAngle,
+            el.noradId === ISS_NORAD_ID ? ISS_INTRINSIC_MAG : DEFAULT_INTRINSIC_MAG,
+          )
+        : null,
     time: date,
   }
 }
