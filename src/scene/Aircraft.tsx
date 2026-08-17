@@ -3,12 +3,17 @@
  * atmospherique. La position vient de `astro/aircraft.ts` — deja en
  * coordonnees horizontales, aucune propagation a faire ici.
  */
-import { useMemo, useRef } from 'react'
-import { AdditiveBlending, BufferAttribute, BufferGeometry, Color, DoubleSide, Mesh, ShaderMaterial } from 'three'
+import { useEffect, useMemo, useRef } from 'react'
+import { BufferAttribute, BufferGeometry, Color, DoubleSide, Mesh, ShaderMaterial, Sphere, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { airmass } from '@/astro/photometry'
-import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
-import { getAircraftHistory } from '@/state/aircraftFeed'
+import {
+  advanceGeodetic,
+  extrapolatedGeodetic,
+  geodeticToHorizontal,
+  groundDistanceKm,
+  type AircraftState,
+} from '@/astro/aircraft'
 import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 
@@ -160,92 +165,234 @@ function AircraftMesh({
   )
 }
 
-/** Nombre de points de trainee conserves : au-dela, elle se serait de toute facon dissipee. */
-const CONTRAIL_POINTS = 24
-
 /**
  * Trainee de condensation.
  *
- * Reconstruite chaque image a partir de l'historique de position observe
- * depuis l'ouverture de l'app — aucune API gratuite ne fournit de trace
- * anterieure. L'opacite decroit vers la queue et depend de la probabilite de
- * condensation a l'altitude de l'avion : sous sept kilometres elle est nulle,
- * le tampon reste alors simplement vide.
+ * Deux panaches, un par groupe de reacteurs, ecartes de vingt metres. Chacun
+ * part etroit derriere l'aile et s'evase en s'eloignant, comme le fait une
+ * trainee reelle en se melangeant a l'air ambiant.
+ *
+ * Le ruban est **construit depuis la position extrapolee de l'avion**, pas
+ * depuis l'historique des mesures. L'historique n'a qu'un point toutes les
+ * vingt secondes : il ne donnerait qu'un ou deux segments, et surtout sa tete
+ * resterait accrochee a la derniere position recue pendant que l'avion, lui,
+ * continue d'avancer — la trainee se detachait alors de son avion.
+ *
+ * La longueur est fixee en **degres apparents** plutot qu'en kilometres :
+ * c'est ce qui se voit. Un avion lointain traine donc physiquement plus long,
+ * pour une meme empreinte a l'ecran.
  */
-function AircraftContrail({ hex, location }: { hex: string; location: GeoLocation }) {
+const CONTRAIL_SEGMENTS = 28
+/** Longueur apparente visee, en degres. */
+const CONTRAIL_LENGTH_DEG = 6
+/** Ecartement des deux panaches, en kilometres. */
+const CONTRAIL_SPACING_KM = 0.02
+/** Demi-largeur du panache a la sortie du reacteur, puis en fin de course. */
+const CONTRAIL_WIDTH_START_KM = 0.012
+const CONTRAIL_WIDTH_END_KM = 0.32
+
+function contrailMaterial() {
+  return new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: DoubleSide,
+    uniforms: {
+      uColor: { value: new Color('#ffffff') },
+      uHazeColor: { value: new Color('#000000') },
+      uHaze: { value: 0 },
+      uOpacity: { value: 0 },
+      /** Direction du Soleil dans le repere de la scene. */
+      uSunDir: { value: new Vector3(0, 1, 0) },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vView;
+      void main() {
+        vUv = uv;
+        // L'observateur est a l'origine : la position dans le monde donne
+        // directement la direction sous laquelle on voit ce point.
+        vView = normalize((modelMatrix * vec4(position, 1.0)).xyz);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vView;
+      uniform vec3 uColor;
+      uniform vec3 uHazeColor;
+      uniform float uHaze;
+      uniform float uOpacity;
+      uniform vec3 uSunDir;
+
+      void main() {
+        // vUv.x traverse le panache, vUv.y le parcourt. Aucun bord net : le
+        // profil transversal est une gaussienne, et la queue se dissout.
+        float across = vUv.x * 2.0 - 1.0;
+        float radial = exp(-across * across * 3.2);
+
+        // Naissance juste derriere le reacteur, puis dissipation progressive.
+        float birth = smoothstep(0.0, 0.06, vUv.y);
+        float decay = pow(1.0 - vUv.y, 1.6);
+
+        // Les cristaux de glace diffusent surtout vers l'avant : une trainee
+        // vue a contre-jour est bien plus lumineuse que la meme vue dos au
+        // Soleil. C'est ce qui la fait ressortir en fin de journee.
+        float forward = max(0.0, dot(normalize(vView), normalize(uSunDir)));
+        float scatter = 0.75 + 1.9 * pow(forward, 6.0);
+
+        float alpha = radial * birth * decay * uOpacity * scatter;
+        if (alpha < 0.004) discard;
+
+        // Meme voile atmospherique que la silhouette : au ras de l'horizon, la
+        // trainee se fond dans la couleur du ciel au lieu de rester blanche.
+        gl_FragColor = vec4(mix(uColor, uHazeColor, uHaze), min(alpha, 0.85));
+      }
+    `,
+  })
+}
+
+/**
+ * Ruban unique portant les deux panaches.
+ *
+ * Un seul tampon les contient tous les deux — deux bandes de triangles a la
+ * suite — pour n'avoir qu'un appel de dessin par avion plutot que deux.
+ */
+function AircraftContrail({
+  state,
+  location,
+  airlight,
+  sunDirection,
+  dayFactor,
+}: {
+  state: AircraftState
+  location: GeoLocation
+  airlight: [number, number, number]
+  sunDirection: [number, number, number]
+  dayFactor: number
+}) {
+  const mesh = useRef<Mesh>(null)
+  const material = useMemo(contrailMaterial, [])
+
   const geometry = useMemo(() => {
     const geo = new BufferGeometry()
-    const segments = CONTRAIL_POINTS - 1
-    geo.setAttribute('position', new BufferAttribute(new Float32Array(segments * 2 * 3), 3))
-    geo.setAttribute('trailAlpha', new BufferAttribute(new Float32Array(segments * 2), 1))
-    geo.setDrawRange(0, 0)
+    const rows = CONTRAIL_SEGMENTS + 1
+    const vertices = rows * 2 * 2 // deux panaches, deux bords par section
+    geo.setAttribute('position', new BufferAttribute(new Float32Array(vertices * 3), 3))
+    geo.setAttribute('uv', new BufferAttribute(new Float32Array(vertices * 2), 2))
+
+    // Indices fixes : seules les positions changent d'une image a l'autre.
+    const indices: number[] = []
+    for (let plume = 0; plume < 2; plume++) {
+      const base = plume * rows * 2
+      for (let i = 0; i < CONTRAIL_SEGMENTS; i++) {
+        const a = base + i * 2
+        indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+      }
+    }
+    geo.setIndex(indices)
+    // La trainee couvre plusieurs degres et bouge sans cesse : une sphere
+    // englobante calculee une fois serait fausse des l'image suivante.
+    geo.boundingSphere = new Sphere(new Vector3(), 1e6)
     return geo
   }, [])
 
-  const material = useMemo(
-    () =>
-      new ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        blending: AdditiveBlending,
-        uniforms: {},
-        vertexShader: /* glsl */ `
-          attribute float trailAlpha;
-          varying float vAlpha;
-          void main() {
-            vAlpha = trailAlpha;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `,
-        fragmentShader: /* glsl */ `
-          varying float vAlpha;
-          void main() {
-            if (vAlpha < 0.01) discard;
-            gl_FragColor = vec4(1.0, 1.0, 1.0, vAlpha);
-          }
-        `,
-      }),
+  useEffect(() => () => geometry.dispose(), [geometry])
+  useEffect(() => () => material.dispose(), [material])
+
+  /**
+   * Axe du panache en coordonnees de scene, reconstruit a chaque image.
+   *
+   * Deux passes : on pose d'abord l'axe, puis on l'epaissit. La largeur d'une
+   * section a besoin de la direction *locale* de l'axe, donc de ses voisins des
+   * deux cotes — ce qu'une passe unique ne peut pas fournir pour le premier
+   * point.
+   */
+  const axis = useMemo(
+    () => Array.from({ length: CONTRAIL_SEGMENTS + 1 }, () => ({ point: new Vector3(), halfWidth: 0 })),
     [],
   )
+  const scratch = useRef({ direction: new Vector3(), radial: new Vector3(), side: new Vector3() })
 
   useFrame(() => {
-    const history = getAircraftHistory(hex)
-    if (history.length < 2) {
-      geometry.setDrawRange(0, 0)
-      return
-    }
+    const m = mesh.current
+    if (!m) return
+
+    const head = extrapolatedGeodetic(state, Date.now())
+    const headView = geodeticToHorizontal(head.latitude, head.longitude, head.altitudeKm, location)
+
+    // Longueur physique deduite de la longueur apparente voulue.
+    const lengthKm = Math.max(0.4, headView.rangeKm * Math.tan(CONTRAIL_LENGTH_DEG * DEG))
+    const track = state.trackDeg ?? 0
+    const backBearing = (track + 180) % 360
+    const sideBearing = (track + 90) % 360
+    // La trainee se depose derriere l'avion : elle garde l'altitude qu'il avait
+    // en la produisant, donc perd ce qu'il vient de gagner en montant.
+    const perSecondKm = groundDistanceKm(state, 1)
+    const spannedSeconds = perSecondKm > 0 ? lengthKm / perSecondKm : 0
+    const dropKm = ((state.verticalRateFtMin ?? 0) / 60) * 0.0003048 * spannedSeconds
+
     const position = geometry.getAttribute('position') as BufferAttribute
-    const alpha = geometry.getAttribute('trailAlpha') as BufferAttribute
-    const n = Math.min(history.length, CONTRAIL_POINTS)
-    const start = history.length - n
+    const uv = geometry.getAttribute('uv') as BufferAttribute
+    const { direction, radial, side } = scratch.current
+    const rows = CONTRAIL_SEGMENTS + 1
 
-    let vertex = 0
-    for (let i = 0; i < n - 1; i++) {
-      const a = history[start + i]
-      const b = history[start + i + 1]
-      const fadeA = i / (n - 1)
-      const fadeB = (i + 1) / (n - 1)
+    for (let plume = 0; plume < 2; plume++) {
+      const lateralKm = (plume === 0 ? -1 : 1) * (CONTRAIL_SPACING_KM / 2)
+      const lateralBearing = lateralKm < 0 ? (sideBearing + 180) % 360 : sideBearing
 
-      for (const [p, fade] of [
-        [a, fadeA],
-        [b, fadeB],
-      ] as const) {
-        const { horizontal, rangeKm } = geodeticToHorizontal(p.latitude, p.longitude, p.altitudeKm, location)
-        const depth = sceneDepth(rangeKm)
-        const [x, y, z] = horizontalToScene(horizontal, depth)
-        position.setXYZ(vertex, x, y, z)
-        const km = p.altitudeKm
-        const localLikelihood = Math.max(0, Math.min(1, (km - 7) / 2.5))
-        alpha.setX(vertex, fade * localLikelihood * 0.45)
-        vertex++
+      // Passe 1 — l'axe.
+      for (let i = 0; i < rows; i++) {
+        const t = i / CONTRAIL_SEGMENTS
+        const along = advanceGeodetic(head, lengthKm * t, backBearing, -dropKm * t)
+        const at = advanceGeodetic(along, Math.abs(lateralKm), lateralBearing)
+        const view = geodeticToHorizontal(at.latitude, at.longitude, at.altitudeKm, location)
+        const [x, y, z] = horizontalToScene(view.horizontal, sceneDepth(view.rangeKm))
+        axis[i].point.set(x, y, z)
+        // Demi-largeur croissante : le panache s'evase en vieillissant.
+        const halfWidthKm =
+          CONTRAIL_WIDTH_START_KM + (CONTRAIL_WIDTH_END_KM - CONTRAIL_WIDTH_START_KM) * Math.pow(t, 0.7)
+        axis[i].halfWidth = sceneRadiusForBody(halfWidthKm, view.rangeKm)
+      }
+
+      // Passe 2 — l'epaisseur, face a l'observateur.
+      for (let i = 0; i < rows; i++) {
+        const previous = axis[Math.max(0, i - 1)].point
+        const next = axis[Math.min(rows - 1, i + 1)].point
+        direction.copy(next).sub(previous)
+        if (direction.lengthSq() === 0) direction.set(1, 0, 0)
+
+        // Le ruban se developpe perpendiculairement a la fois a l'axe du
+        // panache et a la ligne de visee : sans cela il disparaitrait vu par
+        // la tranche, exactement quand on regarde l'avion s'eloigner.
+        radial.copy(axis[i].point).normalize()
+        side.copy(direction).cross(radial)
+        if (side.lengthSq() === 0) side.set(1, 0, 0)
+        side.normalize().multiplyScalar(axis[i].halfWidth)
+
+        const p = axis[i].point
+        const index = plume * rows * 2 + i * 2
+        position.setXYZ(index, p.x - side.x, p.y - side.y, p.z - side.z)
+        position.setXYZ(index + 1, p.x + side.x, p.y + side.y, p.z + side.z)
+        uv.setXY(index, 0, i / CONTRAIL_SEGMENTS)
+        uv.setXY(index + 1, 1, i / CONTRAIL_SEGMENTS)
       }
     }
-    geometry.setDrawRange(0, vertex)
+
     position.needsUpdate = true
-    alpha.needsUpdate = true
+    uv.needsUpdate = true
+
+    const am = airmass(headView.horizontal.altitude)
+    material.uniforms.uHaze.value = 1 - Math.exp(-0.14 * (am - 1))
+    ;(material.uniforms.uHazeColor.value as Color).setRGB(airlight[0], airlight[1], airlight[2])
+    ;(material.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
+    // Sous l'horizon rien a montrer ; sinon l'opacite suit la probabilite de
+    // condensation a l'altitude courante et la lumiere du jour.
+    const visible = headView.horizontal.altitude > -1 ? state.contrailLikelihood * dayFactor : 0
+    material.uniforms.uOpacity.value = visible * 0.55
+    m.visible = visible > 0.01
   })
 
-  return <lineSegments geometry={geometry} material={material} renderOrder={9} frustumCulled={false} />
+  return <mesh ref={mesh} geometry={geometry} material={material} renderOrder={8} frustumCulled={false} />
 }
 
 /** Couche complete : un maillage et, le cas echeant, une trainee par avion visible. */
@@ -253,12 +400,15 @@ export function AircraftLayer({
   states,
   location,
   airlight,
+  sunDirection,
   dayFactor,
   selectedHex,
 }: {
   states: readonly AircraftState[]
   location: GeoLocation
   airlight: [number, number, number]
+  /** Direction du Soleil dans le repere de la scene, unitaire. */
+  sunDirection: [number, number, number]
   dayFactor: number
   selectedHex: string | null
 }) {
@@ -273,7 +423,15 @@ export function AircraftLayer({
             dayFactor={dayFactor}
             selected={s.hex === selectedHex}
           />
-          {s.contrailLikelihood > 0.02 && <AircraftContrail hex={s.hex} location={location} />}
+          {s.contrailLikelihood > 0.02 && (
+            <AircraftContrail
+              state={s}
+              location={location}
+              airlight={airlight}
+              sunDirection={sunDirection}
+              dayFactor={dayFactor}
+            />
+          )}
         </group>
       ))}
     </group>

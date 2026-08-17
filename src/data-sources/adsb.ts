@@ -21,6 +21,25 @@ const BASE = 'https://opendata.adsb.fi/api/v2/lat'
  */
 export const ADSB_POLL_MS = 20_000
 
+/**
+ * Duree de validite de l'instantane en cache.
+ *
+ * Elle valait la periode d'interrogation elle-meme, ce qui figeait le ciel :
+ * les trois relais partagent une meme cle, donc quand le premier expirait par
+ * delai, le deuxieme relisait l'entree ecrite au tour precedent — encore
+ * valide — et renvoyait exactement les memes positions. Un relais lent
+ * suffisait alors a ce que plus aucun avion ne bouge.
+ *
+ * Pour un flux en direct, le cache ne doit pas servir de raccourci de lecture
+ * mais uniquement de filet en cas de panne : `fetchJson` renvoie l'entree
+ * perimee quand tout le reste a echoue. Deux secondes ne couvrent donc qu'une
+ * rafale d'appels simultanes, jamais un cycle entier.
+ */
+const CACHE_TTL_MS = 2_000
+
+/** Age maximal retenu pour une mesure : au-dela, l'horloge du client derive. */
+const MAX_FIX_AGE_MS = 30_000
+
 /** Enregistrement brut tel que renvoye par l'API — champs OMM-like du monde ADS-B. */
 interface RawAircraft {
   hex: string
@@ -41,6 +60,8 @@ interface RawAircraft {
   lat?: number
   lon?: number
   dst?: number
+  /** Age de la position, en secondes, a l'instant ou le serveur a repondu. */
+  seen_pos?: number
 }
 
 export interface AdsbAircraft {
@@ -61,6 +82,16 @@ export interface AdsbAircraft {
   squawk: string | null
   latitude: number
   longitude: number
+  /**
+   * Instant de la mesure, sur l'horloge du client.
+   *
+   * Ce n'est **pas** l'instant de reception : entre les deux s'intercalent
+   * l'age de la position cote serveur et le transit par le relais, soit
+   * couramment cinq a quinze secondes. Extrapoler depuis la reception ferait
+   * repartir l'avion en arriere a chaque rafraichissement, du produit de ce
+   * retard par sa vitesse — plusieurs kilometres.
+   */
+  measuredAtMs: number
 }
 
 function cleanFlight(raw: string | undefined): string | null {
@@ -68,7 +99,22 @@ function cleanFlight(raw: string | undefined): string | null {
   return trimmed && trimmed.length > 0 ? trimmed : null
 }
 
-function normalize(raw: RawAircraft): AdsbAircraft | null {
+/**
+ * Instant de la mesure ramene a l'horloge locale.
+ *
+ * `now` est l'horodatage du serveur et `seen_pos` l'age de la position a cet
+ * instant : leur difference date la mesure dans le repere du serveur, et
+ * l'ecart au temps local absorbe du meme coup le transit par le relais.
+ * L'age resultant est borne, faute de quoi une horloge client mal reglee
+ * lancerait l'extrapolation a des minutes de distance.
+ */
+function measurementTime(raw: RawAircraft, serverNowMs: number, receivedAtMs: number): number {
+  const fixedAtServerMs = serverNowMs - (raw.seen_pos ?? 0) * 1000
+  const ageMs = Math.min(Math.max(receivedAtMs - fixedAtServerMs, 0), MAX_FIX_AGE_MS)
+  return receivedAtMs - ageMs
+}
+
+function normalize(raw: RawAircraft, serverNowMs: number, receivedAtMs: number): AdsbAircraft | null {
   if (typeof raw.lat !== 'number' || typeof raw.lon !== 'number') return null
   const onGround = raw.alt_baro === 'ground'
   return {
@@ -86,6 +132,7 @@ function normalize(raw: RawAircraft): AdsbAircraft | null {
     squawk: raw.squawk ?? null,
     latitude: raw.lat,
     longitude: raw.lon,
+    measuredAtMs: measurementTime(raw, serverNowMs, receivedAtMs),
   }
 }
 
@@ -109,10 +156,19 @@ export async function fetchNearbyAircraft(
   const target = `${BASE}/${latitude}/lon/${longitude}/dist/${radiusNm}`
 
   for (const attempt of relayAttempts(target)) {
-    const result = await fetchJson<{ aircraft?: RawAircraft[] }, AdsbAircraft[]>(
+    const result = await fetchJson<{ now?: number; aircraft?: RawAircraft[] }, AdsbAircraft[]>(
       attempt.url,
-      { key, ttlMs: ADSB_POLL_MS, timeoutMs: attempt.timeoutMs, attempts: 1 },
-      (raw) => (raw.aircraft ?? []).map(normalize).filter((a): a is AdsbAircraft => a !== null),
+      { key, ttlMs: CACHE_TTL_MS, timeoutMs: attempt.timeoutMs, attempts: 1 },
+      (raw) => {
+        // L'interpretation vaut aussi bien pour une reponse fraiche que pour une
+        // entree de cache relue apres panne : on date donc la mesure au moment
+        // ou l'on interprete, jamais a une constante figee a l'ecriture.
+        const receivedAtMs = Date.now()
+        const serverNowMs = typeof raw.now === 'number' ? raw.now * 1000 : receivedAtMs
+        return (raw.aircraft ?? [])
+          .map((a) => normalize(a, serverNowMs, receivedAtMs))
+          .filter((a): a is AdsbAircraft => a !== null)
+      },
     )
     if (result) return result
   }

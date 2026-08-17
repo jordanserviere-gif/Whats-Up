@@ -144,6 +144,18 @@ export function SkyCanvas() {
   const dayFactor = Math.min(1, Math.max(0.12, (sky.sunAltitude + 6) / 6))
 
   /**
+   * Direction du Soleil dans le repere de la scene.
+   *
+   * Elle sert la diffusion vers l'avant des trainees de condensation : les
+   * cristaux de glace renvoient bien plus de lumiere a contre-jour que dos au
+   * Soleil, ce qui est exactement ce qui les fait ressortir en fin de journee.
+   */
+  const sunDirection = useMemo<[number, number, number]>(
+    () => viewDirection(sky.sunAzimuth, sky.sunAltitude),
+    [sky.sunAzimuth, sky.sunAltitude],
+  )
+
+  /**
    * Designation d'un objet par un clic dans la scene.
    *
    * Le balayage a deja ete ecarte en amont : ce rappel ne recoit que de vraies
@@ -445,6 +457,7 @@ export function SkyCanvas() {
             states={aircraftStates}
             location={location}
             airlight={airlight}
+            sunDirection={sunDirection}
             dayFactor={dayFactor}
             selectedHex={selectedAircraftHex}
           />

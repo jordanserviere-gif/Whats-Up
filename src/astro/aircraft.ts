@@ -90,8 +90,6 @@ export interface AircraftState extends AdsbAircraft {
   /** Altitude au-dessus du niveau de la mer, en kilometres. */
   altitudeKm: number
   contrailLikelihood: number
-  /** Instant de cette mesure — sert de point de depart a l'extrapolation. */
-  fixedAtMs: number
 }
 
 /**
@@ -102,56 +100,131 @@ export function computeAircraftState(aircraft: AdsbAircraft, observer: GeoLocati
   if (aircraft.onGround || aircraft.altitudeFt === null) return null
   const altitudeKm = aircraft.altitudeFt * 0.0003048
   const { horizontal, rangeKm } = geodeticToHorizontal(aircraft.latitude, aircraft.longitude, altitudeKm, observer)
-  return {
-    ...aircraft,
-    horizontal,
-    rangeKm,
-    altitudeKm,
-    contrailLikelihood: contrailLikelihood(altitudeKm),
-    fixedAtMs: Date.now(),
-  }
+  return { ...aircraft, horizontal, rangeKm, altitudeKm, contrailLikelihood: contrailLikelihood(altitudeKm) }
 }
 
-/**
- * Position extrapolee entre deux mesures.
- *
- * ADS-B ne rafraichit qu'a chaque sondage — vingt secondes, voir
- * `aircraftFeed.ts` — alors qu'un avion parcourt facilement deux kilometres
- * dans cet intervalle. Plutot que de le laisser fige puis sauter, on avance sa
- * derniere position connue au rythme de sa vitesse sol et de sa route, exactement
- * ce que fait un tracker de vol classique. Passe une minute sans nouvelle
- * mesure, l'extrapolation est plafonnee : au-dela, deviner ne vaut plus mieux
- * que geler.
- */
-export function extrapolatedGeodetic(
-  state: AircraftState,
-  nowMs: number,
-): { latitude: number; longitude: number; altitudeKm: number } {
-  const dt = Math.min(Math.max(0, (nowMs - state.fixedAtMs) / 1000), 60)
-  if (dt === 0 || (!state.groundSpeedKt && !state.verticalRateFtMin)) {
-    return { latitude: state.latitude, longitude: state.longitude, altitudeKm: state.altitudeKm }
-  }
+export interface GeodeticPoint {
+  latitude: number
+  longitude: number
+  altitudeKm: number
+}
 
-  const distanceKm = ((state.groundSpeedKt ?? 0) * 1.852) / 3600 * dt
-  const bearing = (state.trackDeg ?? 0) * DEG
-  const lat1 = state.latitude * DEG
-  const lon1 = state.longitude * DEG
+/** Avance un point geodesique d'une distance donnee suivant un cap. */
+function advance(from: GeodeticPoint, distanceKm: number, bearingDeg: number, climbKm: number): GeodeticPoint {
+  const bearing = bearingDeg * DEG
+  const lat1 = from.latitude * DEG
+  const lon1 = from.longitude * DEG
   const angular = distanceKm / EARTH_RADIUS_KM
 
   // Point de destination sur la sphere, a distance et cap donnes (formule
   // haversine standard) : suffisant a cette echelle, l'ellipticite de la Terre
   // n'y change rien de perceptible sur quelques kilometres.
-  const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing),
-  )
+  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing))
   const lon2 =
     lon1 +
     Math.atan2(
       Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
       Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
     )
+  return { latitude: lat2 * RAD, longitude: lon2 * RAD, altitudeKm: from.altitudeKm + climbKm }
+}
 
-  const altitudeKm = state.altitudeKm + (((state.verticalRateFtMin ?? 0) / 60) * dt) * 0.0003048
+/** Distance parcourue au sol, en kilometres, pendant `seconds`. */
+export const groundDistanceKm = (state: AircraftState, seconds: number) =>
+  (((state.groundSpeedKt ?? 0) * 1.852) / 3600) * seconds
 
-  return { latitude: lat2 * RAD, longitude: lon2 * RAD, altitudeKm }
+/**
+ * Deplace un point geodesique d'une distance suivant un cap, sans changer
+ * d'altitude sauf indication. Exportee pour construire la trainee, qui recule
+ * le long de la route de l'avion.
+ */
+export const advanceGeodetic = (from: GeodeticPoint, distanceKm: number, bearingDeg: number, climbKm = 0) =>
+  advance(from, distanceKm, bearingDeg, climbKm)
+
+/**
+ * Ecart residuel entre la position affichee et la mesure qui vient d'arriver,
+ * resorbe progressivement plutot que d'un coup.
+ *
+ * Meme datee correctement, une prediction a vitesse constante s'ecarte du vol
+ * reel — virage, changement d'allure. Appliquer la correction telle quelle
+ * ferait sursauter l'avion a chaque rafraichissement ; on la fait donc fondre
+ * en une seconde et demie, ce qui la rend imperceptible.
+ */
+const CORRECTION_FADE_MS = 1500
+
+interface Correction {
+  measuredAtMs: number
+  dLat: number
+  dLon: number
+  dAltKm: number
+  appliedAtMs: number
+}
+
+const corrections = new Map<string, Correction>()
+
+/**
+ * Position extrapolee entre deux mesures.
+ *
+ * ADS-B ne rafraichit qu'a chaque sondage — vingt secondes, voir
+ * `aircraftFeed.ts` — alors qu'un avion parcourt facilement cinq kilometres
+ * dans cet intervalle. On avance donc sa derniere position connue au rythme de
+ * sa vitesse sol et de sa route, comme le fait tout suivi de vol.
+ *
+ * Le depart est l'instant de la **mesure**, pas celui de sa reception : c'est
+ * ce qui evite que l'avion recule du produit de la latence par sa vitesse a
+ * chaque nouvelle donnee. Passe une minute sans mesure, l'extrapolation est
+ * plafonnee : au-dela, deviner ne vaut plus mieux que geler.
+ */
+export function extrapolatedGeodetic(state: AircraftState, nowMs: number): GeodeticPoint {
+  const dt = Math.min(Math.max(0, (nowMs - state.measuredAtMs) / 1000), 60)
+  const raw: GeodeticPoint = { latitude: state.latitude, longitude: state.longitude, altitudeKm: state.altitudeKm }
+
+  const predicted =
+    dt === 0 || (!state.groundSpeedKt && !state.verticalRateFtMin)
+      ? raw
+      : advance(
+          raw,
+          groundDistanceKm(state, dt),
+          state.trackDeg ?? 0,
+          ((state.verticalRateFtMin ?? 0) / 60) * dt * 0.0003048,
+        )
+
+  // Nouvelle mesure : on retient l'ecart avec ce qui etait affiche juste avant,
+  // pour le resorber au lieu de le faire subir d'un seul coup.
+  const previous = corrections.get(state.hex)
+  if (!previous || previous.measuredAtMs !== state.measuredAtMs) {
+    const carried = previous ? residual(previous, nowMs) : { dLat: 0, dLon: 0, dAltKm: 0 }
+    const before = previous
+      ? {
+          latitude: predicted.latitude + carried.dLat,
+          longitude: predicted.longitude + carried.dLon,
+          altitudeKm: predicted.altitudeKm + carried.dAltKm,
+        }
+      : predicted
+    corrections.set(state.hex, {
+      measuredAtMs: state.measuredAtMs,
+      dLat: before.latitude - predicted.latitude,
+      dLon: before.longitude - predicted.longitude,
+      dAltKm: before.altitudeKm - predicted.altitudeKm,
+      appliedAtMs: nowMs,
+    })
+  }
+
+  const offset = residual(corrections.get(state.hex)!, nowMs)
+  return {
+    latitude: predicted.latitude + offset.dLat,
+    longitude: predicted.longitude + offset.dLon,
+    altitudeKm: predicted.altitudeKm + offset.dAltKm,
+  }
+}
+
+/** Part de la correction encore a appliquer, decroissante jusqu'a zero. */
+function residual(c: Correction, nowMs: number) {
+  const k = Math.max(0, 1 - (nowMs - c.appliedAtMs) / CORRECTION_FADE_MS)
+  return { dLat: c.dLat * k, dLon: c.dLon * k, dAltKm: c.dAltKm * k }
+}
+
+/** Oublie les avions disparus du flux, pour que la table ne croisse pas sans fin. */
+export function forgetAircraftCorrections(liveHexes: ReadonlySet<string>) {
+  for (const hex of corrections.keys()) if (!liveHexes.has(hex)) corrections.delete(hex)
 }
