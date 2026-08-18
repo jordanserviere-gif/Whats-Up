@@ -50,7 +50,7 @@ export function ObjectsPanel() {
   const bodies = useBodyStates()
   const selectedBody = useSkyStore(selectedBodyId)
   const selectBody = useSkyStore((s) => s.selectBody)
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
 
   const sorted = useMemo(
     () => [...bodies].sort((a, b) => b.horizontal.altitude - a.horizontal.altitude),
@@ -77,7 +77,7 @@ export function ObjectsPanel() {
             className={b.visible ? undefined : 'objects-panel__below'}
             onClick={() => {
               selectBody(b.id)
-              lookAt(b.horizontal.azimuth, b.horizontal.altitude)
+              focusOn(b.horizontal.azimuth, b.horizontal.altitude)
             }}
           />
         ))}
@@ -111,7 +111,7 @@ export function ObjectsDetail() {
 
 /** Fiche detaillee d'un corps selectionne. */
 export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: RiseSetInfo | null }) {
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
   const moon = useMoonInfo()
   const distance = formatDistance(state.distanceAu, state.id)
 
@@ -174,7 +174,7 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
           variant="tonal"
           icon="center_focus_strong"
           fullWidth
-          onClick={() => lookAt(state.horizontal.azimuth, state.horizontal.altitude)}
+          onClick={() => focusOn(state.horizontal.azimuth, state.horizontal.altitude)}
         >
           Centrer dans le ciel
         </Button>

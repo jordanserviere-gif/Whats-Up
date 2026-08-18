@@ -60,15 +60,37 @@ export function CameraRig({
   const targetFov = useRef(fov.current)
   const lastCommit = useRef(0)
   const lookTarget = useRef<Vector3>(new Vector3())
+  /**
+   * Verrou de suivi et ecart residuel a la cible.
+   *
+   * Hors verrou, la camera est amortie vers une visee fixe : c'est ce qui donne
+   * du poids au geste. Sous verrou, c'est l'**ecart** qui est amorti, pas la
+   * position — la camera glisse jusqu'a l'objet puis colle a lui, sans trainer
+   * derriere, quelle que soit la vitesse a laquelle le ciel defile.
+   */
+  const locked = useRef(useSkyStore.getState().cameraLocked)
+  const offsetAzimuth = useRef(0)
+  const offsetAltitude = useRef(0)
 
   // Ordres venus de l'interface : recentrage et reglage du champ. Sans cette
   // souscription, `setFov` resterait sans effet — la reference locale ayant
   // pris la main sur la valeur du store des le premier rendu.
   useEffect(() => {
     return useSkyStore.subscribe((s, prev) => {
+      if (s.cameraLocked !== prev.cameraLocked) locked.current = s.cameraLocked
       if (s.lookAtTarget && s.lookAtTarget !== prev.lookAtTarget) {
-        targetAzimuth.current = s.lookAtTarget.azimuth
-        targetAltitude.current = clamp(s.lookAtTarget.altitude, -85, 85)
+        const azimuthTo = s.lookAtTarget.azimuth
+        const altitudeTo = clamp(s.lookAtTarget.altitude, -85, 85)
+        // A la prise du verrou seulement, on releve l'ecart qui reste a
+        // combler. Les reprises de visee suivantes ne le touchent pas : la
+        // camera suit alors l'objet au degre pres, et l'ecart initial continue
+        // de fondre par-dessus.
+        if (s.cameraLocked && !prev.cameraLocked) {
+          offsetAzimuth.current = ((azimuth.current - azimuthTo + 540) % 360) - 180
+          offsetAltitude.current = altitude.current - altitudeTo
+        }
+        targetAzimuth.current = azimuthTo
+        targetAltitude.current = altitudeTo
       }
       // On ne reagit qu'aux changements venus d'ailleurs : le rig publie
       // lui-meme le champ a 10 Hz, et se rattraperait sans cesse sinon.
@@ -137,6 +159,13 @@ export function CameraRig({
       lastX = e.clientX
       lastY = e.clientY
       travelled = Math.max(travelled, Math.hypot(e.clientX - downX, e.clientY - downY))
+      // Balayer, c'est reprendre la main : le suivi se relache des le premier
+      // pixel parcouru. Le zoom, lui, ne le relache pas — grossir sur un objet
+      // suivi est justement ce qu'on cherche a faire.
+      if (locked.current) {
+        locked.current = false
+        useSkyStore.getState().unlockCamera()
+      }
       // Le deplacement angulaire suit le champ de vision : le geste garde la
       // meme « prise » sur le ciel quel que soit le zoom.
       const scale = fov.current / 700
@@ -190,9 +219,29 @@ export function CameraRig({
   useFrame((_, delta) => {
     // Amortissement critique : suit le geste sans flotter.
     const k = 1 - Math.exp(-delta * 14)
-    azimuth.current = lerpAngle(azimuth.current, targetAzimuth.current, k)
-    altitude.current += (targetAltitude.current - altitude.current) * k
+    if (locked.current) {
+      // Seul l'ecart s'amortit ; la visee, elle, est reprise telle quelle.
+      offsetAzimuth.current *= 1 - k
+      offsetAltitude.current *= 1 - k
+      azimuth.current = targetAzimuth.current + offsetAzimuth.current
+      altitude.current = targetAltitude.current + offsetAltitude.current
+    } else {
+      azimuth.current = lerpAngle(azimuth.current, targetAzimuth.current, k)
+      altitude.current += (targetAltitude.current - altitude.current) * k
+    }
     fov.current += (targetFov.current - fov.current) * k
+
+    // Meme raison que le miroir des ephemerides : verifier que la camera reste
+    // accrochee demande de lire sa visee du moment, pas celle que le store a
+    // publiee un dixieme de seconde plus tot.
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __camAim: unknown }).__camAim = {
+        azimuth: azimuth.current,
+        altitude: altitude.current,
+        fov: fov.current,
+        locked: locked.current,
+      }
+    }
 
     const cam = camera as PerspectiveCamera
     const [x, y, z] = viewDirection(azimuth.current, altitude.current)

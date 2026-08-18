@@ -30,7 +30,7 @@ export function SkySearch({ className }: { className?: string }) {
   const location = useSkyStore((s) => s.location)
   const select = useSkyStore((s) => s.select)
   const setTab = useSkyStore((s) => s.setTab)
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
   const bodies = useBodyStates()
   const satellites = useAllSatellites()
   const satStates = useSatelliteStates(satellites)
@@ -84,15 +84,15 @@ export function SkySearch({ className }: { className?: string }) {
     // etiquette, un objet fixe par ses coordonnees, un mobile par son etat.
     if (target.kind === 'body') {
       const state = bodies.find((b) => b.id === target.id)
-      if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
+      if (state) focusOn(state.horizontal.azimuth, state.horizontal.altitude)
     } else if (target.kind === 'satellite') {
       // Un satellite parcourt le ciel en quelques minutes : on recentre sur sa
       // position de l'instant, et la camera le suit ensuite d'elle-meme.
       const state = satStates.get(target.id)
-      if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
+      if (state) focusOn(state.horizontal.azimuth, state.horizontal.altitude)
     } else if (target.equatorialJ2000) {
       const h = equatorialToHorizontal(precessFromJ2000(target.equatorialJ2000, date), location, date)
-      lookAt(h.azimuth, h.altitude)
+      focusOn(h.azimuth, h.altitude)
     }
 
     setQuery('')

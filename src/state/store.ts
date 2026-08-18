@@ -105,7 +105,23 @@ interface SkyState {
   setFov: (fov: number) => void
   /** Recentre la vue sur un objet. */
   lookAtTarget: { azimuth: number; altitude: number; key: number } | null
+  /** Recentrage ponctuel : la camera cesse de suivre ce qu'elle suivait. */
   lookAt: (azimuth: number, altitude: number) => void
+  /**
+   * La camera reste-t-elle accrochee a l'objet selectionne ?
+   *
+   * Le verrou ne connait pas l'objet : il dit seulement que la visee doit
+   * rester celle de la selection. C'est la scene qui republie cette position a
+   * chaque mise a jour des ephemerides — donc aussi souvent que le temps
+   * avance, sans que la vitesse d'ecoulement ait a etre traitee a part.
+   */
+  cameraLocked: boolean
+  /** Recentre sur un objet et l'y accroche. */
+  focusOn: (azimuth: number, altitude: number) => void
+  /** Reprise de visee du suivi : ne cree ni ne libere le verrou. */
+  trackTo: (azimuth: number, altitude: number) => void
+  /** Libere le verrou — un balayage du ciel reprend la main. */
+  unlockCamera: () => void
 
   // --- Selection ---
   selection: SkySelection | null
@@ -242,10 +258,18 @@ export const useSkyStore = create<SkyState>()(
       setView: (viewAzimuth, viewAltitude) => set({ viewAzimuth, viewAltitude }),
       setFov: (fov) => set({ fov }),
       lookAtTarget: null,
-      lookAt: (azimuth, altitude) => set({ lookAtTarget: { azimuth, altitude, key: Date.now() } }),
+      lookAt: (azimuth, altitude) =>
+        set({ lookAtTarget: { azimuth, altitude, key: Date.now() }, cameraLocked: false }),
+      cameraLocked: false,
+      focusOn: (azimuth, altitude) =>
+        set({ lookAtTarget: { azimuth, altitude, key: Date.now() }, cameraLocked: true }),
+      trackTo: (azimuth, altitude) => set({ lookAtTarget: { azimuth, altitude, key: Date.now() } }),
+      unlockCamera: () => set((s) => (s.cameraLocked ? { cameraLocked: false } : s)),
 
       selection: null,
-      select: (selection) => set({ selection, selectedAircraftHex: null }),
+      // Deselectionner libere le verrou : il n'y a plus rien a suivre.
+      select: (selection) =>
+        set({ selection, selectedAircraftHex: null, cameraLocked: selection !== null && get().cameraLocked }),
       selectBody: (id) => set({ selection: id ? { kind: 'body', id } : null, selectedAircraftHex: null }),
       selectSatellite: (id) => set({ selection: id ? { kind: 'satellite', id } : null, selectedAircraftHex: null }),
       selectedAircraftHex: null,

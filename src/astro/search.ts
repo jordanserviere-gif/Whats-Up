@@ -106,6 +106,29 @@ function constellationTargets(): SkyTarget[] {
   }))
 }
 
+/**
+ * Coordonnees de catalogue d'un objet fixe, par famille et identifiant.
+ *
+ * Les identifiants sont ceux de l'index de recherche, donc aussi ceux du
+ * pointage a la souris : un objet designe d'une facon se retrouve de l'autre.
+ * Renvoie `null` pour les familles mobiles, dont la position se calcule.
+ */
+export function fixedEquatorialJ2000(kind: TargetKind, id: string): Equatorial | null {
+  if (kind === 'star') {
+    const star = NAMED_STARS.find((s) => `star-${s.index}` === id)
+    return star ? { ra: star.ra, dec: star.dec } : null
+  }
+  if (kind === 'deepsky') {
+    const o = DEEP_SKY_INDEX.find((x) => `dso-${x.index}` === id)
+    return o ? { ra: o.ra, dec: o.dec } : null
+  }
+  if (kind === 'constellation') {
+    const c = CONSTELLATIONS.find((x) => `const-${x.id}` === id)
+    return c ? { ra: c.labelRa, dec: c.labelDec } : null
+  }
+  return null
+}
+
 /** Cible correspondant a un satellite defini ou recupere. */
 export function satelliteTarget(el: OrbitalElements): SkyTarget {
   return {

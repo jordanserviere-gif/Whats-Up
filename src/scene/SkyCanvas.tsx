@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { Matrix4, NoToneMapping } from 'three'
@@ -16,6 +16,8 @@ import {
   useSimulatedDate,
   useSkyConditions,
 } from '@/state/hooks'
+import { fixedEquatorialJ2000 } from '@/astro/search'
+import { precessFromJ2000 } from '@/astro/coords'
 import { angularDistance, readToken, viewDirection } from './sceneMath'
 import { pickSkyTarget } from './picking'
 import { fieldLabels } from './fieldLabels'
@@ -64,10 +66,13 @@ export function SkyCanvas() {
   const selectedBody = useSkyStore(selectedBodyId)
   const selectedSatellite = useSkyStore(selectedSatelliteId)
   const selectedAircraftHex = useSkyStore((s) => s.selectedAircraftHex)
+  const selection = useSkyStore((s) => s.selection)
+  const cameraLocked = useSkyStore((s) => s.cameraLocked)
   const select = useSkyStore((s) => s.select)
   const selectAircraft = useSkyStore((s) => s.selectAircraft)
   const setTab = useSkyStore((s) => s.setTab)
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
+  const trackTo = useSkyStore((s) => s.trackTo)
 
   const bodies = useBodyStates()
   const sky = useSkyConditions()
@@ -76,6 +81,7 @@ export function SkyCanvas() {
   // Miroir des ephemerides pour le navigateur automatise : il a besoin de
   // connaitre la position d'un corps pour pointer la camera dessus.
   if (import.meta.env.DEV) (window as unknown as { __bodyStates: unknown }).__bodyStates = bodies
+
   const satellites = useAllSatellites()
   const satStates = useSatelliteStates(satellites)
   if (import.meta.env.DEV) {
@@ -217,7 +223,7 @@ export function SkyCanvas() {
         if (bestHex && bestHorizontal) {
           selectAircraft(bestHex)
           setTab('objets')
-          lookAt(bestHorizontal.azimuth, bestHorizontal.altitude)
+          focusOn(bestHorizontal.azimuth, bestHorizontal.altitude)
           return
         }
       }
@@ -249,7 +255,7 @@ export function SkyCanvas() {
 
       select({ kind: result.target.kind, id: result.target.id })
       setTab(result.target.kind === 'satellite' ? 'satellites' : 'objets')
-      lookAt(result.horizontal.azimuth, result.horizontal.altitude)
+      focusOn(result.horizontal.azimuth, result.horizontal.altitude)
     },
     [
       date,
@@ -263,9 +269,38 @@ export function SkyCanvas() {
       select,
       selectAircraft,
       setTab,
-      lookAt,
+      focusOn,
     ],
   )
+
+  /**
+   * Suivi de l'objet verrouille.
+   *
+   * On republie simplement la position du moment a chaque fois qu'elle change.
+   * Rien n'est dit ici de la vitesse d'ecoulement du temps : les ephemerides
+   * sont recalculees a chaque avancee de l'horloge, donc la visee l'est aussi,
+   * et le suivi tient de lui-meme en avance rapide comme en temps reel.
+   */
+  const followed = useMemo(() => {
+    if (!cameraLocked) return null
+    if (selectedAircraftHex) {
+      const a = aircraftStates.find((x) => x.hex === selectedAircraftHex)
+      if (!a) return null
+      const geo = extrapolatedGeodetic(a, Date.now())
+      return geodeticToHorizontal(geo.latitude, geo.longitude, geo.altitudeKm, location).horizontal
+    }
+    if (!selection) return null
+    if (selection.kind === 'body') return bodies.find((b) => b.id === selection.id)?.horizontal ?? null
+    if (selection.kind === 'satellite') return satStates.get(selection.id)?.horizontal ?? null
+    const equatorial = fixedEquatorialJ2000(selection.kind, selection.id)
+    return equatorial ? equatorialToHorizontal(precessFromJ2000(equatorial, date), location, date) : null
+  }, [cameraLocked, selection, selectedAircraftHex, aircraftStates, bodies, satStates, date, location])
+
+  const followAzimuth = followed?.azimuth ?? null
+  const followAltitude = followed?.altitude ?? null
+  useEffect(() => {
+    if (followAzimuth !== null && followAltitude !== null) trackTo(followAzimuth, followAltitude)
+  }, [followAzimuth, followAltitude, trackTo])
 
   const bodyColors = useMemo(() => {
     const map = new Map<string, string>()

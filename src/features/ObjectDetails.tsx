@@ -37,7 +37,7 @@ export function FixedObjectDetails({
 }) {
   const date = useSimulatedDate()
   const location = useSkyStore((s) => s.location)
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
   const sky = useSkyConditions()
 
   const entry = useMemo(() => resolveFixedObject(kind, id), [kind, id])
@@ -129,7 +129,7 @@ export function FixedObjectDetails({
           variant="tonal"
           icon="center_focus_strong"
           fullWidth
-          onClick={() => lookAt(horizontal.azimuth, horizontal.altitude)}
+          onClick={() => focusOn(horizontal.azimuth, horizontal.altitude)}
         >
           Centrer dans le ciel
         </Button>

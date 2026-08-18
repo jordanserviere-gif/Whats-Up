@@ -53,7 +53,7 @@ export function SatellitesPanel() {
   const addSatellite = useSkyStore((s) => s.addSatellite)
   const trackWindow = useSkyStore((s) => s.trackWindowMinutes)
   const setTrackWindow = useSkyStore((s) => s.setTrackWindow)
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
   const all = useAllSatellites()
   const states = useSatelliteStates(all)
   const { show } = useSnackbar()
@@ -61,7 +61,7 @@ export function SatellitesPanel() {
   const openSatellite = (el: OrbitalElements) => {
     selectSatellite(el.id)
     const state = states.get(el.id)
-    if (state) lookAt(state.horizontal.azimuth, state.horizontal.altitude)
+    if (state) focusOn(state.horizontal.azimuth, state.horizontal.altitude)
   }
 
   return (
@@ -371,7 +371,7 @@ function CatalogElements({ element }: { element: OrbitalElements }) {
 
 /** Etat instantane du satellite selectionne. */
 function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state: SatelliteState | null }) {
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
 
   if (!state) {
     return (
@@ -432,7 +432,7 @@ function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state
           variant="tonal"
           icon="center_focus_strong"
           fullWidth
-          onClick={() => lookAt(state.horizontal.azimuth, state.horizontal.altitude)}
+          onClick={() => focusOn(state.horizontal.azimuth, state.horizontal.altitude)}
         >
           Centrer dans le ciel
         </Button>

@@ -71,7 +71,7 @@ async function fetchAdsbdbInfo(hex: string): Promise<AdsbdbInfo | null> {
  */
 export function AircraftDetail() {
   const hex = useSkyStore((s) => s.selectedAircraftHex)
-  const lookAt = useSkyStore((s) => s.lookAt)
+  const focusOn = useSkyStore((s) => s.focusOn)
   const { aircraft, live } = useNearbyAircraft()
   const [meta, setMeta] = useState<AdsbdbInfo | null>(null)
   const [metaLoading, setMetaLoading] = useState(false)
@@ -206,7 +206,7 @@ export function AircraftDetail() {
           variant="tonal"
           icon="center_focus_strong"
           fullWidth
-          onClick={() => lookAt(state.horizontal.azimuth, state.horizontal.altitude)}
+          onClick={() => focusOn(state.horizontal.azimuth, state.horizontal.altitude)}
         >
           Centrer dans le ciel
         </Button>
