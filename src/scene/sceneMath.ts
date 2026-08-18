@@ -191,10 +191,20 @@ export function lerpAngle(from: number, to: number, t: number): number {
   return from + delta * t
 }
 
-/** Genere les positions d'un cercle de hauteur constante (almucantarat). */
+/**
+ * Cercles du ciel — boucles fermees, a dessiner avec `lineLoop`.
+ *
+ * Aucun de ces generateurs ne repete le premier point a la fin : c'est la
+ * primitive qui referme le tour. Decouper une polyligne en segments disjoints,
+ * comme le faisait le code precedent, fait rasteriser deux fois le pixel de
+ * chaque jonction ; sous un materiau translucide la double couche l'eclaircit,
+ * et ces points plus clairs se mettent a scintiller des que le ciel tourne.
+ */
+
+/** Cercle de hauteur constante (almucantarat). */
 export function altitudeCircle(altitudeDeg: number, segments = 128, radius = SKY_RADIUS): Float32Array {
-  const out = new Float32Array((segments + 1) * 3)
-  for (let i = 0; i <= segments; i++) {
+  const out = new Float32Array(segments * 3)
+  for (let i = 0; i < segments; i++) {
     const az = (360 * i) / segments
     const [x, y, z] = horizontalToScene({ azimuth: az, altitude: altitudeDeg }, radius)
     out[i * 3] = x
@@ -204,15 +214,24 @@ export function altitudeCircle(altitudeDeg: number, segments = 128, radius = SKY
   return out
 }
 
-/** Genere les positions d'un cercle d'azimut constant (vertical). */
-export function azimuthCircle(azimuthDeg: number, segments = 128, radius = SKY_RADIUS): Float32Array {
-  const out = new Float32Array((segments + 1) * 3)
-  for (let i = 0; i <= segments; i++) {
-    const alt = -90 + (180 * i) / segments
-    const [x, y, z] = horizontalToScene({ azimuth: azimuthDeg, altitude: alt }, radius)
-    out[i * 3] = x
-    out[i * 3 + 1] = y
-    out[i * 3 + 2] = z
+/**
+ * Vertical : grand cercle complet passant par le zenith et le nadir.
+ *
+ * Il couvre l'azimut demande **et** son oppose — les deux moities d'un meme
+ * cercle. Six verticaux suffisent donc la ou il fallait douze demi-cercles, et
+ * le tour se referme sans raccord.
+ */
+export function verticalCircle(azimuthDeg: number, segments = 256, radius = SKY_RADIUS): Float32Array {
+  const az = azimuthDeg * DEG
+  const sa = Math.sin(az)
+  const ca = Math.cos(az)
+  const out = new Float32Array(segments * 3)
+  for (let i = 0; i < segments; i++) {
+    const t = (2 * Math.PI * i) / segments
+    const st = Math.sin(t)
+    out[i * 3] = radius * st * sa
+    out[i * 3 + 1] = radius * Math.cos(t)
+    out[i * 3 + 2] = -radius * st * ca
   }
   return out
 }
@@ -222,11 +241,11 @@ export function azimuthCircle(azimuthDeg: number, segments = 128, radius = SKY_R
  * il sera place dans un groupe portant `equatorialToSceneMatrix`.
  */
 export function declinationCircle(decDeg: number, segments = 128, radius = SKY_RADIUS): Float32Array {
-  const out = new Float32Array((segments + 1) * 3)
+  const out = new Float32Array(segments * 3)
   const dec = decDeg * DEG
   const cd = Math.cos(dec)
   const sd = Math.sin(dec)
-  for (let i = 0; i <= segments; i++) {
+  for (let i = 0; i < segments; i++) {
     const ra = (2 * Math.PI * i) / segments
     out[i * 3] = radius * cd * Math.cos(ra)
     out[i * 3 + 1] = radius * cd * Math.sin(ra)
@@ -235,26 +254,32 @@ export function declinationCircle(decDeg: number, segments = 128, radius = SKY_R
   return out
 }
 
-/** Meridien de RA constante, dans le repere equatorial. */
-export function rightAscensionCircle(raDeg: number, segments = 128, radius = SKY_RADIUS): Float32Array {
-  const out = new Float32Array((segments + 1) * 3)
+/**
+ * Cercle horaire : grand cercle complet passant par les deux poles celestes.
+ *
+ * Comme le vertical, il couvre l'ascension droite demandee et son oppose.
+ */
+export function hourCircle(raDeg: number, segments = 256, radius = SKY_RADIUS): Float32Array {
   const ra = raDeg * DEG
-  for (let i = 0; i <= segments; i++) {
-    const dec = -Math.PI / 2 + (Math.PI * i) / segments
-    const cd = Math.cos(dec)
-    out[i * 3] = radius * cd * Math.cos(ra)
-    out[i * 3 + 1] = radius * cd * Math.sin(ra)
-    out[i * 3 + 2] = radius * Math.sin(dec)
+  const cr = Math.cos(ra)
+  const sr = Math.sin(ra)
+  const out = new Float32Array(segments * 3)
+  for (let i = 0; i < segments; i++) {
+    const t = (2 * Math.PI * i) / segments
+    const st = Math.sin(t)
+    out[i * 3] = radius * st * cr
+    out[i * 3 + 1] = radius * st * sr
+    out[i * 3 + 2] = radius * Math.cos(t)
   }
   return out
 }
 
 /** Ecliptique dans le repere equatorial (obliquite moyenne de la date). */
-export function eclipticCircle(date: Date, segments = 180, radius = SKY_RADIUS): Float32Array {
+export function eclipticCircle(date: Date, segments = 256, radius = SKY_RADIUS): Float32Array {
   const t = (date.getTime() / 86400000 + 2440587.5 - 2451545.0) / 36525
   const eps = (23.439291 - 0.0130042 * t) * DEG
-  const out = new Float32Array((segments + 1) * 3)
-  for (let i = 0; i <= segments; i++) {
+  const out = new Float32Array(segments * 3)
+  for (let i = 0; i < segments; i++) {
     const lon = (2 * Math.PI * i) / segments
     const x = Math.cos(lon)
     const y = Math.sin(lon) * Math.cos(eps)
@@ -262,34 +287,6 @@ export function eclipticCircle(date: Date, segments = 180, radius = SKY_RADIUS):
     out[i * 3] = radius * x
     out[i * 3 + 1] = radius * y
     out[i * 3 + 2] = radius * z
-  }
-  return out
-}
-
-/**
- * Convertit une polyligne (suite de sommets) en paires de sommets.
- * On dessine tout avec `lineSegments` : l'element `<line>` de react-three-fiber
- * entre en collision avec le `<line>` SVG des typages React.
- */
-export function toSegments(polyline: Float32Array): Float32Array {
-  const points = polyline.length / 3
-  if (points < 2) return new Float32Array(0)
-  const out = new Float32Array((points - 1) * 6)
-  for (let i = 0; i < points - 1; i++) {
-    out.set(polyline.subarray(i * 3, i * 3 + 3), i * 6)
-    out.set(polyline.subarray((i + 1) * 3, (i + 1) * 3 + 3), i * 6 + 3)
-  }
-  return out
-}
-
-/** Concatene plusieurs jeux de segments en un seul tampon. */
-export function mergeSegments(parts: Float32Array[]): Float32Array {
-  const total = parts.reduce((n, p) => n + p.length, 0)
-  const out = new Float32Array(total)
-  let offset = 0
-  for (const p of parts) {
-    out.set(p, offset)
-    offset += p.length
   }
   return out
 }

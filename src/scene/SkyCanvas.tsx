@@ -546,7 +546,12 @@ export function SkyCanvas() {
             1 : c'est ce qui permet au Soleil, rendu a intensite 6, de deborder en
             halo lumineux plutot que d'etre simplement ecrete au blanc. */}
         {layers.bloom && (
-          <EffectComposer multisampling={0}>
+          // Le composeur rend hors ecran : l'antialiasing demande au contexte
+          // WebGL ne s'y applique pas, il faut le lui redemander. Sans cela les
+          // traits fins — grilles, figures, traces de satellites — sont
+          // rasterises en tout ou rien, et chaque pixel qu'ils traversent
+          // s'allume puis s'eteint des que le ciel tourne : le ciel scintille.
+          <EffectComposer multisampling={4}>
             {/* Seuil a 1 : le ciel, ramene sous 1 par la courbe filmique, ne
                 deborde pas. Seules les vraies sources — le Soleil, rendu a
                 intensite 6 — alimentent le halo. */}

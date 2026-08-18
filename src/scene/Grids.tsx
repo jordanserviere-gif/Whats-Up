@@ -1,37 +1,56 @@
 import { useMemo, useRef } from 'react'
-import { BufferAttribute, BufferGeometry, Group, Matrix4 } from 'three'
+import { BufferAttribute, BufferGeometry, Group, LineBasicMaterial, Matrix4 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import {
   altitudeCircle,
-  azimuthCircle,
   declinationCircle,
   eclipticCircle,
   equatorialToSceneMatrix,
-  mergeSegments,
-  rightAscensionCircle,
-  toSegments,
+  hourCircle,
+  verticalCircle,
 } from './sceneMath'
 import type { GeoLocation } from '@/astro/types'
 
-function segmentGeometry(parts: Float32Array[]) {
+function circleGeometry(points: Float32Array) {
   const geo = new BufferGeometry()
-  geo.setAttribute('position', new BufferAttribute(mergeSegments(parts.map(toSegments)), 3))
+  geo.setAttribute('position', new BufferAttribute(points, 3))
   return geo
+}
+
+/** Materiau de trait, partage par tous les cercles d'une meme grille. */
+function useLineMaterial(color: string, opacity: number) {
+  const material = useMemo(() => new LineBasicMaterial({ transparent: true, depthWrite: false }), [])
+  material.color.set(color)
+  material.opacity = opacity
+  return material
+}
+
+/** Rend une famille de cercles fermes sous un meme materiau. */
+function Circles({ geometries, material }: { geometries: BufferGeometry[]; material: LineBasicMaterial }) {
+  return (
+    <>
+      {geometries.map((geometry, i) => (
+        <lineLoop key={i} geometry={geometry} material={material} frustumCulled={false} />
+      ))}
+    </>
+  )
 }
 
 /** Grille horizontale : almucantarats tous les 15°, verticaux tous les 30°. */
 export function HorizonGrid({ color, opacity = 1 }: { color: string; opacity?: number }) {
-  const geometry = useMemo(() => {
-    const parts: Float32Array[] = []
-    for (let alt = -75; alt <= 75; alt += 15) parts.push(altitudeCircle(alt))
-    for (let az = 0; az < 360; az += 30) parts.push(azimuthCircle(az))
-    return segmentGeometry(parts)
+  const geometries = useMemo(() => {
+    const out: BufferGeometry[] = []
+    for (let alt = -75; alt <= 75; alt += 15) out.push(circleGeometry(altitudeCircle(alt)))
+    // Un vertical couvre son azimut et l'oppose : six suffisent pour douze traces.
+    for (let az = 0; az < 180; az += 30) out.push(circleGeometry(verticalCircle(az)))
+    return out
   }, [])
+  const material = useLineMaterial(color, opacity)
 
   return (
-    <lineSegments geometry={geometry} frustumCulled={false} renderOrder={2}>
-      <lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
-    </lineSegments>
+    <group renderOrder={2}>
+      <Circles geometries={geometries} material={material} />
+    </group>
   )
 }
 
@@ -68,23 +87,23 @@ export function EquatorialGrid({
 
   const { grid, equator } = useMemo(
     () => ({
-      grid: segmentGeometry([
-        ...[-75, -60, -45, -30, -15, 15, 30, 45, 60, 75].map((d) => declinationCircle(d)),
-        ...[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((r) => rightAscensionCircle(r)),
-      ]),
-      equator: segmentGeometry([declinationCircle(0, 256)]),
+      grid: [
+        ...[-75, -60, -45, -30, -15, 15, 30, 45, 60, 75].map((d) => circleGeometry(declinationCircle(d))),
+        // Comme les verticaux, un cercle horaire couvre l'ascension droite
+        // demandee et son oppose.
+        ...[0, 30, 60, 90, 120, 150].map((r) => circleGeometry(hourCircle(r))),
+      ],
+      equator: circleGeometry(declinationCircle(0, 256)),
     }),
     [],
   )
+  const gridMaterial = useLineMaterial(color, opacity * 0.6)
+  const equatorMaterial = useLineMaterial(equatorColor, opacity)
 
   return (
     <group ref={ref} renderOrder={2}>
-      <lineSegments geometry={grid} frustumCulled={false}>
-        <lineBasicMaterial color={color} transparent opacity={opacity * 0.6} depthWrite={false} />
-      </lineSegments>
-      <lineSegments geometry={equator} frustumCulled={false}>
-        <lineBasicMaterial color={equatorColor} transparent opacity={opacity} depthWrite={false} />
-      </lineSegments>
+      <Circles geometries={grid} material={gridMaterial} />
+      <lineLoop geometry={equator} material={equatorMaterial} frustumCulled={false} />
     </group>
   )
 }
@@ -103,23 +122,19 @@ export function EclipticLine({
 }) {
   const ref = useEquatorialFrame(date, location)
   const year = date.getUTCFullYear()
-  const geometry = useMemo(() => segmentGeometry([eclipticCircle(new Date(Date.UTC(year, 6, 1)), 256)]), [year])
+  const geometry = useMemo(() => circleGeometry(eclipticCircle(new Date(Date.UTC(year, 6, 1)))), [year])
+  const material = useLineMaterial(color, opacity)
 
   return (
     <group ref={ref} renderOrder={2}>
-      <lineSegments geometry={geometry} frustumCulled={false}>
-        <lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
-      </lineSegments>
+      <lineLoop geometry={geometry} material={material} frustumCulled={false} />
     </group>
   )
 }
 
 /** Ligne d'horizon marquee : reference visuelle permanente. */
 export function HorizonLine({ color }: { color: string }) {
-  const geometry = useMemo(() => segmentGeometry([altitudeCircle(0, 256)]), [])
-  return (
-    <lineSegments geometry={geometry} frustumCulled={false} renderOrder={3}>
-      <lineBasicMaterial color={color} transparent opacity={0.85} depthWrite={false} />
-    </lineSegments>
-  )
+  const geometry = useMemo(() => circleGeometry(altitudeCircle(0, 256)), [])
+  const material = useLineMaterial(color, 0.85)
+  return <lineLoop geometry={geometry} material={material} frustumCulled={false} renderOrder={3} />
 }
