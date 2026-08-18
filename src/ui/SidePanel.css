@@ -1,7 +1,21 @@
+/**
+ * Feuille laterale.
+ *
+ * La repartition verticale est une grille, et non une colonne flexible, parce
+ * que les deux zones n'ont pas le meme droit a la hauteur. La fiche ancree
+ * prend celle qu'elle demande ; la liste, qui defile de toute facon, lui cede
+ * la sienne jusqu'a un plancher. Une colonne flexible, elle, retrecit les deux
+ * au prorata : la fiche se retrouvait tronquee alors que la liste avait encore
+ * deux cents pixels de marge.
+ */
 .md-side-panel {
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* En-tete puis liste ; la fiche ancree et le pied, tous deux facultatifs,
+   * tombent dans des lignes implicites qui prennent la hauteur de leur
+   * contenu — et peuvent se reduire si la place vient a manquer. */
+  grid-template-rows: auto minmax(152px, 1fr);
+  grid-auto-rows: minmax(0, auto);
   width: var(--app-side-panel-width);
   flex: none;
   height: 100%;
@@ -36,7 +50,6 @@
   align-items: flex-start;
   gap: var(--md-sys-spacing-2);
   padding: var(--md-sys-spacing-4) var(--md-sys-spacing-4) var(--md-sys-spacing-2);
-  flex: none;
 }
 
 .md-side-panel__titles {
@@ -57,8 +70,9 @@
   flex: none;
 }
 
+/* Le plancher de la liste est porte par la grille : ici il ne reste qu'a
+ * l'autoriser a descendre jusqu'a lui. */
 .md-side-panel__content {
-  flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -76,13 +90,11 @@
   flex: none;
 }
 
-/* Fiche ancree : la liste defile au-dessus, la fiche reste en vue.
- * Elle ne prend jamais plus de la moitie du panneau, et defile chez elle si son
- * contenu l'exige — c'est le seul moyen de garder la liste utilisable. */
+/* Fiche ancree : la liste defile au-dessus, la fiche reste en vue. Elle
+ * s'affiche d'un seul tenant tant que la liste a de la marge, et ne defile a
+ * son tour qu'une fois celle-ci a son plancher. */
 .md-side-panel__detail {
-  flex: 0 1 auto;
   min-height: 0;
-  max-height: 52%;
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
@@ -97,7 +109,6 @@
 }
 
 .md-side-panel__footer {
-  flex: none;
   display: flex;
   gap: var(--md-sys-spacing-2);
   justify-content: flex-end;
@@ -120,10 +131,11 @@
     transform: translateY(calc(100% + 76px));
     margin: 0;
   }
-  /* La feuille est deja courte : au-dela de cette part, la liste au-dessus ne
-   * montrerait plus assez de lignes pour qu'on s'y repere. */
+  /* La feuille est deja courte : le plancher de la liste descend d'autant. */
+  .md-side-panel {
+    grid-template-rows: auto minmax(132px, 1fr);
+  }
   .md-side-panel__detail {
-    max-height: 46%;
     padding: var(--md-sys-spacing-2);
   }
 }

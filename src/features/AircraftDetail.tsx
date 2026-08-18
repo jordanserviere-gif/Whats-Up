@@ -130,11 +130,14 @@ export function AircraftDetail() {
   const altitudeFt = state.altitudeFt !== null ? Math.round(state.altitudeFt) : null
   const title = state.flight ?? meta?.registration ?? state.hex.toUpperCase()
   const above = state.horizontal.altitude > 0
+  // Constructeur et type tiennent sur la meme ligne : ils nomment la meme
+  // chose, et la fiche gagne une ligne de tableau.
+  const overline = [meta?.manufacturer, meta?.type ?? state.typeCode].filter(Boolean).join(' · ') || 'Avion'
 
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline={meta?.type ?? state.typeCode ?? 'Avion'}
+        overline={overline}
         title={title}
         subtitle={meta?.owner ?? (state.registration ? `immatriculation ${state.registration}` : `code ${state.hex}`)}
         trailing={
@@ -181,17 +184,21 @@ export function AircraftDetail() {
           <StatTile label="Distance" value={fr(state.rangeKm)} unit="km" icon="straighten" />
         </DataGrid>
 
+        {/* Ni indicatif ni constructeur ici : le premier est le titre de la
+            fiche, le second son surtitre. Le reste tient sur deux colonnes —
+            ce sont des valeurs courtes, une pleine largeur chacune gaspillait
+            la moitie de la ligne. */}
         <Divider />
-        <DataRow label="Indicatif" value={state.flight ?? '—'} />
-        <DataRow label="Immatriculation" value={meta?.registration ?? state.registration ?? '—'} />
-        <DataRow label="Constructeur" value={meta?.manufacturer ?? '—'} />
-        <DataRow
-          label="Vitesse verticale"
-          value={state.verticalRateFtMin !== null ? `${state.verticalRateFtMin > 0 ? '+' : ''}${state.verticalRateFtMin}` : '—'}
-          unit="ft/min"
-        />
-        <DataRow label="Route" value={state.trackDeg !== null ? `${Math.round(state.trackDeg)}°` : '—'} />
-        {state.squawk && <DataRow label="Squawk" value={state.squawk} />}
+        <DataGrid columns={2}>
+          <DataRow label="Immat." value={meta?.registration ?? state.registration ?? '—'} />
+          <DataRow label="Route" value={state.trackDeg !== null ? `${Math.round(state.trackDeg)}°` : '—'} />
+          <DataRow
+            label="Vario"
+            value={state.verticalRateFtMin !== null ? `${state.verticalRateFtMin > 0 ? '+' : ''}${state.verticalRateFtMin}` : '—'}
+            unit="ft/min"
+          />
+          {state.squawk && <DataRow label="Squawk" value={state.squawk} />}
+        </DataGrid>
 
         <Divider />
         <DataRow
@@ -199,7 +206,7 @@ export function AircraftDetail() {
           label="Trace suivie"
           value={history.length > 1 ? `${history.length} points` : 'pas encore assez de points'}
           unit={history.length > 1 ? (trackedSinceMin < 1 ? 'depuis moins d’une minute' : `depuis ${Math.round(trackedSinceMin)} min`) : undefined}
-          hint="Aucune API gratuite ne fournit d’historique de vol : cette trace, visible dans le ciel, n’existe que depuis que l’appareil est observé ici, pas avant."
+          hint="Aucune API gratuite ne fournit d’historique de vol : la trace commence à la première observation."
         />
 
         <Button
