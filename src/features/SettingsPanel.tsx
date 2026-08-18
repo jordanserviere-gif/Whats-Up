@@ -49,6 +49,10 @@ export function SettingsPanel() {
   const setDiscScale = useSkyStore((s) => s.setDiscScale)
   const lightPollution = useSkyStore((s) => s.lightPollution)
   const setLightPollution = useSkyStore((s) => s.setLightPollution)
+  const lightPollutionAuto = useSkyStore((s) => s.lightPollutionAuto)
+  const setLightPollutionAuto = useSkyStore((s) => s.setLightPollutionAuto)
+  const autoLightPollutionStatus = useSkyStore((s) => s.autoLightPollutionStatus)
+  const measuredSkyBrightness = useSkyStore((s) => s.measuredSkyBrightness)
   const aerosolTurbidity = useSkyStore((s) => s.aerosolTurbidity)
   const setAerosolTurbidity = useSkyStore((s) => s.setAerosolTurbidity)
   const aerosolAuto = useSkyStore((s) => s.aerosolAuto)
@@ -196,6 +200,13 @@ export function SettingsPanel() {
             : `Bortle ${Math.round(lightPollution)} · trouble ×${aerosolTurbidity.toFixed(1).replace('.', ',')}`
         }
       >
+        <Switch
+          label="Pollution lumineuse automatique"
+          supportingText="Mesurée au lieu d’observation (Light Pollution Atlas, VIIRS)"
+          checked={lightPollutionAuto}
+          onChange={setLightPollutionAuto}
+        />
+
         <Slider
           label="Pollution lumineuse"
           min={1}
@@ -203,15 +214,29 @@ export function SettingsPanel() {
           step={1}
           value={lightPollution}
           showValue
-          format={(v) => `Bortle ${v} · ${bortleLabel(v)}`}
+          disabled={lightPollutionAuto}
+          format={(v) => `Bortle ${Math.round(v)} · ${bortleLabel(v)}`}
           onChange={setLightPollution}
         />
+        {lightPollutionAuto && (
+          <DataRow
+            icon="cloud_download"
+            label="Source"
+            value={autoLightPollutionStatus.origin}
+            unit={autoLightPollutionStatus.ageMs !== null ? formatAge(autoLightPollutionStatus.ageMs) : undefined}
+            hint={
+              autoLightPollutionStatus.note ??
+              'Atlas annuel dérivé des observations VIIRS, calibré sur le World Atlas de Falchi et al. (2016).'
+            }
+          />
+        )}
         <p className="md-type-body-small">
           Échelle de Bortle, ancrée sur la brillance réelle du fond de ciel :{' '}
-          {bortleSkyBrightness(lightPollution).toFixed(1).replace('.', ',')} mag/arcsec² au zénith. La
-          valeur entre dans le bilan lumineux comme une source de plus, au même titre que la Lune —
-          elle recule donc la magnitude limite, efface les objets étendus et éclaircit le ciel
-          d’elle-même, surtout vers l’horizon d’où monte le halo urbain. Magnitude limite actuelle :{' '}
+          {(measuredSkyBrightness ?? bortleSkyBrightness(lightPollution)).toFixed(1).replace('.', ',')}{' '}
+          mag/arcsec² au zénith{measuredSkyBrightness !== null ? ' (mesuré)' : ''}. La valeur entre dans
+          le bilan lumineux comme une source de plus, au même titre que la Lune — elle recule donc la
+          magnitude limite, efface les objets étendus et éclaircit le ciel d’elle-même, surtout vers
+          l’horizon d’où monte le halo urbain. Magnitude limite actuelle :{' '}
           {sky.limitingMagnitude.toFixed(1).replace('.', ',')}.
         </p>
 

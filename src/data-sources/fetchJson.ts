@@ -96,6 +96,66 @@ export async function fetchJson<Raw, T = Raw>(
 }
 
 /**
+ * Variante binaire, pour les charges qui ne sont ni du JSON ni du texte —
+ * tuiles compressees, grilles de valeurs.
+ *
+ * Meme contrat que les deux precedentes, a un detail pres : ce qui est mis en
+ * cache est un `ArrayBuffer`, qu'IndexedDB sait stocker tel quel. La charge
+ * brute reste donc la charge brute, et `parse` peut evoluer sans invalider le
+ * cache.
+ */
+export async function fetchBinary<T>(
+  url: string,
+  options: FetchOptions,
+  parse: (raw: ArrayBuffer) => T,
+): Promise<Sourced<T> | null> {
+  const { key, ttlMs, timeoutMs = 5000, attempts = 2, headers } = options
+
+  const cached = await readCache<ArrayBuffer>(key)
+  if (cached && !isExpired(cached)) {
+    try {
+      return { value: parse(cached.payload), status: statusFrom(cached.fetchedAt, true) }
+    } catch {
+      /* on retente le reseau */
+    }
+  }
+
+  let lastError = ''
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      let response: Response
+      try {
+        response = await fetch(url, { signal: controller.signal, headers, mode: 'cors' })
+      } finally {
+        clearTimeout(timer)
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const raw = await response.arrayBuffer()
+      const value = parse(raw)
+      await writeCache(key, raw, ttlMs)
+      return { value, status: statusFrom(Date.now(), true) }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+      if (attempt < attempts) await sleep(400 * attempt)
+    }
+  }
+
+  if (cached) {
+    try {
+      return {
+        value: parse(cached.payload),
+        status: statusFrom(cached.fetchedAt, false, `reseau indisponible (${lastError})`),
+      }
+    } catch {
+      /* defaut */
+    }
+  }
+  return null
+}
+
+/**
  * Variante pour les reponses textuelles (CSV, TLE a trois lignes).
  * Meme contrat, seul le decodage change.
  */

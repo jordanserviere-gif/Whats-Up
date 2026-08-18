@@ -12,8 +12,9 @@ import {
   computeRiseSet,
   computeSkyConditions,
 } from '@/astro/bodies'
-import { lightPollutionLux } from '@/astro/photometry'
+import { bortleFromSkyBrightness, lightPollutionLux } from '@/astro/photometry'
 import { fetchAerosolOpticalDepth } from '@/data-sources/airQuality'
+import { fetchSkyBrightness } from '@/data-sources/lightPollution'
 import { turbidityFromAerosolOpticalDepth } from '@/scene/atmosphere'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
 import { computeAircraftState, forgetAircraftTracks, type AircraftState } from '@/astro/aircraft'
@@ -127,6 +128,53 @@ export function useAerosolAutoSync() {
     return () => {
       cancelled = true
       clearInterval(interval)
+    }
+  }, [auto, lat, lon])
+}
+
+/**
+ * Asservit `lightPollution` a l'atlas mesure quand le mode automatique est
+ * actif — voir `data-sources/lightPollution.ts`.
+ *
+ * Aucun rafraichissement periodique, contrairement aux aerosols : l'atlas est
+ * annuel, la valeur ne change qu'avec le lieu. Une mesure par changement de
+ * position suffit donc, et la tuile reste en cache un mois.
+ */
+export function useLightPollutionAutoSync() {
+  const auto = useSkyStore((s) => s.lightPollutionAuto)
+  const location = useSkyStore((s) => s.location)
+  // L'atlas a une resolution d'un cent-vingtieme de degre : arrondir au
+  // millieme garde tout son detail sans relancer la lecture pour un tremblement
+  // de la position geolocalisee.
+  const lat = Math.round(location.latitude * 1000) / 1000
+  const lon = Math.round(location.longitude * 1000) / 1000
+
+  useEffect(() => {
+    if (!auto) return
+
+    let cancelled = false
+    ;(async () => {
+      const result = await fetchSkyBrightness(lat, lon)
+      if (cancelled) return
+      if (result) {
+        useSkyStore.setState({
+          lightPollution: bortleFromSkyBrightness(result.value.skyBrightness),
+          measuredSkyBrightness: result.value.skyBrightness,
+          autoLightPollutionStatus: result.status,
+        })
+      } else {
+        useSkyStore.setState((s) => ({
+          measuredSkyBrightness: null,
+          autoLightPollutionStatus: {
+            ...s.autoLightPollutionStatus,
+            note: 'atlas indisponible ou lieu hors couverture, reglage manuel conserve',
+          },
+        }))
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
   }, [auto, lat, lon])
 }

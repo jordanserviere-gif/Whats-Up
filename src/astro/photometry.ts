@@ -77,6 +77,31 @@ export function bortleSkyBrightness(rank: number): number {
   return a.sqm + (b.sqm - a.sqm) * ((rank - a.rank) / (b.rank - a.rank))
 }
 
+/**
+ * Classe de Bortle correspondant a une brillance de fond mesuree — l'inverse
+ * de `bortleSkyBrightness`.
+ *
+ * Le rang rendu est fractionnaire : une mesure reelle ne tombe pas sur un
+ * palier rond, et l'arrondir perdrait de la precision pour rien puisque
+ * `lightPollutionLux` interpole de toute facon. C'est ce qui permet d'asservir
+ * le reglage a une mesure d'atlas — voir `data-sources/lightPollution.ts` —
+ * sans passer par une echelle plus grossiere que la donnee.
+ */
+export function bortleFromSkyBrightness(sqm: number): number {
+  const first = BORTLE_CLASSES[0]
+  const last = BORTLE_CLASSES[BORTLE_CLASSES.length - 1]
+  // La table decroit en brillance quand le rang monte : un ciel plus clair que
+  // le premier palier reste classe 1, plus sombre que le dernier reste classe 9.
+  if (sqm >= first.sqm) return first.rank
+  if (sqm <= last.sqm) return last.rank
+  for (let i = 0; i + 1 < BORTLE_CLASSES.length; i++) {
+    const a = BORTLE_CLASSES[i]
+    const b = BORTLE_CLASSES[i + 1]
+    if (sqm >= b.sqm) return a.rank + (b.rank - a.rank) * ((a.sqm - sqm) / (a.sqm - b.sqm))
+  }
+  return last.rank
+}
+
 /** Libelle de la classe de Bortle la plus proche. */
 export const bortleLabel = (rank: number) =>
   BORTLE_CLASSES[Math.min(BORTLE_CLASSES.length - 1, Math.max(0, Math.round(rank) - 1))].label

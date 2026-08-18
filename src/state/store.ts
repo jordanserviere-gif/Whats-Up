@@ -147,6 +147,18 @@ interface SkyState {
   lightPollution: number
   setLightPollution: (bortle: number) => void
   /**
+   * Pollution lumineuse asservie a l'atlas mesure plutot qu'au curseur — voir
+   * `useLightPollutionAutoSync` dans `state/hooks.ts`. Comme pour les
+   * aerosols, `lightPollution` reste la meme valeur dans les deux cas : seule
+   * change la main qui l'ecrit.
+   */
+  lightPollutionAuto: boolean
+  setLightPollutionAuto: (auto: boolean) => void
+  /** Provenance de la derniere lecture d'atlas -- defaut tant qu'aucune n'a abouti. */
+  autoLightPollutionStatus: SourceStatus
+  /** Brillance de fond mesuree au lieu courant, en mag/arcsec². Nulle sans mesure. */
+  measuredSkyBrightness: number | null
+  /**
    * Trouble atmospherique — charge en aerosols, multipliant la diffusion de
    * Mie. 1 = air standard du modele (une epaisseur optique de 0,025, soit un
    * air tres pur) ; au-dela, l'horizon blanchit et les astres bas s'eteignent,
@@ -248,6 +260,10 @@ export const useSkyStore = create<SkyState>()(
       setDiscScale: (discScale) => set({ discScale }),
       lightPollution: 1,
       setLightPollution: (lightPollution) => set({ lightPollution }),
+      lightPollutionAuto: false,
+      setLightPollutionAuto: (lightPollutionAuto) => set({ lightPollutionAuto }),
+      autoLightPollutionStatus: DEFAULT_STATUS,
+      measuredSkyBrightness: null,
       aerosolTurbidity: 1,
       setAerosolTurbidity: (aerosolTurbidity) => set({ aerosolTurbidity }),
       aerosolAuto: false,
@@ -283,6 +299,7 @@ export const useSkyStore = create<SkyState>()(
         magnitudeLimit: s.magnitudeLimit,
         discScale: s.discScale,
         lightPollution: s.lightPollution,
+        lightPollutionAuto: s.lightPollutionAuto,
         aerosolTurbidity: s.aerosolTurbidity,
         aerosolAuto: s.aerosolAuto,
         satellites: s.satellites,
