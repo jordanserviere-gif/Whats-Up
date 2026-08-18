@@ -21,8 +21,11 @@ import { computeAircraftState, forgetAircraftTracks, type AircraftState } from '
 import { ensureAircraftPolling, getAircraftFeedSnapshot, stopAircraftPolling, subscribeAircraftFeed } from './aircraftFeed'
 import type { BodyId, BodyState, GeoLocation, OrbitalElements, SatellitePass } from '@/astro/types'
 
-/** Cadence de recalcul des ephemerides : 10 Hz suffit largement a l'oeil. */
-const EPHEMERIS_HZ = 10
+/**
+ * Cadence de recalcul des ephemerides a vitesse reelle. Rien ne bouge a l'oeil
+ * en une seconde de ciel : dix mises a jour suffisent, et menagent la machine.
+ */
+const IDLE_EPHEMERIS_HZ = 10
 /**
  * Plafond du pas d'integration, en millisecondes de temps reel. Un onglet mis
  * en arriere-plan suspend requestAnimationFrame ; sans ce plafond, le retour
@@ -32,8 +35,13 @@ const MAX_STEP_MS = 250
 
 /**
  * Moteur temporel : avance l'instant simule selon la vitesse choisie.
- * Il pilote le store a cadence limitee ; le rendu 3D, lui, tourne a la
- * frequence de l'ecran et reste fluide.
+ *
+ * La cadence de publication s'adapte a la vitesse. Au repos elle reste bridee
+ * a 10 Hz. Des que le temps est accelere, elle passe a une publication par
+ * image : a 10 Hz, un ciel avance a x86400 saute de deux heures et demie de
+ * rotation d'un coup, et le mouvement se lit comme une suite de secousses.
+ * Lier le pas a l'image ne peut pas etre moins fluide que l'inverse — le ciel
+ * avance alors exactement de ce que l'ecran est capable de montrer.
  */
 export function useTimeEngine() {
   const playing = useSkyStore((s) => s.playing)
@@ -46,13 +54,15 @@ export function useTimeEngine() {
     let lastWall = performance.now()
     let lastCommit = 0
 
+    const minInterval = speed === 1 ? 1000 / IDLE_EPHEMERIS_HZ : 0
+
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick)
-      if (now - lastCommit < 1000 / EPHEMERIS_HZ) return
+      if (now - lastCommit < minInterval) return
       lastCommit = now
       // Le temps ecoule se compte depuis le dernier commit, pas depuis la
-      // derniere image : ne retenir que le delta d'une image alors qu'on ne
-      // publie qu'a 10 Hz ferait avancer l'horloge cinq a six fois trop
+      // derniere image : quand la publication est bridee, ne retenir que le
+      // delta d'une image ferait avancer l'horloge cinq a six fois trop
       // lentement, et le facteur dependrait de la frequence de l'ecran.
       const dt = Math.min(now - lastWall, MAX_STEP_MS)
       lastWall = now
@@ -70,17 +80,49 @@ export function useTimeEngine() {
   }, [playing, speed, live])
 }
 
+/**
+ * Memos a une case, partages par tous les appelants.
+ *
+ * Une demi-douzaine de composants demandent les memes ephemerides au meme
+ * instant : la vue du ciel, la liste d'objets, la recherche, le panneau de
+ * details. Un `useMemo` par composant les recalculerait tous separement a
+ * chaque image — quatre fois le meme travail. La cle est l'instant et le lieu,
+ * donc le cache est juste par construction : un resultat n'est reutilise que
+ * pour des arguments identiques.
+ */
+const siteKey = (l: GeoLocation) => `${l.latitude}|${l.longitude}|${l.elevation}`
+
+let dateSlot = { time: Number.NaN, value: new Date(0) }
+const dateFor = (time: number): Date => {
+  if (dateSlot.time !== time) dateSlot = { time, value: new Date(time) }
+  return dateSlot.value
+}
+
+let bodiesSlot = { key: '', value: [] as BodyState[] }
+const bodiesFor = (date: Date, location: GeoLocation): BodyState[] => {
+  const key = `${date.getTime()}|${siteKey(location)}`
+  if (bodiesSlot.key !== key) bodiesSlot = { key, value: computeAllBodies(date, location) }
+  return bodiesSlot.value
+}
+
+let conditionsSlot = { key: '', value: null as ReturnType<typeof computeSkyConditions> | null }
+const conditionsFor = (date: Date, location: GeoLocation, pollutionLux: number) => {
+  const key = `${date.getTime()}|${siteKey(location)}|${pollutionLux}`
+  if (conditionsSlot.key !== key) conditionsSlot = { key, value: computeSkyConditions(date, location, pollutionLux) }
+  return conditionsSlot.value!
+}
+
 /** Instant simule sous forme de `Date` stable entre deux recalculs. */
 export function useSimulatedDate(): Date {
   const time = useSkyStore((s) => s.time)
-  return useMemo(() => new Date(time), [time])
+  return useMemo(() => dateFor(time), [time])
 }
 
 /** Ephemerides de tous les corps affiches. */
 export function useBodyStates(): BodyState[] {
   const date = useSimulatedDate()
   const location = useSkyStore((s) => s.location)
-  return useMemo(() => computeAllBodies(date, location), [date, location])
+  return useMemo(() => bodiesFor(date, location), [date, location])
 }
 
 /** Conditions d'observation courantes, pollution lumineuse du site comprise. */
@@ -89,7 +131,7 @@ export function useSkyConditions() {
   const location = useSkyStore((s) => s.location)
   const lightPollution = useSkyStore((s) => s.lightPollution)
   return useMemo(
-    () => computeSkyConditions(date, location, lightPollutionLux(lightPollution)),
+    () => conditionsFor(date, location, lightPollutionLux(lightPollution)),
     [date, location, lightPollution],
   )
 }

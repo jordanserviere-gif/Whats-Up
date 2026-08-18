@@ -159,6 +159,12 @@
   width: 6px;
   margin-left: -3px;
 }
+/* En temps accelere non plus : le ressort de 389 ms est plus long que la
+ * traversee complete de la fenetre a x86400, la tete trainerait derriere le
+ * ciel au lieu de le suivre. */
+.timeline__scrubber.is-running .timeline__cursor {
+  transition: none;
+}
 
 /* Repere de l'instant present. */
 .timeline__now {

@@ -167,7 +167,11 @@ export function TimelineBar() {
         />
       </div>
 
-      <div className={`timeline__scrubber${scrubbing ? ' is-scrubbing' : ''}`}>
+      <div
+        className={`timeline__scrubber${scrubbing ? ' is-scrubbing' : ''}${
+          playing && speed !== 1 ? ' is-running' : ''
+        }`}
+      >
         <LuminanceBand start={windowStart} end={windowEnd} location={location} samples={96} />
 
         {ticks.map((t) => (
