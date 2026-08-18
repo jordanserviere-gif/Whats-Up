@@ -81,7 +81,10 @@
 /* --- Curseur temporel --- */
 .timeline__scrubber {
   position: relative;
-  height: 46px;
+  /* La poignee native se cale sur la hauteur de la bande : plus grande, elle
+   * deborderait de la barre. */
+  --_track-h: 46px;
+  height: var(--_track-h);
   display: flex;
   align-items: center;
   margin-top: var(--md-sys-spacing-1);
@@ -124,11 +127,11 @@
 .timeline__range::-webkit-slider-thumb {
   appearance: none;
   width: 44px;
-  height: 44px;
+  height: var(--_track-h);
 }
 .timeline__range::-moz-range-thumb {
   width: 44px;
-  height: 44px;
+  height: var(--_track-h);
   border: none;
   background: transparent;
 }
@@ -192,5 +195,80 @@
   }
   .timeline__speed {
     width: 100%;
+  }
+}
+
+/* --- Telephone ---
+ * La frise ne doit pas manger la moitie basse de l'ecran : on la ramene a
+ * trois lignes serrees (horloge, sauts, vitesse) au lieu de la demi-douzaine
+ * que produit le repli naturel du flex. */
+@media (max-width: 600px) {
+  .timeline {
+    gap: var(--md-sys-spacing-1);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3) var(--md-sys-spacing-1);
+  }
+
+  .timeline__row--main {
+    gap: var(--md-sys-spacing-2);
+  }
+
+  /* Le bouton de lecture reste la cible principale, mais sans etre monumental. */
+  .timeline__row--main .md-icon-button--m {
+    --_size: 44px;
+  }
+
+  /* Horloge et badges cote a cote sur la premiere ligne.
+   * Base nulle : l'horloge doit se retrecir au lieu de pousser le bouton de
+   * lecture sur une ligne a lui tout seul. */
+  .timeline__clock {
+    flex: 1 1 0;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    overflow: hidden;
+  }
+  .timeline__clock-button {
+    flex: 0 0 auto;
+  }
+  .timeline__time {
+    font-size: var(--md-sys-typescale-title-large-size);
+    line-height: var(--md-sys-typescale-title-large-line-height);
+  }
+  /* Les badges defilent plutot que de se replier ligne apres ligne. */
+  .timeline__badges {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .timeline__badges > * {
+    flex: 0 0 auto;
+  }
+  .timeline__badges::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Sauts et vitesse : deux lignes pleine largeur, densite reduite. */
+  .timeline__jumps {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .timeline__jumps .md-icon-button {
+    --_size: 36px;
+  }
+  .timeline__speed .md-segmented__item {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: var(--md-sys-spacing-1);
+  }
+
+  .timeline__scrubber {
+    --_track-h: 34px;
+  }
+
+  /* Le fuseau est deja rappele dans les reglages : seul l'eclairement reste. */
+  .timeline__zone {
+    display: none;
   }
 }

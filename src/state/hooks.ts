@@ -23,6 +23,12 @@ import type { BodyId, BodyState, GeoLocation, OrbitalElements, SatellitePass } f
 
 /** Cadence de recalcul des ephemerides : 10 Hz suffit largement a l'oeil. */
 const EPHEMERIS_HZ = 10
+/**
+ * Plafond du pas d'integration, en millisecondes de temps reel. Un onglet mis
+ * en arriere-plan suspend requestAnimationFrame ; sans ce plafond, le retour
+ * ferait bondir l'instant simule de plusieurs minutes a x86400.
+ */
+const MAX_STEP_MS = 250
 
 /**
  * Moteur temporel : avance l'instant simule selon la vitesse choisie.
@@ -42,10 +48,14 @@ export function useTimeEngine() {
 
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick)
-      const dt = now - lastWall
-      lastWall = now
       if (now - lastCommit < 1000 / EPHEMERIS_HZ) return
       lastCommit = now
+      // Le temps ecoule se compte depuis le dernier commit, pas depuis la
+      // derniere image : ne retenir que le delta d'une image alors qu'on ne
+      // publie qu'a 10 Hz ferait avancer l'horloge cinq a six fois trop
+      // lentement, et le facteur dependrait de la frequence de l'ecran.
+      const dt = Math.min(now - lastWall, MAX_STEP_MS)
+      lastWall = now
 
       const store = useSkyStore.getState()
       if (live && speed === 1) {
