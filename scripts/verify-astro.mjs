@@ -37,6 +37,7 @@ import {
   buildDeepSkyGeometry,
   findDeepSkyObject,
 } from '../src/astro/deepsky.ts'
+import { NAMED_STARS } from '../src/astro/catalog.ts'
 import { GROUND_RADIUS, equatorialToSceneMatrix, horizontalToScene, sceneDepth, sceneRadiusForBody } from '../src/scene/sceneMath.ts'
 
 let failures = 0
@@ -563,6 +564,17 @@ console.log('\n=== 8. Ciel profond (OpenNGC) ===')
   console.log(
     `${plausible ? 'OK  ' : 'ECHEC'} ${'M31 : precession J2000 → 2026'.padEnd(52)} ` +
       `${(shift * 60).toFixed(1)}′ (attendu 12′ à 30′ sur 26 ans)`,
+  )
+
+  // Aucun corps du systeme solaire dans le catalogue d'etoiles fixes. HYG
+  // embarque le Soleil sous le nom « Sol », a 0 h / 0° : coordonnees qui ne
+  // designent rien, et magnitude qui creverait l'ecran sur le point vernal.
+  const brightest = NAMED_STARS[0]
+  const starsClean = brightest.magnitude > -2
+  if (!starsClean) failures++
+  console.log(
+    `${starsClean ? 'OK  ' : 'ECHEC'} ${'catalogue d etoiles sans corps du systeme solaire'.padEnd(52)} ` +
+      `plus brillante : ${brightest.name} a mag ${brightest.magnitude.toFixed(2)} (attendu Sirius, -1,44)`,
   )
 
   // Le catalogue Messier doit etre presque complet.

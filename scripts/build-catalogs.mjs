@@ -76,7 +76,7 @@ async function buildStars() {
   const iBayer = col('bayer')
   const iFlam = col('flam')
   const iCon = col('con')
-  const iHip = col('hip')
+  const iId = col('id')
 
   const ra = [], dec = [], mag = [], ci = []
   const named = []
@@ -90,7 +90,13 @@ async function buildStars() {
     const r = parseFloat(f[iRa])
     const d = parseFloat(f[iDec])
     if (!Number.isFinite(r) || !Number.isFinite(d)) continue
-    if (f[iHip] === '' && f[iProper] === '' && parseFloat(f[iMag]) === 0 && r === 0) continue // ligne Soleil
+    // Premiere ligne de HYG : le Soleil, seule entree a distance nulle et sans
+    // position — ses coordonnees 0 h / 0° ne designent rien. Le garde precedent
+    // le cherchait sans nom propre et a la magnitude zero ; il s'appelle « Sol »
+    // et vaut -26,7, si bien qu'il passait, et qu'un astre de cette magnitude se
+    // plantait sur le point vernal. Le Soleil vient des ephemerides : il n'a
+    // rien a faire dans un catalogue d'etoiles fixes.
+    if (f[iId] === '0') continue
 
     const idx = ra.length
     ra.push(+(r * 15).toFixed(5))   // -> degres
@@ -109,6 +115,14 @@ async function buildStars() {
         d: [bayer, flam, f[iCon]?.trim()].filter(Boolean).join(' '),
       })
     }
+  }
+
+  // Garde-fou : Sirius, la plus brillante des fixes, est a -1,46. Au-dela de
+  // -2, c'est qu'un corps du systeme solaire s'est glisse dans le catalogue.
+  const brightest = Math.min(...mag)
+  if (brightest < -2) {
+    const i = mag.indexOf(brightest)
+    throw new Error(`magnitude ${brightest} dans stars.json : ${named.find((n) => n.i === i)?.n ?? `#${i}`}`)
   }
 
   const payload = { magLimit: MAG_LIMIT, epoch: 'J2000', count: ra.length, ra, dec, mag, ci, named }
