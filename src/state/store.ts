@@ -4,6 +4,7 @@ import type { BodyId, GeoLocation, OrbitalElements } from '@/astro/types'
 import type { TargetKind } from '@/astro/search'
 import type { CelestrakGroup } from '@/data-sources/celestrak'
 import { defaultElements } from '@/astro/kepler'
+import { DEFAULT_STATUS, type SourceStatus } from '@/data-sources/types'
 
 export type ViewTab = 'ciel' | 'objets' | 'satellites' | 'reglages'
 
@@ -153,6 +154,16 @@ interface SkyState {
    */
   aerosolTurbidity: number
   setAerosolTurbidity: (t: number) => void
+  /**
+   * Trouble asservi a une mesure reelle de qualite de l'air (AOD) plutot qu'au
+   * curseur manuel — voir `useAerosolAutoSync` dans `state/hooks.ts`. Le
+   * curseur reste utilisable des que ce mode est desactive : `aerosolTurbidity`
+   * est la meme valeur dans les deux cas, seule change la main qui l'ecrit.
+   */
+  aerosolAuto: boolean
+  setAerosolAuto: (auto: boolean) => void
+  /** Provenance de la derniere mesure d'AOD -- defaut tant qu'aucune n'a abouti. */
+  autoAerosolStatus: SourceStatus
 
   // --- Satellites ---
   satellites: OrbitalElements[]
@@ -239,6 +250,9 @@ export const useSkyStore = create<SkyState>()(
       setLightPollution: (lightPollution) => set({ lightPollution }),
       aerosolTurbidity: 1,
       setAerosolTurbidity: (aerosolTurbidity) => set({ aerosolTurbidity }),
+      aerosolAuto: false,
+      setAerosolAuto: (aerosolAuto) => set({ aerosolAuto }),
+      autoAerosolStatus: DEFAULT_STATUS,
 
       satellites: [],
       addSatellite: (el) => {
@@ -270,6 +284,7 @@ export const useSkyStore = create<SkyState>()(
         discScale: s.discScale,
         lightPollution: s.lightPollution,
         aerosolTurbidity: s.aerosolTurbidity,
+        aerosolAuto: s.aerosolAuto,
         satellites: s.satellites,
         trackWindowMinutes: s.trackWindowMinutes,
         celestrakGroup: s.celestrakGroup,

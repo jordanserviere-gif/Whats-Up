@@ -6,6 +6,7 @@ import { BODIES } from '@/astro/bodies'
 import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
 import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
 import {
+  useAerosolAutoSync,
   useAllSatellites,
   useBodyStates,
   useNearbyAircraft,
@@ -69,6 +70,7 @@ export function SkyCanvas() {
 
   const bodies = useBodyStates()
   const sky = useSkyConditions()
+  useAerosolAutoSync()
   // Miroir des ephemerides pour le navigateur automatise : il a besoin de
   // connaitre la position d'un corps pour pointer la camera dessus.
   if (import.meta.env.DEV) (window as unknown as { __bodyStates: unknown }).__bodyStates = bodies
@@ -423,6 +425,7 @@ export function SkyCanvas() {
             location={location}
             magnitudeLimit={magnitudeLimit}
             limitingMagnitude={limitingMagnitude}
+            aerosolTurbidity={aerosolTurbidity}
           />
         )}
         {layers.constellations && (

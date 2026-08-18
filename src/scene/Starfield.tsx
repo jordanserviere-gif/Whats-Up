@@ -27,11 +27,14 @@ export function Starfield({
   magnitudeLimit,
   /** Magnitude la plus faible perceptible, issue du bilan lumineux du ciel. */
   limitingMagnitude,
+  /** Trouble atmospherique -- meme reglage que le voile du ciel, voir `atmosphere.ts`. */
+  aerosolTurbidity = 1,
 }: {
   date: Date
   location: GeoLocation
   magnitudeLimit: number
   limitingMagnitude: number
+  aerosolTurbidity?: number
 }) {
   const pointsRef = useRef<Points>(null)
   const matrix = useRef(new Matrix4())
@@ -141,6 +144,10 @@ export function Starfield({
     p.matrixAutoUpdate = false
     p.matrixWorldNeedsUpdate = true
     material.uniforms.uLimitMag.value = limitingMagnitude
+    // Un ciel plus charge en aerosols eteint aussi davantage les etoiles, par
+    // le meme phenomene qui blanchit l'horizon -- meme trouble que la
+    // diffusion Mie du fond de ciel, voir `applyAerosolTurbidity`.
+    material.uniforms.uExtinctionK.value = EXTINCTION_COEFFICIENT * aerosolTurbidity
   })
 
   return <points ref={pointsRef} geometry={geometry} material={material} frustumCulled={false} renderOrder={4} />

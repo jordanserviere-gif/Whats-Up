@@ -358,7 +358,7 @@ function Body({
     const trueRadius = sceneRadiusForBody(state.radiusKm, state.distanceKm)
     s.scale.setScalar(trueRadius * discScale)
 
-    const extinction = extinctionMagnitudes(state.horizontal.altitude)
+    const extinction = extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity)
     const tint = extinctionTint(state.horizontal.altitude)
 
     if (isSun) {
@@ -491,12 +491,15 @@ function SaturnRings({
   location,
   texture,
   discScale,
+  aerosolTurbidity,
 }: {
   state: BodyState
   date: Date
   location: GeoLocation
   texture: Texture | null
   discScale: number
+  /** Charge en aerosols, identique a celle du fond de ciel. */
+  aerosolTurbidity: number
 }) {
   const mesh = useRef<Mesh>(null)
   const scratch = useRef(new Matrix4())
@@ -582,7 +585,7 @@ function SaturnRings({
 
     const tint = extinctionTint(state.horizontal.altitude)
     ;(material.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-    material.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinctionMagnitudes(state.horizontal.altitude) * 0.6)
+    material.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity) * 0.6)
     material.uniforms.uHasMap.value = texture ? 1 : 0
     material.uniforms.uMap.value = texture
   })
@@ -656,6 +659,7 @@ export function SolarSystemBodies({
           location={location}
           texture={textures.get('saturn-ring') ?? null}
           discScale={discScale}
+          aerosolTurbidity={aerosolTurbidity}
         />
       )}
     </group>

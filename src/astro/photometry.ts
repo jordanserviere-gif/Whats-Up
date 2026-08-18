@@ -183,12 +183,21 @@ export function airmass(altitudeDeg: number): number {
   return Math.min(Math.max(am, 1), AIRMASS_MAX)
 }
 
-/** Coefficient d'extinction dans le visible, en magnitudes par masse d'air. */
+/** Coefficient d'extinction dans le visible, en magnitudes par masse d'air — air standard (trouble x1). */
 export const EXTINCTION_COEFFICIENT = 0.28
 
-/** Perte de magnitude due a la traversee de l'atmosphere. */
-export const extinctionMagnitudes = (altitudeDeg: number) =>
-  EXTINCTION_COEFFICIENT * Math.min(airmass(altitudeDeg), 12)
+/**
+ * Perte de magnitude due a la traversee de l'atmosphere.
+ *
+ * `turbidity` est le meme trouble atmospherique (charge en aerosols) que celui
+ * qui pilote la diffusion de Mie du ciel -- voir `applyAerosolTurbidity` dans
+ * `scene/atmosphere.ts`. Un ciel charge en aerosols n'eclaircit pas que
+ * l'horizon : il eteint aussi davantage les etoiles et les halos qui le
+ * traversent, par le meme phenomene physique. Le defaut de 1 laisse ce calcul
+ * identique a ce qu'il etait avant l'existence du reglage.
+ */
+export const extinctionMagnitudes = (altitudeDeg: number, turbidity = 1) =>
+  EXTINCTION_COEFFICIENT * turbidity * Math.min(airmass(altitudeDeg), 12)
 
 export interface SkyLuminance {
   /** Eclairement horizontal total, en lux. */

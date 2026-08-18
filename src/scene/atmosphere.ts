@@ -237,6 +237,31 @@ export function applyAerosolTurbidity(
   uniforms.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M * Math.sqrt(t)
 }
 
+/**
+ * Epaisseur optique verticale des aerosols pour un trouble donne.
+ *
+ * `applyAerosolTurbidity` fait croitre le coefficient de Mie en `t` et sa
+ * hauteur d'echelle en `sqrt(t)` : integree sur la verticale, l'epaisseur
+ * optique qui en resulte vaut donc `MIE_COEFFICIENT * MIE_SCALE_HEIGHT_M *
+ * t^1.5`, pas simplement `t` fois la reference. C'est cette relation qu'il
+ * faut inverser pour convertir une AOD mesuree en trouble du modele — voir
+ * `turbidityFromAerosolOpticalDepth`.
+ */
+const REFERENCE_AEROSOL_OPTICAL_DEPTH = MIE_COEFFICIENT * MIE_SCALE_HEIGHT_M
+
+/**
+ * Trouble atmospherique correspondant a une epaisseur optique des aerosols
+ * mesuree (AOD, sans unite — une colonne d'air standard vaut environ 0,03).
+ *
+ * C'est le pont entre une vraie mesure de qualite de l'air — voir
+ * `data-sources/airQuality.ts` — et le reglage manuel : les deux pilotent
+ * exactement la meme paire d'uniforms, par `applyAerosolTurbidity`.
+ */
+export function turbidityFromAerosolOpticalDepth(aod: number): number {
+  const ratio = Math.max(0.05, aod) / REFERENCE_AEROSOL_OPTICAL_DEPTH
+  return Math.min(6, Math.max(0.5, Math.pow(ratio, 2 / 3)))
+}
+
 export const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `
   uniform vec3 uSunDir;
   uniform float uSunIntensity;

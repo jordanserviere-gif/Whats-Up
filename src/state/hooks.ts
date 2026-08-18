@@ -13,6 +13,8 @@ import {
   computeSkyConditions,
 } from '@/astro/bodies'
 import { lightPollutionLux } from '@/astro/photometry'
+import { fetchAerosolOpticalDepth } from '@/data-sources/airQuality'
+import { turbidityFromAerosolOpticalDepth } from '@/scene/atmosphere'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
 import { computeAircraftState, forgetAircraftTracks, type AircraftState } from '@/astro/aircraft'
 import { ensureAircraftPolling, getAircraftFeedSnapshot, stopAircraftPolling, subscribeAircraftFeed } from './aircraftFeed'
@@ -79,6 +81,54 @@ export function useSkyConditions() {
     () => computeSkyConditions(date, location, lightPollutionLux(lightPollution)),
     [date, location, lightPollution],
   )
+}
+
+/** Intervalle entre deux mesures d'AOD tant que le mode automatique est actif. */
+const AEROSOL_REFRESH_MS = 30 * 60_000
+
+/**
+ * Asservit `aerosolTurbidity` a une mesure reelle de qualite de l'air quand le
+ * mode automatique est actif — voir `data-sources/airQuality.ts`.
+ *
+ * Une seule instance doit tourner : c'est `SkyCanvas` qui l'appelle, au meme
+ * titre que les autres sources externes de la scene. Elle ne fait rien tant
+ * que `aerosolAuto` est faux — le curseur manuel garde alors la main, sans
+ * aucun appel reseau.
+ */
+export function useAerosolAutoSync() {
+  const auto = useSkyStore((s) => s.aerosolAuto)
+  const location = useSkyStore((s) => s.location)
+  // Arrondi : un tremblement de quelques metres dans la position geolocalisee
+  // ne doit pas relancer la mesure.
+  const lat = Math.round(location.latitude * 10) / 10
+  const lon = Math.round(location.longitude * 10) / 10
+
+  useEffect(() => {
+    if (!auto) return
+
+    let cancelled = false
+    const refresh = async () => {
+      const result = await fetchAerosolOpticalDepth(lat, lon)
+      if (cancelled) return
+      if (result) {
+        useSkyStore.setState({
+          aerosolTurbidity: turbidityFromAerosolOpticalDepth(result.value),
+          autoAerosolStatus: result.status,
+        })
+      } else {
+        useSkyStore.setState((s) => ({
+          autoAerosolStatus: { ...s.autoAerosolStatus, note: 'mesure indisponible, reglage manuel conserve' },
+        }))
+      }
+    }
+
+    refresh()
+    const interval = setInterval(refresh, AEROSOL_REFRESH_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [auto, lat, lon])
 }
 
 /** Donnees lunaires : recalculees a la minute, la phase evolue lentement. */

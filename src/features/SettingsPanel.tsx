@@ -15,6 +15,7 @@ import {
 import { PRESET_LOCATIONS, useSkyStore, type LayerVisibility } from '@/state/store'
 import { useSkyConditions } from '@/state/hooks'
 import { bortleLabel, bortleSkyBrightness } from '@/astro/photometry'
+import { formatAge } from '@/data-sources/types'
 import { DEEP_SKY_COUNT } from '@/astro/deepsky'
 import './SettingsPanel.css'
 import { STAR_COUNT, STAR_MAG_LIMIT } from '@/astro/catalog'
@@ -50,6 +51,9 @@ export function SettingsPanel() {
   const setLightPollution = useSkyStore((s) => s.setLightPollution)
   const aerosolTurbidity = useSkyStore((s) => s.aerosolTurbidity)
   const setAerosolTurbidity = useSkyStore((s) => s.setAerosolTurbidity)
+  const aerosolAuto = useSkyStore((s) => s.aerosolAuto)
+  const setAerosolAuto = useSkyStore((s) => s.setAerosolAuto)
+  const autoAerosolStatus = useSkyStore((s) => s.autoAerosolStatus)
   const sky = useSkyConditions()
   const { mode, setMode, contrast, setContrast } = useTheme()
   const { show } = useSnackbar()
@@ -213,6 +217,13 @@ export function SettingsPanel() {
 
         <Divider />
 
+        <Switch
+          label="Trouble automatique"
+          supportingText="Mesuré depuis la qualité de l’air au lieu d’observation (Open-Meteo)"
+          checked={aerosolAuto}
+          onChange={setAerosolAuto}
+        />
+
         <Slider
           label="Trouble atmosphérique"
           min={0.5}
@@ -220,15 +231,27 @@ export function SettingsPanel() {
           step={0.1}
           value={aerosolTurbidity}
           showValue
+          disabled={aerosolAuto}
           format={(v) => `× ${v.toFixed(1).replace('.', ',')}`}
           onChange={setAerosolTurbidity}
         />
+        {aerosolAuto && (
+          <DataRow
+            icon="cloud_download"
+            label="Source"
+            value={autoAerosolStatus.origin}
+            unit={autoAerosolStatus.ageMs !== null ? formatAge(autoAerosolStatus.ageMs) : undefined}
+            hint={autoAerosolStatus.note ?? 'Épaisseur optique des aérosols (AOD), rafraîchie toutes les trente minutes.'}
+          />
+        )}
         <p className="md-type-body-small">
           Charge en aérosols — poussière, humidité, particules fines — qui pilote la diffusion de Mie.
           À ×1, le modèle décrit un air très pur (épaisseur optique 0,025) : l’horizon reste net et les
-          astres bas peu affaiblis. En montant, la brume blanchit l’horizon, resserre le halo solaire
-          et éteint ce qui est rasant. Le réglage s’applique partout à la fois — fond de ciel, disques
-          planétaires, silhouettes d’avions.
+          astres bas peu affaiblis. En montant, la brume blanchit l’horizon, resserre le halo solaire,
+          éteint les étoiles et les anneaux de Saturne rasants. Le réglage s’applique partout à la fois —
+          fond de ciel, disques planétaires, étoiles, silhouettes d’avions. En mode automatique, il suit
+          l’épaisseur optique des aérosols mesurée pour le lieu d’observation ; le curseur redevient
+          manuel dès qu’il est désactivé.
         </p>
       </Section>
 
