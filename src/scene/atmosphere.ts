@@ -238,27 +238,48 @@ export function applyAerosolTurbidity(
 }
 
 /**
- * Epaisseur optique verticale des aerosols pour un trouble donne.
+ * Epaisseur optique des aerosols qu'un trouble de 1 represente, mesuree dans
+ * le monde reel — et non calculee depuis les constantes du modele.
  *
- * `applyAerosolTurbidity` fait croitre le coefficient de Mie en `t` et sa
- * hauteur d'echelle en `sqrt(t)` : integree sur la verticale, l'epaisseur
- * optique qui en resulte vaut donc `MIE_COEFFICIENT * MIE_SCALE_HEIGHT_M *
- * t^1.5`, pas simplement `t` fois la reference. C'est cette relation qu'il
- * faut inverser pour convertir une AOD mesuree en trouble du modele — voir
- * `turbidityFromAerosolOpticalDepth`.
+ * La distinction est le point qui manquait. L'epaisseur optique interne du
+ * modele a trouble 1 vaut `MIE_COEFFICIENT * MIE_SCALE_HEIGHT_M`, soit 0,025 :
+ * c'est une constante artistique heritee de `glsl-atmosphere`, calee pour que
+ * le ciel soit beau, pas pour egaler une grandeur radiometrique. La prendre
+ * pour une AOD mesurable decalait toute l'echelle d'un facteur 1,6 — Paris,
+ * a 0,14 d'AOD, ressortait a 3,1 alors que Pekin sature a 6.
+ *
+ * 0,05 est l'AOD que rendent effectivement les sites reputes les plus purs
+ * (Cerro Paranal, Atlantique central) dans les reanalyses CAMS que sert
+ * l'API. C'est donc cette valeur, et non celle du modele, qui doit
+ * correspondre au « ciel tres pur » du reglage.
  */
-const REFERENCE_AEROSOL_OPTICAL_DEPTH = MIE_COEFFICIENT * MIE_SCALE_HEIGHT_M
+const PRISTINE_AEROSOL_OPTICAL_DEPTH = 0.05
 
 /**
  * Trouble atmospherique correspondant a une epaisseur optique des aerosols
- * mesuree (AOD, sans unite — une colonne d'air standard vaut environ 0,03).
+ * mesuree (AOD a 550 nm, sans unite).
  *
  * C'est le pont entre une vraie mesure de qualite de l'air — voir
  * `data-sources/airQuality.ts` — et le reglage manuel : les deux pilotent
  * exactement la meme paire d'uniforms, par `applyAerosolTurbidity`.
+ *
+ * L'exposant 2/3 n'est pas un ajustement : `applyAerosolTurbidity` fait
+ * croitre le coefficient de Mie en `t` et sa hauteur d'echelle en `sqrt(t)`,
+ * donc l'epaisseur optique verticale qui en resulte croit en `t^1.5`.
+ * Convertir une AOD en trouble, c'est inverser exactement cette relation.
+ *
+ * L'echelle qui en sort, sur des mesures reelles :
+ *
+ * | site                | AOD  | trouble |
+ * |---------------------|------|---------|
+ * | Cerro Paranal       | 0,05 |     1,0 |
+ * | Atlantique central  | 0,08 |     1,4 |
+ * | Pic du Midi, Paris  | 0,12 |     1,8 |
+ * | Sahara (poussiere)  | 0,22 |     2,7 |
+ * | Pekin (pic de smog) | 0,86 |     6,0 |
  */
 export function turbidityFromAerosolOpticalDepth(aod: number): number {
-  const ratio = Math.max(0.05, aod) / REFERENCE_AEROSOL_OPTICAL_DEPTH
+  const ratio = Math.max(0.01, aod) / PRISTINE_AEROSOL_OPTICAL_DEPTH
   return Math.min(6, Math.max(0.5, Math.pow(ratio, 2 / 3)))
 }
 
