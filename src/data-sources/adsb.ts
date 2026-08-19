@@ -41,12 +41,21 @@ interface RawAircraft {
   alt_baro?: number | 'ground'
   alt_geom?: number
   gs?: number
+  ias?: number
+  tas?: number
+  mach?: number
+  /** Direction et vitesse du vent, deduites de l'ecart tas/gs. */
+  wd?: number
+  ws?: number
+  /** Temperature exterieure, degres Celsius. */
+  oat?: number
   track?: number
   true_heading?: number
   mag_heading?: number
   baro_rate?: number
   geom_rate?: number
   squawk?: string
+  emergency?: string
   lat?: number
   lon?: number
   dst?: number
@@ -61,15 +70,32 @@ export interface AdsbAircraft {
   registration: string | null
   typeCode: string | null
   description: string | null
+  /** Code de categorie ADS-B (« A3 » = avion moyen-courrier...), brut. */
   category: string | null
   /** Altitude barometrique, en pieds. `null` si l'avion est au sol. */
   altitudeFt: number | null
+  /**
+   * Altitude GPS/GNSS, en pieds. Distincte de `altitudeFt` (barometrique,
+   * calee sur la pression standard) : les deux divergent de plusieurs
+   * centaines de pieds hors de l'atmosphere standard.
+   */
+  altitudeGeomFt: number | null
   onGround: boolean
   groundSpeedKt: number | null
+  /** Vitesse indiquee (IAS) et vraie (TAS), en noeuds ; nombre de Mach. */
+  indicatedSpeedKt: number | null
+  trueSpeedKt: number | null
+  mach: number | null
+  /** Vent estime par ecart entre vitesse sol et vitesse vraie. */
+  windDirDeg: number | null
+  windSpeedKt: number | null
+  outsideAirTempC: number | null
   /** Route au sol, en degres vrais — c'est elle qui oriente le maillage. */
   trackDeg: number | null
   verticalRateFtMin: number | null
   squawk: string | null
+  /** « none » la plupart du temps ; toute autre valeur signale une urgence. */
+  emergency: string | null
   latitude: number
   longitude: number
   /**
@@ -115,11 +141,19 @@ function normalize(raw: RawAircraft, serverNowMs: number, receivedAtMs: number):
     description: raw.desc ?? null,
     category: raw.category ?? null,
     altitudeFt: onGround ? null : typeof raw.alt_baro === 'number' ? raw.alt_baro : (raw.alt_geom ?? null),
+    altitudeGeomFt: raw.alt_geom ?? null,
     onGround,
     groundSpeedKt: raw.gs ?? null,
+    indicatedSpeedKt: raw.ias ?? null,
+    trueSpeedKt: raw.tas ?? null,
+    mach: raw.mach ?? null,
+    windDirDeg: raw.wd ?? null,
+    windSpeedKt: raw.ws ?? null,
+    outsideAirTempC: raw.oat ?? null,
     trackDeg: raw.track ?? raw.true_heading ?? raw.mag_heading ?? null,
     verticalRateFtMin: raw.baro_rate ?? raw.geom_rate ?? null,
     squawk: raw.squawk ?? null,
+    emergency: raw.emergency ?? null,
     latitude: raw.lat,
     longitude: raw.lon,
     measuredAtMs: measurementTime(raw, serverNowMs, receivedAtMs),

@@ -129,10 +129,12 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
 
   let magnitude = -26.74
   let illumination = 1
+  let ringTiltDeg: number | null = null
   if (def.id !== 'sun') {
     const illum = A.Illumination(def.body, date)
     magnitude = illum.mag
     illumination = illum.phase_fraction
+    if (illum.ring_tilt !== undefined) ringTiltDeg = illum.ring_tilt
   }
 
   const distanceAu = eqOfDate.dist
@@ -165,8 +167,50 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
     illumination,
     elongation,
     brightLimbAngle: def.id === 'sun' ? 0 : brightLimbAngle(equatorial, sunEquatorial, location, date),
+    ringTiltDeg,
     visible: hor.altitude > 0,
   }
+}
+
+/**
+ * Corps dont l'opposition (superieur) ou la conjonction inferieure (inferieur)
+ * a un sens : ni le Soleil, qui n'orbite personne depuis la Terre, ni la Lune,
+ * dont le cycle correspondant est deja la phase.
+ */
+const RELATIVE_LONGITUDE_BODIES = new Set<BodyId>([
+  'mercury',
+  'venus',
+  'mars',
+  'jupiter',
+  'saturn',
+  'uranus',
+  'neptune',
+  'pluto',
+])
+
+const INFERIOR_BODIES = new Set<BodyId>(['mercury', 'venus'])
+
+export interface RelativeLongitudeEvent {
+  date: Date
+  /** Superieur : le corps se leve au coucher du Soleil, visible toute la nuit.
+   *  Inferieur : le corps passe entre la Terre et le Soleil, invisible. */
+  kind: 'opposition' | 'conjonction inférieure'
+}
+
+/**
+ * Prochaine opposition (planete superieure) ou conjonction inferieure (Mercure,
+ * Venus) suivant la date donnee. `null` pour le Soleil et la Lune.
+ *
+ * Un seul appel a `SearchRelativeLongitude(body, 0, date)` couvre les deux cas :
+ * c'est la definition meme de l'angle relatif nul, cote oppose du Soleil pour
+ * une superieure, meme cote pour une inferieure.
+ */
+export function nextRelativeLongitudeEvent(id: BodyId, date: Date): RelativeLongitudeEvent | null {
+  if (!RELATIVE_LONGITUDE_BODIES.has(id)) return null
+  const def = BODY_BY_ID.get(id)
+  if (!def) return null
+  const found = A.SearchRelativeLongitude(def.body, 0, date)
+  return { date: found.date, kind: INFERIOR_BODIES.has(id) ? 'conjonction inférieure' : 'opposition' }
 }
 
 /** Etats de tous les corps demandes. */

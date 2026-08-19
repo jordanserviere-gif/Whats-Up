@@ -333,6 +333,13 @@ function CatalogElements({ element }: { element: OrbitalElements }) {
   return (
     <Section title="Éléments du catalogue" icon="inventory_2" defaultOpen={false} summary="lecture seule">
       <DataRow label="Identifiant NORAD" value={element.noradId !== undefined ? `${element.noradId}` : '—'} />
+      {element.gp?.OBJECT_ID && (
+        <DataRow
+          label="Désignation internationale"
+          value={element.gp.OBJECT_ID}
+          hint={`lancé en ${element.gp.OBJECT_ID.slice(0, 4)} — code COSPAR : année, numéro de lancement, pièce`}
+        />
+      )}
       <DataRow
         label="Époque des éléments"
         value={new Date(element.epoch).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}

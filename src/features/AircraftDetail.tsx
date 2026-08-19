@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, CardBody, CardHeader, DataGrid, DataRow, Divider, StatTile } from '@/ui'
+import { Badge, Button, Card, CardBody, CardHeader, DataGrid, DataRow, Divider, SegmentedButton, StatTile } from '@/ui'
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { useSkyStore } from '@/state/store'
 import { useNearbyAircraft } from '@/state/hooks'
@@ -8,6 +8,30 @@ import './AircraftDetail.css'
 
 /** Nombre a la francaise : virgule decimale. */
 const fr = (v: number, digits = 0) => v.toFixed(digits).replace('.', ',')
+
+/**
+ * Categorie d'emetteur ADS-B (DO-260B table 2-16) : deux caracteres, un jeu
+ * (A/B/C) et un rang. Seuls les codes reellement vus dans le flux ont une
+ * traduction ; un code absent de la table s'affiche tel quel.
+ */
+const CATEGORY_LABELS: Record<string, string> = {
+  A1: 'avion léger',
+  A2: 'avion petit-porteur',
+  A3: 'avion moyen-courrier',
+  A4: 'avion moyen-courrier, forte turbulence de sillage',
+  A5: 'avion gros-porteur',
+  A6: 'avion à hautes performances',
+  A7: 'hélicoptère',
+  B1: 'planeur',
+  B2: 'plus léger que l’air',
+  B3: 'parachutiste',
+  B4: 'ULM',
+  B6: 'drone',
+  B7: 'véhicule spatial',
+  C1: 'véhicule d’urgence',
+  C2: 'véhicule de piste',
+  C3: 'obstacle fixe',
+}
 
 interface AdsbdbInfo {
   registration: string | null
@@ -75,6 +99,7 @@ export function AircraftDetail() {
   const { aircraft, live } = useNearbyAircraft()
   const [meta, setMeta] = useState<AdsbdbInfo | null>(null)
   const [metaLoading, setMetaLoading] = useState(false)
+  const [page, setPage] = useState<'essentiel' | 'details'>('essentiel')
 
   const state = aircraft.find((a) => a.hex === hex) ?? null
 
@@ -134,12 +159,31 @@ export function AircraftDetail() {
   // chose, et la fiche gagne une ligne de tableau.
   const overline = [meta?.manufacturer, meta?.type ?? state.typeCode].filter(Boolean).join(' · ') || 'Avion'
 
+  const category = state.category ? (CATEGORY_LABELS[state.category] ?? state.category) : null
+  const emergency = state.emergency && state.emergency !== 'none' ? state.emergency : null
+  const hasDetails =
+    category !== null ||
+    state.altitudeGeomFt !== null ||
+    state.indicatedSpeedKt !== null ||
+    state.trueSpeedKt !== null ||
+    state.mach !== null ||
+    state.windSpeedKt !== null ||
+    state.outsideAirTempC !== null ||
+    emergency !== null
+
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
         overline={overline}
         title={title}
         subtitle={meta?.owner ?? (state.registration ? `immatriculation ${state.registration}` : `code ${state.hex}`)}
+        trailing={
+          emergency ? (
+            <Badge tone="error" icon="warning">
+              urgence
+            </Badge>
+          ) : undefined
+        }
       />
       <CardBody>
         {meta?.photoUrl && (
@@ -155,55 +199,102 @@ export function AircraftDetail() {
         )}
         {metaLoading && <p className="md-type-body-small aircraft-detail__note">Recherche des informations de l’appareil…</p>}
 
-        <DataGrid columns={2}>
-          <StatTile
-            label="Hauteur"
-            value={formatDeg(state.horizontal.altitude, 1)}
-            tone={above ? 'primary' : 'neutral'}
-            icon="height"
+        {hasDetails && (
+          <SegmentedButton
+            ariaLabel="Page de la fiche"
+            size="s"
+            fullWidth
+            segments={[
+              { value: 'essentiel', label: 'Essentiel', icon: 'info' },
+              { value: 'details', label: 'Détails', icon: 'auto_awesome' },
+            ]}
+            value={page}
+            onChange={(v) => setPage(v as typeof page)}
           />
-          <StatTile
-            label="Azimut"
-            value={`${fr(state.horizontal.azimuth)}°`}
-            unit={azimuthToCardinal(state.horizontal.azimuth)}
-            icon="explore"
-          />
-          <StatTile
-            label="Vitesse"
-            value={state.groundSpeedKt !== null ? fr(state.groundSpeedKt) : '—'}
-            unit="nd"
-            icon="speed"
-          />
-          <StatTile label="Distance" value={fr(state.rangeKm)} unit="km" icon="straighten" />
-        </DataGrid>
+        )}
 
-        {/* Ni indicatif ni constructeur ici : le premier est le titre de la
-            fiche, le second son surtitre. Le reste tient sur deux colonnes —
-            ce sont des valeurs courtes, une pleine largeur chacune gaspillait
-            la moitie de la ligne. */}
-        <Divider />
-        {/* En pleine ligne comme le reste, pas dans une pastille de l'en-tete :
-            l'altitude n'a rien de plus important que la route ou le vario. */}
-        <DataGrid columns={2}>
-          <DataRow label="Altitude" value={altitudeFt !== null ? altitudeFt.toLocaleString('fr-FR') : '—'} unit="ft" />
-          <DataRow label="Immat." value={meta?.registration ?? state.registration ?? '—'} />
-          <DataRow label="Route" value={state.trackDeg !== null ? `${Math.round(state.trackDeg)}°` : '—'} />
-          <DataRow
-            label="Vario"
-            value={state.verticalRateFtMin !== null ? `${state.verticalRateFtMin > 0 ? '+' : ''}${state.verticalRateFtMin}` : '—'}
-            unit="ft/min"
-          />
-          {state.squawk && <DataRow label="Squawk" value={state.squawk} />}
-        </DataGrid>
+        {hasDetails && page === 'details' ? (
+          <>
+            {category && <DataRow icon="category" label="Catégorie" value={category} />}
+            {emergency && <DataRow icon="warning" label="Urgence déclarée" value={emergency} />}
+            <DataGrid columns={2}>
+              {state.altitudeGeomFt !== null && (
+                <DataRow
+                  label="Altitude GPS"
+                  value={Math.round(state.altitudeGeomFt).toLocaleString('fr-FR')}
+                  unit="ft"
+                  hint="mesure satellite, distincte de l’altitude barométrique"
+                />
+              )}
+              {state.indicatedSpeedKt !== null && <DataRow label="Vitesse indiquée" value={fr(state.indicatedSpeedKt)} unit="nd" />}
+              {state.trueSpeedKt !== null && <DataRow label="Vitesse vraie" value={fr(state.trueSpeedKt)} unit="nd" />}
+              {state.mach !== null && <DataRow label="Mach" value={state.mach.toFixed(2).replace('.', ',')} />}
+              {state.windSpeedKt !== null && (
+                <DataRow
+                  label="Vent estimé"
+                  value={fr(state.windSpeedKt)}
+                  unit="nd"
+                  hint={state.windDirDeg !== null ? `venant du ${Math.round(state.windDirDeg)}° — déduit de l’écart vitesse vraie / vitesse sol` : undefined}
+                />
+              )}
+              {state.outsideAirTempC !== null && (
+                <DataRow label="Température extérieure" value={`${state.outsideAirTempC > 0 ? '+' : ''}${fr(state.outsideAirTempC)}`} unit="°C" />
+              )}
+            </DataGrid>
+          </>
+        ) : (
+          <>
+            <DataGrid columns={2}>
+              <StatTile
+                label="Hauteur"
+                value={formatDeg(state.horizontal.altitude, 1)}
+                tone={above ? 'primary' : 'neutral'}
+                icon="height"
+              />
+              <StatTile
+                label="Azimut"
+                value={`${fr(state.horizontal.azimuth)}°`}
+                unit={azimuthToCardinal(state.horizontal.azimuth)}
+                icon="explore"
+              />
+              <StatTile
+                label="Vitesse"
+                value={state.groundSpeedKt !== null ? fr(state.groundSpeedKt) : '—'}
+                unit="nd"
+                icon="speed"
+              />
+              <StatTile label="Distance" value={fr(state.rangeKm)} unit="km" icon="straighten" />
+            </DataGrid>
 
-        <Divider />
-        <DataRow
-          icon="timeline"
-          label="Trace suivie"
-          value={history.length > 1 ? `${history.length} points` : 'pas encore assez de points'}
-          unit={history.length > 1 ? (trackedSinceMin < 1 ? 'depuis moins d’une minute' : `depuis ${Math.round(trackedSinceMin)} min`) : undefined}
-          hint="Aucune API gratuite ne fournit d’historique de vol : la trace commence à la première observation."
-        />
+            {/* Ni indicatif ni constructeur ici : le premier est le titre de la
+                fiche, le second son surtitre. Le reste tient sur deux colonnes —
+                ce sont des valeurs courtes, une pleine largeur chacune gaspillait
+                la moitie de la ligne. */}
+            <Divider />
+            {/* En pleine ligne comme le reste, pas dans une pastille de l'en-tete :
+                l'altitude n'a rien de plus important que la route ou le vario. */}
+            <DataGrid columns={2}>
+              <DataRow label="Altitude" value={altitudeFt !== null ? altitudeFt.toLocaleString('fr-FR') : '—'} unit="ft" />
+              <DataRow label="Immat." value={meta?.registration ?? state.registration ?? '—'} />
+              <DataRow label="Route" value={state.trackDeg !== null ? `${Math.round(state.trackDeg)}°` : '—'} />
+              <DataRow
+                label="Vario"
+                value={state.verticalRateFtMin !== null ? `${state.verticalRateFtMin > 0 ? '+' : ''}${state.verticalRateFtMin}` : '—'}
+                unit="ft/min"
+              />
+              {state.squawk && <DataRow label="Squawk" value={state.squawk} />}
+            </DataGrid>
+
+            <Divider />
+            <DataRow
+              icon="timeline"
+              label="Trace suivie"
+              value={history.length > 1 ? `${history.length} points` : 'pas encore assez de points'}
+              unit={history.length > 1 ? (trackedSinceMin < 1 ? 'depuis moins d’une minute' : `depuis ${Math.round(trackedSinceMin)} min`) : undefined}
+              hint="Aucune API gratuite ne fournit d’historique de vol : la trace commence à la première observation."
+            />
+          </>
+        )}
 
         <Button
           variant="tonal"

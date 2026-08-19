@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { Badge, Button, Card, CardBody, CardHeader, DataGrid, DataRow, Divider, StatTile } from '@/ui'
+import { useMemo, useState } from 'react'
+import { Badge, Button, Card, CardBody, CardHeader, DataGrid, DataRow, Divider, SegmentedButton, StatTile } from '@/ui'
 import { NAMED_STARS } from '@/astro/catalog'
 import { CONSTELLATIONS } from '@/astro/catalog'
 import { DEEP_SKY_INDEX } from '@/astro/deepsky'
@@ -41,6 +41,7 @@ export function FixedObjectDetails({
   const sky = useSkyConditions()
 
   const entry = useMemo(() => resolveFixedObject(kind, id), [kind, id])
+  const [page, setPage] = useState<'essentiel' | 'details'>('essentiel')
 
   // Le lever et le coucher ne se recalculent qu'a l'heure : ils ne bougent pas
   // a l'echelle d'une image, et la recherche d'evenement coute cher.
@@ -59,6 +60,8 @@ export function FixedObjectDetails({
   const ofDate = precessFromJ2000(entry.equatorialJ2000, date)
   const horizontal = equatorialToHorizontal(ofDate, location, date)
   const above = horizontal.altitude > 0
+  const hasDetails = entry.detailRows.length > 0
+  const showDetails = hasDetails && page === 'details'
 
   return (
     <Card variant="filled" shape="extra-large">
@@ -73,61 +76,83 @@ export function FixedObjectDetails({
         }
       />
       <CardBody>
-        <DataGrid columns={2}>
-          <StatTile
-            label="Hauteur"
-            value={formatDeg(horizontal.altitude, 1)}
-            tone={above ? 'primary' : 'neutral'}
-            icon="height"
-          />
-          <StatTile
-            label="Azimut"
-            value={`${fr(horizontal.azimuth)}°`}
-            unit={azimuthToCardinal(horizontal.azimuth)}
-            icon="explore"
-          />
-        </DataGrid>
-
-        <Divider />
-
-        <DataRow label="Ascension droite" value={formatRa(ofDate.ra)} hint="équinoxe de la date" />
-        <DataRow label="Déclinaison" value={formatDms(ofDate.dec)} hint="équinoxe de la date" />
-        {entry.absoluteMagnitude !== null && (
-          <DataRow
-            label="Magnitude absolue"
-            value={fr(entry.absoluteMagnitude)}
-            hint="éclat à 10 parsecs — ce que l’étoile montrerait vue de là"
+        {hasDetails && (
+          <SegmentedButton
+            ariaLabel="Page de la fiche"
+            size="s"
+            fullWidth
+            segments={[
+              { value: 'essentiel', label: 'Essentiel', icon: 'info' },
+              { value: 'details', label: 'Détails', icon: 'auto_awesome' },
+            ]}
+            value={page}
+            onChange={(v) => setPage(v as typeof page)}
           />
         )}
-        {entry.rows.map((r) => (
-          <DataRow key={r.label} label={r.label} value={r.value} unit={r.unit} hint={r.hint} />
-        ))}
 
-        {entry.surfaceBrightness !== null && (
-          <VisibilityNote objectSb={entry.surfaceBrightness} illuminance={sky.illuminance} />
-        )}
-
-        {riseSet && (
+        {showDetails ? (
+          entry.detailRows.map((r) => (
+            <DataRow key={r.label} label={r.label} value={r.value} unit={r.unit} hint={r.hint} />
+          ))
+        ) : (
           <>
+            <DataGrid columns={2}>
+              <StatTile
+                label="Hauteur"
+                value={formatDeg(horizontal.altitude, 1)}
+                tone={above ? 'primary' : 'neutral'}
+                icon="height"
+              />
+              <StatTile
+                label="Azimut"
+                value={`${fr(horizontal.azimuth)}°`}
+                unit={azimuthToCardinal(horizontal.azimuth)}
+                icon="explore"
+              />
+            </DataGrid>
+
             <Divider />
-            <DataRow icon="wb_twilight" label="Lever" value={riseSet.rise ? formatTime(riseSet.rise) : '—'} />
-            <DataRow
-              icon="vertical_align_top"
-              label="Culmination"
-              value={riseSet.transit ? formatTime(riseSet.transit) : '—'}
-              unit={riseSet.transitAltitude !== null ? formatDeg(riseSet.transitAltitude, 0) : undefined}
-              emphasis
-            />
-            <DataRow icon="nights_stay" label="Coucher" value={riseSet.set ? formatTime(riseSet.set) : '—'} />
-            {riseSet.circumpolar && (
-              <Badge tone="secondary" icon="all_inclusive">
-                circumpolaire
-              </Badge>
+
+            <DataRow label="Ascension droite" value={formatRa(ofDate.ra)} hint="équinoxe de la date" />
+            <DataRow label="Déclinaison" value={formatDms(ofDate.dec)} hint="équinoxe de la date" />
+            {entry.absoluteMagnitude !== null && (
+              <DataRow
+                label="Magnitude absolue"
+                value={fr(entry.absoluteMagnitude)}
+                hint="éclat à 10 parsecs — ce que l’étoile montrerait vue de là"
+              />
             )}
-            {riseSet.alwaysBelow && (
-              <Badge tone="neutral" icon="visibility_off">
-                jamais levé
-              </Badge>
+            {entry.rows.map((r) => (
+              <DataRow key={r.label} label={r.label} value={r.value} unit={r.unit} hint={r.hint} />
+            ))}
+
+            {entry.surfaceBrightness !== null && (
+              <VisibilityNote objectSb={entry.surfaceBrightness} illuminance={sky.illuminance} />
+            )}
+
+            {riseSet && (
+              <>
+                <Divider />
+                <DataRow icon="wb_twilight" label="Lever" value={riseSet.rise ? formatTime(riseSet.rise) : '—'} />
+                <DataRow
+                  icon="vertical_align_top"
+                  label="Culmination"
+                  value={riseSet.transit ? formatTime(riseSet.transit) : '—'}
+                  unit={riseSet.transitAltitude !== null ? formatDeg(riseSet.transitAltitude, 0) : undefined}
+                  emphasis
+                />
+                <DataRow icon="nights_stay" label="Coucher" value={riseSet.set ? formatTime(riseSet.set) : '—'} />
+                {riseSet.circumpolar && (
+                  <Badge tone="secondary" icon="all_inclusive">
+                    circumpolaire
+                  </Badge>
+                )}
+                {riseSet.alwaysBelow && (
+                  <Badge tone="neutral" icon="visibility_off">
+                    jamais levé
+                  </Badge>
+                )}
+              </>
             )}
           </>
         )}
@@ -189,6 +214,8 @@ interface FixedObjectEntry {
   /** Brillance de surface, pour les objets etendus. */
   surfaceBrightness: number | null
   rows: Array<{ label: string; value: string; unit?: string; hint?: string }>
+  /** Page « Détails » — vide, la page ne s'affiche pas. */
+  detailRows: Array<{ label: string; value: string; unit?: string; hint?: string }>
 }
 
 function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: string): FixedObjectEntry | null {
@@ -196,6 +223,56 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
     const index = Number(id.replace('star-', ''))
     const star = NAMED_STARS.find((s) => s.index === index)
     if (!star) return null
+    const detailRows: FixedObjectEntry['detailRows'] = []
+    if (star.spectralType) detailRows.push({ label: 'Type spectral', value: star.spectralType })
+    if (star.distanceParsecs !== null) {
+      detailRows.push({
+        label: 'Distance',
+        value: fr(star.distanceParsecs, 1),
+        unit: 'pc',
+        hint: `${fr(star.distanceParsecs * 3.2616, 1)} années-lumière`,
+      })
+    }
+    if (star.luminositySolar !== null) {
+      detailRows.push({
+        label: 'Luminosité',
+        value: star.luminositySolar >= 100 ? Math.round(star.luminositySolar).toLocaleString('fr-FR') : fr(star.luminositySolar, 2),
+        unit: '× le Soleil',
+      })
+    }
+    if (star.properMotion !== null) {
+      detailRows.push({
+        label: 'Mouvement propre',
+        value: fr(star.properMotion, 1),
+        unit: 'mas/an',
+        hint: 'déplacement apparent sur le fond du ciel, hors parallaxe',
+      })
+    }
+    if (star.radialVelocityKmS !== null) {
+      detailRows.push({
+        label: 'Vitesse radiale',
+        value: `${star.radialVelocityKmS > 0 ? '+' : ''}${fr(star.radialVelocityKmS, 1)}`,
+        unit: 'km/s',
+        hint: star.radialVelocityKmS > 0 ? 's’éloigne du Système solaire' : 'se rapproche du Système solaire',
+      })
+    }
+    if (star.variable) {
+      detailRows.push({
+        label: 'Étoile variable',
+        value: star.variable.designation,
+        hint:
+          star.variable.minMagnitude !== null && star.variable.maxMagnitude !== null
+            ? `varie entre mag ${fr(star.variable.minMagnitude)} et ${fr(star.variable.maxMagnitude)}`
+            : undefined,
+      })
+    }
+    if (star.multipleSystem) {
+      detailRows.push({
+        label: 'Système multiple',
+        value: star.multipleSystem,
+        hint: 'cette étoile est une composante résolue de ce système',
+      })
+    }
     return {
       overline: 'Étoile',
       title: star.name,
@@ -204,6 +281,7 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       equatorialJ2000: { ra: star.ra, dec: star.dec },
       surfaceBrightness: null,
       rows: [{ label: 'Désignation', value: star.designation }],
+      detailRows,
     }
   }
 
@@ -231,6 +309,36 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
     if (o.surfaceBrightness !== null) {
       rows.push({ label: 'Brillance de surface', value: fr(o.surfaceBrightness), unit: 'mag/arcsec²' })
     }
+
+    const detailRows: FixedObjectEntry['detailRows'] = []
+    if (o.blueMagnitude !== null) detailRows.push({ label: 'Magnitude B', value: fr(o.blueMagnitude) })
+    if (o.infrared) {
+      const band = (v: number | null) => (v !== null ? fr(v) : '—')
+      detailRows.push({
+        label: 'Infrarouge J / H / K',
+        value: `${band(o.infrared.j)} / ${band(o.infrared.h)} / ${band(o.infrared.k)}`,
+        hint: 'relevé 2MASS',
+      })
+    }
+    if (o.hubbleType) detailRows.push({ label: 'Type de Hubble', value: o.hubbleType, hint: 'classification morphologique des galaxies' })
+    if (o.radialVelocityKmS !== null) {
+      detailRows.push({
+        label: 'Vitesse radiale',
+        value: `${o.radialVelocityKmS > 0 ? '+' : ''}${o.radialVelocityKmS.toLocaleString('fr-FR')}`,
+        unit: 'km/s',
+      })
+    }
+    if (o.redshift !== null) {
+      detailRows.push({
+        label: 'Décalage spectral',
+        value: fr(o.redshift, 4),
+        hint: 'z — fiable pour la vitesse de récession des galaxies, sans rapport pour le reste du catalogue',
+      })
+    }
+    if (o.centralStarMagnitude !== null) {
+      detailRows.push({ label: 'Étoile centrale', value: fr(o.centralStarMagnitude), hint: 'magnitude V' })
+    }
+
     return {
       overline: 'Ciel profond',
       title: o.messier > 0 ? `M${o.messier}` : o.id,
@@ -239,6 +347,7 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       equatorialJ2000: { ra: o.ra, dec: o.dec },
       surfaceBrightness: o.surfaceBrightness,
       rows,
+      detailRows,
     }
   }
 
@@ -251,6 +360,7 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
     absoluteMagnitude: null,
     equatorialJ2000: { ra: constellation.labelRa, dec: constellation.labelDec },
     surfaceBrightness: null,
+    detailRows: [],
     rows: [
       { label: 'Abréviation', value: constellation.id.toUpperCase() },
       {

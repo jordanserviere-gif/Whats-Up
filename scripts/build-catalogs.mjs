@@ -79,8 +79,18 @@ async function buildStars() {
   const iId = col('id')
   const iDist = col('dist')      // parsecs ; 100000 = sentinelle (parallaxe inconnue)
   const iAbsmag = col('absmag')  // magnitude absolue, deja reduite a 10 pc par HYG
+  const iSpect = col('spect')
+  const iPmra = col('pmra')      // mas/an, deja multiplie par cos(dec)
+  const iPmdec = col('pmdec')
+  const iRv = col('rv')          // km/s
+  const iLum = col('lum')        // luminosites solaires, deduite de absmag par HYG
+  const iVar = col('var')        // designation d'etoile variable (Algol, RR Lyrae...)
+  const iVarMin = col('var_min')
+  const iVarMax = col('var_max')
+  const iBase = col('base')      // nom partage par les composantes d'un systeme multiple
 
-  const ra = [], dec = [], mag = [], ci = [], absmag = []
+  const ra = [], dec = [], mag = [], ci = [], absmag = [], dist = [], spect = [], pmra = [], pmdec = []
+  const rv = [], lum = [], varName = [], varMin = [], varMax = [], base = []
   const named = []
 
   for (let l = 1; l < lines.length; l++) {
@@ -108,11 +118,31 @@ async function buildStars() {
     ci.push(Number.isFinite(c) ? +c.toFixed(2) : 0)
 
     // La sentinelle de distance (100000 pc) marque une parallaxe inconnue :
-    // l'absmag que HYG en tire est sans valeur, on la tait plutot que
-    // d'afficher une grandeur absolue fausse.
-    const dist = parseFloat(f[iDist])
+    // toute grandeur que HYG en deduit (absmag, lum, dist lui-meme) est sans
+    // valeur, on la tait plutot que d'afficher un chiffre faux.
+    const parsecs = parseFloat(f[iDist])
+    const known = Number.isFinite(parsecs) && parsecs < 90000
     const am = parseFloat(f[iAbsmag])
-    absmag.push(Number.isFinite(am) && dist < 90000 ? +am.toFixed(2) : null)
+    absmag.push(known && Number.isFinite(am) ? +am.toFixed(2) : null)
+    dist.push(known ? +parsecs.toFixed(2) : null)
+    const lm = parseFloat(f[iLum])
+    lum.push(known && Number.isFinite(lm) ? +lm.toPrecision(4) : null)
+
+    spect.push(f[iSpect]?.trim() || null)
+    const pr = parseFloat(f[iPmra])
+    const pd = parseFloat(f[iPmdec])
+    pmra.push(Number.isFinite(pr) ? +pr.toFixed(2) : null)
+    pmdec.push(Number.isFinite(pd) ? +pd.toFixed(2) : null)
+    const radialV = parseFloat(f[iRv])
+    rv.push(Number.isFinite(radialV) ? +radialV.toFixed(1) : null)
+
+    const v = f[iVar]?.trim()
+    varName.push(v || null)
+    const vmn = parseFloat(f[iVarMin])
+    const vmx = parseFloat(f[iVarMax])
+    varMin.push(v && Number.isFinite(vmn) ? +vmn.toFixed(2) : null)
+    varMax.push(v && Number.isFinite(vmx) ? +vmx.toFixed(2) : null)
+    base.push(f[iBase]?.trim() || null)
 
     const proper = f[iProper]?.trim()
     if (proper) {
@@ -134,7 +164,14 @@ async function buildStars() {
     throw new Error(`magnitude ${brightest} dans stars.json : ${named.find((n) => n.i === i)?.n ?? `#${i}`}`)
   }
 
-  const payload = { magLimit: MAG_LIMIT, epoch: 'J2000', count: ra.length, ra, dec, mag, ci, absmag, named }
+  const payload = {
+    magLimit: MAG_LIMIT,
+    epoch: 'J2000',
+    count: ra.length,
+    ra, dec, mag, ci, absmag, dist, spect, pmra, pmdec, rv, lum,
+    varName, varMin, varMax, base,
+    named,
+  }
   writeFileSync(join(OUT, 'stars.json'), JSON.stringify(payload))
   console.log(`stars.json : ${ra.length} etoiles, ${named.length} nommees`)
 }
@@ -234,12 +271,22 @@ async function buildDeepSky() {
   const iAngle = col('PosAng')
   const iVmag = col('V-Mag')
   const iBmag = col('B-Mag')
+  const iJmag = col('J-Mag')
+  const iHmag = col('H-Mag')
+  const iKmag = col('K-Mag')
+  const iHubble = col('Hubble')
+  const iRadVel = col('RadVel')
+  const iRedshift = col('Redshift')
+  const iCstarV = col('Cstar V-Mag')
   const iMessier = col('M')
   const iCommon = col('Common names')
 
   const typeNames = []
   const typeIndex = new Map()
-  const out = { id: [], name: [], type: [], ra: [], dec: [], mag: [], major: [], minor: [], angle: [], messier: [] }
+  const out = {
+    id: [], name: [], type: [], ra: [], dec: [], mag: [], major: [], minor: [], angle: [], messier: [],
+    bmag: [], jmag: [], hmag: [], kmag: [], hubble: [], radvel: [], redshift: [], cstarVmag: [],
+  }
 
   for (let l = 1; l < lines.length; l++) {
     const row = lines[l]
@@ -284,6 +331,23 @@ async function buildDeepSky() {
     out.minor.push(Number.isFinite(minor) ? +minor.toFixed(3) : 0)
     out.angle.push(Number.isFinite(angle) ? Math.round(angle) : 0)
     out.messier.push(Number.isFinite(messier) ? messier : 0)
+
+    // Magnitude bleue a part entiere : contrairement a `mag`, qui ne s'y
+    // rabat que faute de mieux, celle-ci n'est publiee que si elle existe.
+    out.bmag.push(Number.isFinite(b) ? +b.toFixed(2) : null)
+    const j = Number.parseFloat(f[iJmag])
+    const h = Number.parseFloat(f[iHmag])
+    const k = Number.parseFloat(f[iKmag])
+    out.jmag.push(Number.isFinite(j) ? +j.toFixed(2) : null)
+    out.hmag.push(Number.isFinite(h) ? +h.toFixed(2) : null)
+    out.kmag.push(Number.isFinite(k) ? +k.toFixed(2) : null)
+    out.hubble.push(f[iHubble]?.trim() || null)
+    const radvel = Number.parseFloat(f[iRadVel])
+    out.radvel.push(Number.isFinite(radvel) ? Math.round(radvel) : null)
+    const redshift = Number.parseFloat(f[iRedshift])
+    out.redshift.push(Number.isFinite(redshift) ? +redshift.toPrecision(4) : null)
+    const cstarV = Number.parseFloat(f[iCstarV])
+    out.cstarVmag.push(Number.isFinite(cstarV) ? +cstarV.toFixed(2) : null)
   }
 
   const payload = {

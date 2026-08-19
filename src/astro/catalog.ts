@@ -17,6 +17,23 @@ interface RawStars {
   ci: number[]
   /** Magnitude absolue (a 10 pc), `null` quand la parallaxe HYG est inconnue. */
   absmag: Array<number | null>
+  /** Distance en parsecs, meme condition. */
+  dist: Array<number | null>
+  /** Type spectral (ex. « G2V »). */
+  spect: Array<string | null>
+  /** Mouvement propre, mas/an, deja projete (pmra inclut cos(dec)). */
+  pmra: Array<number | null>
+  pmdec: Array<number | null>
+  /** Vitesse radiale, km/s. */
+  rv: Array<number | null>
+  /** Luminosite en luminosites solaires, meme condition que absmag. */
+  lum: Array<number | null>
+  /** Designation d'etoile variable (« RR Lyr »...), et les bornes de son eclat. */
+  varName: Array<string | null>
+  varMin: Array<number | null>
+  varMax: Array<number | null>
+  /** Nom partage par les composantes d'un systeme multiple resolu. */
+  base: Array<string | null>
   named: Array<{ i: number; n: string; d: string }>
 }
 
@@ -44,21 +61,44 @@ export interface NamedStar {
   ra: number
   dec: number
   magnitude: number
-  /** `null` quand HYG ne connait pas la parallaxe de l'etoile. */
+  /** `null` quand HYG ne connait pas la parallaxe de l'etoile — vaut pour les cinq champs suivants. */
   absoluteMagnitude: number | null
+  distanceParsecs: number | null
+  luminositySolar: number | null
+  spectralType: string | null
+  /** Mouvement propre total, mas/an — combinaison quadratique de pmra et pmdec. */
+  properMotion: number | null
+  radialVelocityKmS: number | null
+  variable: { designation: string; minMagnitude: number | null; maxMagnitude: number | null } | null
+  /** Nom du systeme multiple, quand cette etoile en est une composante resolue. */
+  multipleSystem: string | null
 }
 
 /** Etoiles portant un nom propre, triees par eclat. */
 export const NAMED_STARS: NamedStar[] = RAW.named
-  .map((s) => ({
-    index: s.i,
-    name: s.n,
-    designation: s.d,
-    ra: RAW.ra[s.i],
-    dec: RAW.dec[s.i],
-    magnitude: RAW.mag[s.i],
-    absoluteMagnitude: RAW.absmag[s.i],
-  }))
+  .map((s) => {
+    const i = s.i
+    const pmra = RAW.pmra[i]
+    const pmdec = RAW.pmdec[i]
+    return {
+      index: i,
+      name: s.n,
+      designation: s.d,
+      ra: RAW.ra[i],
+      dec: RAW.dec[i],
+      magnitude: RAW.mag[i],
+      absoluteMagnitude: RAW.absmag[i],
+      distanceParsecs: RAW.dist[i],
+      luminositySolar: RAW.lum[i],
+      spectralType: RAW.spect[i],
+      properMotion: pmra !== null && pmdec !== null ? Math.hypot(pmra, pmdec) : null,
+      radialVelocityKmS: RAW.rv[i],
+      variable: RAW.varName[i]
+        ? { designation: RAW.varName[i]!, minMagnitude: RAW.varMin[i], maxMagnitude: RAW.varMax[i] }
+        : null,
+      multipleSystem: RAW.base[i],
+    }
+  })
   .sort((a, b) => a.magnitude - b.magnitude)
 
 export interface ConstellationFigure {

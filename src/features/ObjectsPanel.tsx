@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Badge,
   Button,
@@ -10,12 +10,13 @@ import {
   Divider,
   List,
   ListItem,
+  SegmentedButton,
   Section,
   StatTile,
 } from '@/ui'
-import { BODIES, BODY_BY_ID } from '@/astro/bodies'
+import { BODIES, BODY_BY_ID, nextRelativeLongitudeEvent } from '@/astro/bodies'
 import { azimuthToCardinal, formatDeg, formatDms, formatRa } from '@/astro/coords'
-import { formatTime } from '@/astro/time'
+import { formatDate, formatTime } from '@/astro/time'
 import { isFixedKind } from '@/astro/search'
 import { readToken } from '@/scene/sceneMath'
 import { selectedBodyId, useSkyStore } from '@/state/store'
@@ -114,6 +115,18 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
   const focusOn = useSkyStore((s) => s.focusOn)
   const moon = useMoonInfo()
   const distance = formatDistance(state.distanceAu, state.id)
+  const [page, setPage] = useState<'essentiel' | 'details'>('essentiel')
+
+  // Calee a l'heure : une recherche d'evenement, comme le lever et le coucher,
+  // n'a pas a se refaire a chaque image.
+  const time = useSkyStore((s) => s.time)
+  const hourBucket = Math.floor(time / 3_600_000)
+  const nextEvent = useMemo(
+    () => nextRelativeLongitudeEvent(state.id, new Date(hourBucket * 3_600_000)),
+    [state.id, hourBucket],
+  )
+  const hasDetails = state.id === 'saturn' || state.id === 'moon' || nextEvent !== null
+  const showDetails = hasDetails && page === 'details'
 
   return (
     <Card variant="filled" shape="extra-large">
@@ -130,57 +143,119 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
         }
       />
       <CardBody>
-        <DataGrid columns={2}>
-          <StatTile label="Hauteur" value={formatDeg(state.horizontal.altitude, 1)} tone={state.visible ? 'primary' : 'neutral'} icon="height" />
-          <StatTile
-            label="Azimut"
-            value={`${state.horizontal.azimuth.toFixed(1).replace('.', ',')}°`}
-            unit={azimuthToCardinal(state.horizontal.azimuth)}
-            icon="explore"
+        {hasDetails && (
+          <SegmentedButton
+            ariaLabel="Page de la fiche"
+            size="s"
+            fullWidth
+            segments={[
+              { value: 'essentiel', label: 'Essentiel', icon: 'info' },
+              { value: 'details', label: 'Détails', icon: 'auto_awesome' },
+            ]}
+            value={page}
+            onChange={(v) => setPage(v as typeof page)}
           />
-        </DataGrid>
-
-        <Divider />
-
-        <DataRow label="Ascension droite" value={formatRa(state.equatorial.ra)} />
-        <DataRow label="Déclinaison" value={formatDms(state.equatorial.dec)} />
-        {/* La Lune n'a pas de pastille de magnitude — le cadran de phase en
-            tient la place — donc son eclat apparent n'apparaissait nulle part. */}
-        {state.id === 'moon' && (
-          <DataRow label="Magnitude apparente" value={state.magnitude.toFixed(1).replace('.', ',')} />
         )}
-        <DataRow
-          label="Magnitude absolue"
-          value={state.absoluteMagnitude.toFixed(2).replace('.', ',')}
-          hint={
-            state.id === 'sun'
-              ? 'éclat à 10 parsecs — convention stellaire, le Soleil étant une étoile'
-              : 'éclat à 1 UA du Soleil et de l’observateur, disque plein'
-          }
-        />
-        <DataRow label="Distance" value={distance.value} unit={distance.unit} />
-        <DataRow label="Diamètre apparent" value={`${(state.angularDiameter * 60).toFixed(2).replace('.', ',')}′`} />
-        {state.id !== 'sun' && (
+
+        {showDetails ? (
           <>
-            <DataRow label="Phase éclairée" value={`${Math.round(state.illumination * 100)}`} unit="%" />
-            <DataRow label="Élongation solaire" value={`${state.elongation.toFixed(1).replace('.', ',')}°`} />
+            {state.id === 'saturn' && state.ringTiltDeg !== null && (
+              <DataRow
+                icon="ring_volume"
+                label="Inclinaison des anneaux"
+                value={formatDeg(Math.abs(state.ringTiltDeg), 1)}
+                hint={
+                  Math.abs(state.ringTiltDeg) < 3
+                    ? 'proche de la tranche : les anneaux se réduisent à un trait'
+                    : 'vus depuis la Terre, côté ' + (state.ringTiltDeg >= 0 ? 'nord' : 'sud')
+                }
+              />
+            )}
+            {state.id === 'moon' && (
+              <>
+                <DataRow label="Libration en longitude" value={formatDeg(moon.librationLon, 2)} />
+                <DataRow label="Libration en latitude" value={formatDeg(moon.librationLat, 2)} />
+                <Divider />
+                <DataRow
+                  icon="dark_mode"
+                  label="Prochaine nouvelle lune"
+                  value={moon.nextNewMoon.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                />
+                <DataRow
+                  icon="light_mode"
+                  label="Prochaine pleine lune"
+                  value={moon.nextFullMoon.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                />
+              </>
+            )}
+            {nextEvent && (
+              <DataRow
+                icon="sync_alt"
+                label={nextEvent.kind === 'opposition' ? 'Prochaine opposition' : 'Prochaine conjonction inférieure'}
+                value={formatDate(nextEvent.date)}
+                hint={
+                  nextEvent.kind === 'opposition'
+                    ? 'côté opposé au Soleil : lève au coucher du Soleil, visible toute la nuit, au plus proche et au plus brillant'
+                    : 'entre la Terre et le Soleil : invisible, perdu dans son éclat'
+                }
+              />
+            )}
           </>
-        )}
-
-        {riseSet && (
+        ) : (
           <>
+            <DataGrid columns={2}>
+              <StatTile label="Hauteur" value={formatDeg(state.horizontal.altitude, 1)} tone={state.visible ? 'primary' : 'neutral'} icon="height" />
+              <StatTile
+                label="Azimut"
+                value={`${state.horizontal.azimuth.toFixed(1).replace('.', ',')}°`}
+                unit={azimuthToCardinal(state.horizontal.azimuth)}
+                icon="explore"
+              />
+            </DataGrid>
+
             <Divider />
-            <DataRow icon="wb_twilight" label="Lever" value={riseSet.rise ? formatTime(riseSet.rise) : '—'} />
+
+            <DataRow label="Ascension droite" value={formatRa(state.equatorial.ra)} />
+            <DataRow label="Déclinaison" value={formatDms(state.equatorial.dec)} />
+            {/* La Lune n'a pas de pastille de magnitude — le cadran de phase en
+                tient la place — donc son eclat apparent n'apparaissait nulle part. */}
+            {state.id === 'moon' && (
+              <DataRow label="Magnitude apparente" value={state.magnitude.toFixed(1).replace('.', ',')} />
+            )}
             <DataRow
-              icon="vertical_align_top"
-              label="Culmination"
-              value={riseSet.transit ? formatTime(riseSet.transit) : '—'}
-              unit={riseSet.transitAltitude !== null ? formatDeg(riseSet.transitAltitude, 0) : undefined}
-              emphasis
+              label="Magnitude absolue"
+              value={state.absoluteMagnitude.toFixed(2).replace('.', ',')}
+              hint={
+                state.id === 'sun'
+                  ? 'éclat à 10 parsecs — convention stellaire, le Soleil étant une étoile'
+                  : 'éclat à 1 UA du Soleil et de l’observateur, disque plein'
+              }
             />
-            <DataRow icon="nights_stay" label="Coucher" value={riseSet.set ? formatTime(riseSet.set) : '—'} />
-            {riseSet.circumpolar && <Badge tone="secondary" icon="all_inclusive">circumpolaire</Badge>}
-            {riseSet.alwaysBelow && <Badge tone="neutral" icon="visibility_off">jamais levé</Badge>}
+            <DataRow label="Distance" value={distance.value} unit={distance.unit} />
+            <DataRow label="Diamètre apparent" value={`${(state.angularDiameter * 60).toFixed(2).replace('.', ',')}′`} />
+            {state.id !== 'sun' && (
+              <>
+                <DataRow label="Phase éclairée" value={`${Math.round(state.illumination * 100)}`} unit="%" />
+                <DataRow label="Élongation solaire" value={`${state.elongation.toFixed(1).replace('.', ',')}°`} />
+              </>
+            )}
+
+            {riseSet && (
+              <>
+                <Divider />
+                <DataRow icon="wb_twilight" label="Lever" value={riseSet.rise ? formatTime(riseSet.rise) : '—'} />
+                <DataRow
+                  icon="vertical_align_top"
+                  label="Culmination"
+                  value={riseSet.transit ? formatTime(riseSet.transit) : '—'}
+                  unit={riseSet.transitAltitude !== null ? formatDeg(riseSet.transitAltitude, 0) : undefined}
+                  emphasis
+                />
+                <DataRow icon="nights_stay" label="Coucher" value={riseSet.set ? formatTime(riseSet.set) : '—'} />
+                {riseSet.circumpolar && <Badge tone="secondary" icon="all_inclusive">circumpolaire</Badge>}
+                {riseSet.alwaysBelow && <Badge tone="neutral" icon="visibility_off">jamais levé</Badge>}
+              </>
+            )}
           </>
         )}
 

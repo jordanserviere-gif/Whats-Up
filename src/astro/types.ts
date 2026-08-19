@@ -75,6 +75,11 @@ export interface BodyState {
   elongation: number
   /** Angle du limbe eclaire par rapport au zenith, en degres (phase). */
   brightLimbAngle: number
+  /**
+   * Inclinaison apparente des anneaux, en degres — Saturne seule, `null` pour
+   * tout le reste. Pres de 0, les anneaux se presentent par la tranche.
+   */
+  ringTiltDeg: number | null
   /** Vrai si le corps est au-dessus de l'horizon geometrique. */
   visible: boolean
 }

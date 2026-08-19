@@ -28,6 +28,16 @@ interface RawDeepSky {
   /** Angle de position du grand axe, en degres depuis le nord. */
   angle: number[]
   messier: number[]
+  bmag: Array<number | null>
+  jmag: Array<number | null>
+  hmag: Array<number | null>
+  kmag: Array<number | null>
+  /** Type de Hubble (galaxies), ex. « SA(s)b ». */
+  hubble: Array<string | null>
+  radvel: Array<number | null>
+  redshift: Array<number | null>
+  /** Magnitude V de l'etoile centrale, pour les nebuleuses planetaires. */
+  cstarVmag: Array<number | null>
 }
 
 const RAW = deepSkyData as RawDeepSky
@@ -52,6 +62,13 @@ export interface DeepSkyObject {
   messier: number
   /** Brillance de surface en mag/arcsec², nulle si les dimensions manquent. */
   surfaceBrightness: number | null
+  blueMagnitude: number | null
+  /** Triplet infrarouge 2MASS, chaque bande independamment presente ou non. */
+  infrared: { j: number | null; h: number | null; k: number | null } | null
+  hubbleType: string | null
+  radialVelocityKmS: number | null
+  redshift: number | null
+  centralStarMagnitude: number | null
 }
 
 function objectAt(i: number): DeepSkyObject {
@@ -69,6 +86,15 @@ function objectAt(i: number): DeepSkyObject {
     positionAngle: RAW.angle[i],
     messier: RAW.messier[i],
     surfaceBrightness: surfaceBrightness(RAW.mag[i], RAW.major[i], RAW.minor[i]),
+    blueMagnitude: RAW.bmag[i],
+    infrared:
+      RAW.jmag[i] !== null || RAW.hmag[i] !== null || RAW.kmag[i] !== null
+        ? { j: RAW.jmag[i], h: RAW.hmag[i], k: RAW.kmag[i] }
+        : null,
+    hubbleType: RAW.hubble[i],
+    radialVelocityKmS: RAW.radvel[i],
+    redshift: RAW.redshift[i],
+    centralStarMagnitude: RAW.cstarVmag[i],
   }
 }
 
