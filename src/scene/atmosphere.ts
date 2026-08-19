@@ -147,6 +147,12 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
 
       float odStepRlh = exp(-iHeight / shRlh) * iStepSize;
       float odStepMie = exp(-iHeight / shMie) * iStepSize;
+
+      // Extinction deja accumulee a l'entree du pas, et celle que le pas ajoute.
+      // Les deux servent a integrer la transmittance analytiquement plus bas.
+      vec3 tauBefore = kRlh * iOdRlh + kMie * iOdMie;
+      vec3 dTau = kRlh * odStepRlh + kMie * odStepMie;
+
       iOdRlh += odStepRlh;
       iOdMie += odStepMie;
 
@@ -163,7 +169,20 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
         jTime += jStepSize;
       }
 
-      vec3 attn = exp(-(kMie * (iOdMie + jOdMie) + kRlh * (iOdRlh + jOdRlh)));
+      // Transmittance du trajet Soleil -> echantillon : constante sur le pas.
+      vec3 attnSun = exp(-(kMie * jOdMie + kRlh * jOdRlh));
+
+      // Transmittance du trajet echantillon -> observateur, integree
+      // analytiquement sur toute la longueur du pas au lieu d'etre evaluee en
+      // un point. A l'horizon, la corde fait onze cents kilometres pour seize
+      // pas : des le premier, l'epaisseur optique d'un ciel charge depasse 8,
+      // et l'evaluer ponctuellement ecrasait la contribution d'un facteur mille
+      // — c'est ce qui noircissait l'horizon au lieu de le blanchir. La forme
+      // (1 - e^-dTau) / dTau vaut 1 quand le pas est optiquement mince : le
+      // resultat est donc inchange pour une atmosphere claire.
+      vec3 stepTransmittance = exp(-tauBefore) * (1.0 - exp(-dTau)) / max(dTau, vec3(1e-7));
+
+      vec3 attn = attnSun * stepTransmittance;
       totalRlh += odStepRlh * attn;
       totalMie += odStepMie * attn;
       iTime += iStepSize;
