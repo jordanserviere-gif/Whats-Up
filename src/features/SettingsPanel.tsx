@@ -271,12 +271,14 @@ export function SettingsPanel() {
         )}
         <p className="md-type-body-small">
           Charge en aérosols — poussière, humidité, particules fines — qui pilote la diffusion de Mie.
-          À ×1, le modèle décrit un air très pur (épaisseur optique 0,025) : l’horizon reste net et les
-          astres bas peu affaiblis. En montant, la brume blanchit l’horizon, resserre le halo solaire,
-          éteint les étoiles et les anneaux de Saturne rasants. Le réglage s’applique partout à la fois —
-          fond de ciel, disques planétaires, étoiles, silhouettes d’avions. En mode automatique, il suit
-          l’épaisseur optique des aérosols mesurée pour le lieu d’observation ; le curseur redevient
-          manuel dès qu’il est désactivé.
+          Ces particules restent confinées dans le premier kilomètre d’atmosphère : vers l’horizon, le
+          regard en traverse plusieurs dizaines de fois plus qu’au zénith. C’est donc là que la brume se
+          voit, grisant le bas du ciel, resserrant le halo solaire et éteignant les astres rasants, tandis
+          que le haut du ciel garde son bleu. À ×1, le modèle décrit un air très pur ; en montant, le bas
+          du ciel blanchit d’abord, le reste ensuite. Le réglage vaut pour toutes les couches à la fois —
+          fond de ciel, disques planétaires, étoiles, silhouettes d’avions — chacune selon la hauteur à
+          laquelle on la regarde. En mode automatique, il suit la concentration en particules fines
+          (PM2,5) mesurée au lieu d’observation ; le curseur redevient manuel dès qu’il est désactivé.
         </p>
       </Section>
 

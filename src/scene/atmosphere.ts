@@ -216,17 +216,24 @@ export function atmosphereUniforms() {
 /**
  * Applique une charge en aerosols aux uniforms d'un materiau.
  *
- * Un facteur unique agit sur deux grandeurs : le coefficient de Mie, qui dit
- * combien les aerosols diffusent, et leur hauteur d'echelle, qui dit jusqu'ou
- * ils montent. Une atmosphere chargee ne fait pas que diffuser davantage : sa
- * brume s'epaissit aussi en altitude, ce qui blanchit l'horizon bien plus haut
- * qu'une simple hausse du coefficient. La racine carree tient la hausse de la
- * hauteur d'echelle bien en deca de celle du coefficient — les aerosols restent
- * un phenomene de basse couche, meme charges.
+ * Seule la concentration change ; la hauteur d'echelle reste fixe. C'est ce
+ * qui donne a la brume son comportement caracteristique : concentree dans la
+ * basse couche, elle se remarque surtout pres de l'horizon, ou la ligne de
+ * visee traverse plusieurs dizaines de fois plus d'aerosols qu'au zenith, et
+ * s'efface a mesure qu'on leve les yeux.
  *
- * Passer par cette fonction plutot que d'ecrire les deux lignes dans chaque
- * materiau est ce qui garantit que le voile d'un avion, celui d'une planete et
- * le fond de ciel ne peuvent pas decrire des atmospheres differentes.
+ * La hauteur d'echelle suivait auparavant la charge en `sqrt(t)`. C'etait une
+ * erreur : elle faisait monter les aerosols avec leur concentration, si bien
+ * que l'epaisseur optique zenithale croissait en `t^1.5`. Mesure sur le ciel
+ * rendu a midi, la blancheur du zenith passait de 0,10 a trouble x1 a 0,75 a
+ * trouble x4, et celle de 35° de hauteur a 0,95 — le degrade s'aplatissait au
+ * lieu de rester colle a l'horizon, et tout le dome virait au gris. Une
+ * pollution de basse couche epaissit la brume ; elle ne souleve pas la couche
+ * limite.
+ *
+ * Passer par cette fonction plutot que d'ecrire la ligne dans chaque materiau
+ * est ce qui garantit que le voile d'un avion, celui d'une planete et le fond
+ * de ciel ne peuvent pas decrire des atmospheres differentes.
  */
 export function applyAerosolTurbidity(
   uniforms: { uMieCoeff: { value: number }; uMieScaleHeight: { value: number } },
@@ -234,7 +241,7 @@ export function applyAerosolTurbidity(
 ) {
   const t = Math.max(0.1, turbidity)
   uniforms.uMieCoeff.value = MIE_COEFFICIENT * t
-  uniforms.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M * Math.sqrt(t)
+  uniforms.uMieScaleHeight.value = MIE_SCALE_HEIGHT_M
 }
 
 /**

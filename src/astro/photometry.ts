@@ -208,8 +208,17 @@ export function airmass(altitudeDeg: number): number {
   return Math.min(Math.max(am, 1), AIRMASS_MAX)
 }
 
+/**
+ * Part moleculaire de l'extinction : diffusion Rayleigh et absorption par
+ * l'ozone. Elle ne depend que de la quantite d'air traversee, donc de la
+ * hauteur — jamais de la pollution.
+ */
+const MOLECULAR_EXTINCTION = 0.16
+/** Part due aux aerosols, pour un site standard (trouble x1). */
+const AEROSOL_EXTINCTION = 0.12
+
 /** Coefficient d'extinction dans le visible, en magnitudes par masse d'air — air standard (trouble x1). */
-export const EXTINCTION_COEFFICIENT = 0.28
+export const EXTINCTION_COEFFICIENT = MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION
 
 /**
  * Perte de magnitude due a la traversee de l'atmosphere.
@@ -218,11 +227,16 @@ export const EXTINCTION_COEFFICIENT = 0.28
  * qui pilote la diffusion de Mie du ciel -- voir `applyAerosolTurbidity` dans
  * `scene/atmosphere.ts`. Un ciel charge en aerosols n'eclaircit pas que
  * l'horizon : il eteint aussi davantage les etoiles et les halos qui le
- * traversent, par le meme phenomene physique. Le defaut de 1 laisse ce calcul
- * identique a ce qu'il etait avant l'existence du reglage.
+ * traversent, par le meme phenomene physique.
+ *
+ * Seule la part aerosol suit le trouble. Multiplier tout le coefficient par
+ * lui, comme on le faisait, revenait a faire croitre la diffusion Rayleigh et
+ * l'absorption de l'ozone avec la pollution : a trouble x3, le zenith perdait
+ * 0,84 magnitude au lieu de 0,52. L'exces s'appliquait a toutes les hauteurs,
+ * ce qui eteignait le ciel entier la ou seule la basse couche devait souffrir.
  */
 export const extinctionMagnitudes = (altitudeDeg: number, turbidity = 1) =>
-  EXTINCTION_COEFFICIENT * turbidity * Math.min(airmass(altitudeDeg), 12)
+  (MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION * turbidity) * Math.min(airmass(altitudeDeg), 12)
 
 export interface SkyLuminance {
   /** Eclairement horizontal total, en lux. */
