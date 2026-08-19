@@ -5,6 +5,8 @@ import {
   Card,
   CardBody,
   CardHeader,
+  Chip,
+  ChipSet,
   DataGrid,
   DataRow,
   Divider,
@@ -13,7 +15,6 @@ import {
   ListItem,
   Section,
   SegmentedButton,
-  Select,
   Slider,
   StatTile,
   Switch,
@@ -22,7 +23,7 @@ import {
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { formatDuration, formatTime } from '@/astro/time'
 import { meanMotionRevPerDay, apogeeAltitude, orbitalPeriod, perigeeAltitude } from '@/astro/kepler'
-import { CELESTRAK_GROUPS, STALE_EPOCH_DAYS } from '@/data-sources/celestrak'
+import { ALL_CELESTRAK_GROUPS, CELESTRAK_GROUPS, groupLabel, STALE_EPOCH_DAYS } from '@/data-sources/celestrak'
 import { formatAge } from '@/data-sources/types'
 import { selectedSatelliteId, useSkyStore } from '@/state/store'
 import {
@@ -214,13 +215,21 @@ function SatelliteRow({
 function CelestrakSection() {
   const enabled = useSkyStore((s) => s.layers.celestrak)
   const setLayer = useSkyStore((s) => s.setLayer)
-  const group = useSkyStore((s) => s.celestrakGroup)
-  const setGroup = useSkyStore((s) => s.setCelestrakGroup)
+  const groups = useSkyStore((s) => s.celestrakGroups)
+  const setGroups = useSkyStore((s) => s.setCelestrakGroups)
+  const toggleGroup = useSkyStore((s) => s.toggleCelestrakGroup)
   const feed = useCelestrakSatellites()
-  const states = useSatelliteStates(feed.elements)
+  // Les etats sont demandes sur la liste complete, partagee avec la scene : la
+  // demander sur `feed.elements` seul rendrait un seconde tableau, et le
+  // catalogue se propagerait deux fois par instant des que ce panneau est
+  // ouvert. Les compteurs ci-dessous n'ont besoin que de retrouver les objets
+  // du catalogue dans le resultat, ce que leur identifiant suffit a faire.
+  const states = useSatelliteStates(useAllSatellites())
 
   // Deux chiffres suffisent a dire l'etat du ciel : combien d'objets sont suivis,
   // et combien sont effectivement au-dessus de l'horizon a cet instant.
+  const allSelected = groups.length === ALL_CELESTRAK_GROUPS.length
+
   let aboveHorizon = 0
   let visible = 0
   for (const el of feed.elements) {
@@ -244,14 +253,42 @@ function CelestrakSection() {
         onChange={(v) => setLayer('celestrak', v)}
       />
 
-      <Select
-        label="Groupe suivi"
-        leadingIcon="category"
-        value={group}
-        options={CELESTRAK_GROUPS.map((g) => ({ value: g.id, label: g.label }))}
-        onChange={(v) => setGroup(v as typeof group)}
-        disabled={!enabled}
-      />
+      {/* Les groupes se cumulent : la selection par defaut les prend tous, et
+          les puces servent a retrancher ce qu'on ne veut pas voir plutot qu'a
+          choisir ce qu'on veut bien voir. */}
+      <div className="satellites-panel__groups">
+        <div className="satellites-panel__groups-head">
+          <span className="md-type-label-large">Groupes suivis</span>
+          <Button
+            variant="text"
+            size="xs"
+            icon={allSelected ? 'deselect' : 'select_all'}
+            disabled={!enabled}
+            onClick={() => setGroups(allSelected ? [] : ALL_CELESTRAK_GROUPS)}
+          >
+            {allSelected ? 'Aucun' : 'Tous'}
+          </Button>
+        </div>
+        <ChipSet>
+          {CELESTRAK_GROUPS.map((g) => (
+            <Chip
+              key={g.id}
+              variant="filter"
+              selected={groups.includes(g.id)}
+              disabled={!enabled}
+              onClick={() => toggleGroup(g.id)}
+            >
+              {g.label}
+            </Chip>
+          ))}
+        </ChipSet>
+      </div>
+
+      {enabled && groups.length === 0 && (
+        <p className="md-type-body-medium satellites-panel__empty">
+          Aucun groupe sélectionné : le ciel ne montre pour l’instant que les orbites saisies plus bas.
+        </p>
+      )}
 
       {enabled && feed.loading && <LinearProgress />}
 
@@ -276,7 +313,8 @@ function CelestrakSection() {
               icon="filter_list"
               label="Objets non suivis"
               value={`${feed.truncated}`}
-              hint={`Le groupe dépasse le plafond de ${MAX_TRACKED_SATELLITES} objets propagés simultanément.`}
+              unit={feed.truncatedGroups.map(groupLabel).join(', ')}
+              hint={`La sélection dépasse le plafond de ${MAX_TRACKED_SATELLITES.toLocaleString('fr-FR')} objets propagés simultanément. Les groupes sont servis dans l’ordre de la liste ci-dessus : ce sont les derniers, les plus nombreux, qui sont écartés.`}
             />
           )}
           {feed.staleCount > 0 && (

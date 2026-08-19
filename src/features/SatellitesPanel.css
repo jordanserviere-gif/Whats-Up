@@ -3,3 +3,20 @@
   color: var(--md-sys-color-on-surface-variant);
   margin: 0;
 }
+
+/* Choix des groupes : un intitule, un raccourci « tous / aucun », et la serie
+   de puces sous les deux. Le raccourci se lit a droite de l'intitule parce
+   qu'il agit sur la serie entiere, pas sur une puce en particulier. */
+.satellites-panel__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-2);
+}
+
+.satellites-panel__groups-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-sys-spacing-2);
+  color: var(--md-sys-color-on-surface-variant);
+}

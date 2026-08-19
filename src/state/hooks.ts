@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useSkyStore } from './store'
 import { elementsFromGp } from '@/astro/sgp4'
-import { fetchGroup, type CelestrakGroup } from '@/data-sources/celestrak'
+import { ALL_CELESTRAK_GROUPS, fetchGroups, type CelestrakGroup } from '@/data-sources/celestrak'
 import { DEFAULT_STATUS, type SourceStatus } from '@/data-sources/types'
 import { readToken } from '@/scene/sceneMath'
 import {
@@ -278,15 +278,22 @@ export function useAllRiseSets() {
 /**
  * Nombre maximal d'objets propages simultanement.
  *
- * SGP4 coute une dizaine de microsecondes par objet et par instant. Les
- * grandeurs communes — direction du Soleil, position de l'observateur — sont
- * desormais calculees une fois pour tout le lot, ce qui laisse deux mille objets
- * a 10 Hz sous une vingtaine de millisecondes par seconde de calcul.
+ * Un etat complet — propagation SGP4, position apparente, trace au sol,
+ * eclairement, magnitude — coute deux microsecondes par objet et par instant,
+ * mesure dans le navigateur. A 10 Hz, quatre mille objets tiennent donc dans
+ * huit millisecondes, soit la moitie d'une image a soixante par seconde.
  *
- * Les groupes de constellations depassent encore ce plafond. On tronque alors,
- * et l'interface le dit plutot que de ramer en silence.
+ * Ce plafond est cale sur une machine quatre fois plus lente que celle de
+ * developpement : le cout y reste supportable jusqu'a quatre mille objets, et
+ * s'effondre au-dela de six mille, la passe debordant alors l'intervalle entre
+ * deux tiques. C'est donc la marge d'un telephone qui fixe la valeur, pas celle
+ * d'un ordinateur de bureau.
+ *
+ * La reunion de tous les groupes depasse ce plafond — Starlink pese a lui seul
+ * neuf objets sur dix. On tronque alors dans l'ordre de priorite des groupes, et
+ * l'interface dit ce qui a saute plutot que de ramer en silence.
  */
-export const MAX_TRACKED_SATELLITES = 2000
+export const MAX_TRACKED_SATELLITES = 4000
 
 /**
  * Satellites reels du groupe CelesTrak choisi.
@@ -303,6 +310,8 @@ export interface CelestrakFeed {
   status: SourceStatus | null
   /** Nombre d'objets ecartes par le plafond de propagation. */
   truncated: number
+  /** Groupes dont une partie des objets a ete ecartee par ce plafond. */
+  truncatedGroups: CelestrakGroup[]
   /** Objets dont les elements ont plus de trois jours : leur position derive. */
   staleCount: number
 }
@@ -317,20 +326,30 @@ export interface CelestrakFeed {
  * aval. L'etat vit donc ici, hors de React, et les composants s'y abonnent.
  */
 interface FeedState extends CelestrakFeed {
-  group: CelestrakGroup | null
+  /** Selection de groupes ayant produit cet etat, sous forme canonique. */
+  key: string | null
 }
 
 const IDLE_FEED: FeedState = {
-  group: null,
+  key: null,
   elements: [],
   loading: false,
   status: null,
   truncated: 0,
+  truncatedGroups: [],
   staleCount: 0,
 }
 
+/**
+ * Forme canonique d'une selection de groupes : l'ordre de priorite, jamais
+ * celui du clic. Deux selections identiques doivent donner la meme cle, sans
+ * quoi cocher puis recocher relancerait la recuperation.
+ */
+const feedKey = (groups: readonly CelestrakGroup[]) =>
+  ALL_CELESTRAK_GROUPS.filter((g) => groups.includes(g)).join(',')
+
 let feedState: FeedState = IDLE_FEED
-let feedRequest: CelestrakGroup | null = null
+let feedRequest: string | null = null
 const feedListeners = new Set<() => void>()
 
 function publishFeed(next: FeedState) {
@@ -338,33 +357,40 @@ function publishFeed(next: FeedState) {
   for (const listener of feedListeners) listener()
 }
 
-function ensureFeed(group: CelestrakGroup) {
-  // Une recuperation par groupe, quel que soit le nombre d'abonnes.
-  if (feedRequest === group) return
-  feedRequest = group
-  publishFeed({ ...IDLE_FEED, group, loading: true })
+function ensureFeed(groups: readonly CelestrakGroup[]) {
+  // Une recuperation par selection, quel que soit le nombre d'abonnes.
+  const key = feedKey(groups)
+  if (feedRequest === key) return
+  feedRequest = key
+  publishFeed({ ...IDLE_FEED, key, loading: true })
 
   // Les objets du catalogue partagent une teinte, distincte des orbites
   // saisies : on la resout au moment du chargement, donc apres le theme.
   const color = readToken('--app-body-satellite', '#7fd6ff')
 
-  fetchGroup(group).then((sourced) => {
-    // Un groupe a pu changer pendant la requete : le resultat est alors perime.
-    if (feedRequest !== group) return
+  fetchGroups(groups).then((sourced) => {
+    // La selection a pu changer pendant la requete : le resultat est perime.
+    if (feedRequest !== key) return
     if (!sourced) {
-      publishFeed({ ...IDLE_FEED, group, status: DEFAULT_STATUS })
+      publishFeed({ ...IDLE_FEED, key, status: DEFAULT_STATUS })
       return
     }
+    // `fetchGroups` rend les objets dans l'ordre de priorite des groupes : la
+    // troncature ecarte donc les plus nombreux et les moins identifiables, pas
+    // la fin de l'alphabet.
     const records = sourced.value
     const kept = records.slice(0, MAX_TRACKED_SATELLITES)
+    const cut = new Set<CelestrakGroup>()
+    for (let i = kept.length; i < records.length; i++) cut.add(records[i].group)
     publishFeed({
-      group,
+      key,
       loading: false,
       elements: kept.map((r) =>
         elementsFromGp(r.gp, { id: `celestrak-${r.noradId}`, color, epochAgeDays: r.epochAgeDays }),
       ),
       status: sourced.status,
       truncated: records.length - kept.length,
+      truncatedGroups: ALL_CELESTRAK_GROUPS.filter((g) => cut.has(g)),
       staleCount: kept.filter((r) => r.stale).length,
     })
   })
@@ -377,33 +403,70 @@ const subscribeFeed = (listener: () => void) => {
   }
 }
 
+const EMPTY_GROUPS: CelestrakGroup[] = []
+
 export function useCelestrakSatellites(): CelestrakFeed {
   const enabled = useSkyStore((s) => s.layers.celestrak)
-  const group = useSkyStore((s) => s.celestrakGroup)
+  const groups = useSkyStore((s) => s.celestrakGroups)
   const shared = useSyncExternalStore(subscribeFeed, () => feedState)
+  const key = feedKey(groups)
 
   useEffect(() => {
-    if (enabled) ensureFeed(group)
+    if (enabled && groups.length > 0) ensureFeed(groups)
     else {
       feedRequest = null
       publishFeed(IDLE_FEED)
     }
-  }, [enabled, group])
+    // `key` resume la selection : son ordre ne compte pas, seul son contenu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, key])
 
-  // Un groupe encore en cours de chargement ne doit pas afficher le precedent :
-  // ce serait montrer des satellites qu'on a cesse de suivre.
-  const current = enabled && shared.group === group ? shared : null
+  // Une selection encore en cours de chargement ne doit pas afficher la
+  // precedente : ce serait montrer des satellites qu'on a cesse de suivre.
+  const current = enabled && shared.key === key ? shared : null
 
   return {
     elements: current?.elements ?? EMPTY_ELEMENTS,
     loading: Boolean(current?.loading),
     status: current?.status ?? null,
     truncated: current?.truncated ?? 0,
+    truncatedGroups: current?.truncatedGroups ?? EMPTY_GROUPS,
     staleCount: current?.staleCount ?? 0,
   }
 }
 
 const EMPTY_ELEMENTS: OrbitalElements[] = []
+
+/**
+ * Memoire d'une seule entree pour la reunion des deux familles.
+ *
+ * Le `useMemo` d'un hook appartient a son composant : la scene et la recherche
+ * appelant chacune `useAllSatellites`, elles obtenaient deux tableaux de meme
+ * contenu mais d'identites differentes. La memoire de propagation, qui compare
+ * justement des identites, etait alors mise en defaut a chaque tique et le
+ * catalogue entier se propageait deux fois par instant. La reunion est donc
+ * etablie ici, hors de React, pour que tous les appelants partagent le meme
+ * tableau.
+ */
+let allKey: { manual: readonly OrbitalElements[]; showManual: boolean; fetched: readonly OrbitalElements[] } | null =
+  null
+let allValue: OrbitalElements[] = []
+
+function allSatellitesFor(
+  manual: readonly OrbitalElements[],
+  showManual: boolean,
+  fetched: readonly OrbitalElements[],
+): OrbitalElements[] {
+  if (allKey && allKey.manual === manual && allKey.showManual === showManual && allKey.fetched === fetched) {
+    return allValue
+  }
+  const out: OrbitalElements[] = []
+  if (showManual) out.push(...manual)
+  out.push(...fetched)
+  allKey = { manual, showManual, fetched }
+  allValue = out
+  return out
+}
 
 /**
  * Tous les satellites affichables : ceux saisis a la main et ceux du catalogue.
@@ -414,12 +477,7 @@ export function useAllSatellites(): OrbitalElements[] {
   const showManual = useSkyStore((s) => s.layers.satellites)
   const { elements: fetched } = useCelestrakSatellites()
 
-  return useMemo(() => {
-    const out: OrbitalElements[] = []
-    if (showManual) out.push(...manual)
-    out.push(...fetched)
-    return out
-  }, [manual, showManual, fetched])
+  return useMemo(() => allSatellitesFor(manual, showManual, fetched), [manual, showManual, fetched])
 }
 
 /**
@@ -433,12 +491,34 @@ export function useAllSatellites(): OrbitalElements[] {
  */
 let statesKey: { list: readonly OrbitalElements[]; time: number; location: GeoLocation } | null = null
 let statesValue: ReturnType<typeof computeSatelliteStates> = new Map()
+let statesWall = -Infinity
+
+/**
+ * Cadence maximale de propagation du catalogue, en millisecondes d'horloge
+ * reelle.
+ *
+ * En temps reel, les ephemerides sont deja commises a 10 Hz et ce plafond ne
+ * change rien. En temps accelere, elles le sont a chaque image — ce qui est
+ * necessaire aux corps du systeme solaire, dont le mouvement doit rester
+ * continu, mais absurde pour un satellite : a x600, un objet en orbite basse
+ * traverse deja dix degres de ciel d'une image a l'autre. Le propager sur
+ * soixante images par seconde ne rend donc pas son passage plus lisible, cela
+ * ne fait que payer six fois le meme saut.
+ */
+const SATELLITE_MIN_INTERVAL_MS = 80
 
 function satelliteStatesFor(list: readonly OrbitalElements[], date: Date, location: GeoLocation) {
   const time = date.getTime()
   if (statesKey && statesKey.list === list && statesKey.time === time && statesKey.location === location) {
     return statesValue
   }
+  // Le catalogue ou le lieu ont change : la reponse precedente ne decrit plus
+  // le meme ciel, le plafond de cadence ne s'y applique pas.
+  const sameSky = statesKey !== null && statesKey.list === list && statesKey.location === location
+  const now = performance.now()
+  if (sameSky && now - statesWall < SATELLITE_MIN_INTERVAL_MS) return statesValue
+
+  statesWall = now
   statesValue = computeSatelliteStates(list, date, location)
   statesKey = { list, time, location }
   return statesValue

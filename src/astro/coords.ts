@@ -100,20 +100,49 @@ export function observerEci(location: GeoLocation, date: Date): [number, number,
 }
 
 /**
+ * Reperes trigonometriques du site a un instant donne.
+ *
+ * Ni la latitude ni le temps sideral ne dependent de l'objet observe. Sur un
+ * catalogue de plusieurs milliers de satellites, recalculer ces quatre sinus
+ * une fois par objet coutait davantage que la conversion elle-meme : ils sont
+ * donc etablis une fois par instant, et les conversions les recoivent.
+ */
+export interface SiteFrame {
+  sinLat: number
+  cosLat: number
+  /** Sinus et cosinus du temps sideral local. */
+  sinLst: number
+  cosLst: number
+  /** Temps sideral de Greenwich, en radians — sert a la trace au sol. */
+  gmst: number
+}
+
+export function siteFrame(location: GeoLocation, date: Date): SiteFrame {
+  const lat = location.latitude * DEG
+  const lst = lstDegrees(date, location.longitude) * DEG
+  return {
+    sinLat: Math.sin(lat),
+    cosLat: Math.cos(lat),
+    sinLst: Math.sin(lst),
+    cosLst: Math.cos(lst),
+    gmst: lstDegrees(date, 0) * DEG,
+  }
+}
+
+/**
  * Vecteur topocentrique (ECI) vers coordonnees horizontales, via le repere SEZ.
+ *
+ * `frame` n'est qu'une optimisation : omis, il est etabli a la volee a partir du
+ * lieu et de l'instant, et le resultat est le meme au bit pres.
  */
 export function eciVectorToHorizontal(
   rho: [number, number, number],
   location: GeoLocation,
   date: Date,
+  frame: SiteFrame = siteFrame(location, date),
 ): Horizontal {
-  const lat = location.latitude * DEG
-  const lst = lstDegrees(date, location.longitude) * DEG
   const [x, y, z] = rho
-  const sinLat = Math.sin(lat)
-  const cosLat = Math.cos(lat)
-  const sinLst = Math.sin(lst)
-  const cosLst = Math.cos(lst)
+  const { sinLat, cosLat, sinLst, cosLst } = frame
 
   // Repere SEZ : sud, est, zenith.
   const south = sinLat * cosLst * x + sinLat * sinLst * y - cosLat * z
@@ -131,20 +160,24 @@ export function eciVectorToHorizontal(
 export function eciToGeodetic(
   r: [number, number, number],
   date: Date,
+  gmst: number = lstDegrees(date, 0) * DEG,
 ): { latitude: number; longitude: number; altitudeKm: number } {
   const [x, y, z] = r
-  const gmst = lstDegrees(date, 0) * DEG
   const lon = norm360((Math.atan2(y, x) - gmst) * RAD)
   const rxy = Math.hypot(x, y)
   const f = EARTH_FLATTENING
   const e2 = 2 * f - f * f
 
-  // Iteration de Bowring : convergence en 3-4 tours.
+  // Iteration de Bowring. Elle part de la latitude geocentrique, a 0,19° au
+  // plus de la geodesique, et chaque tour divise l'ecart par e² : trois tours
+  // suffisent a descendre sous le centimetre. Mesure sur dix mille positions du
+  // catalogue, l'ecart avec six tours plafonne a 7e-5 seconde d'arc.
   let lat = Math.atan2(z, rxy)
   let c = 1
-  for (let i = 0; i < 6; i++) {
-    c = 1 / Math.sqrt(1 - e2 * Math.sin(lat) ** 2)
-    lat = Math.atan2(z + EARTH_RADIUS_KM * c * e2 * Math.sin(lat), rxy)
+  for (let i = 0; i < 3; i++) {
+    const sinLat = Math.sin(lat)
+    c = 1 / Math.sqrt(1 - e2 * sinLat * sinLat)
+    lat = Math.atan2(z + EARTH_RADIUS_KM * c * e2 * sinLat, rxy)
   }
   const altitudeKm = rxy / Math.cos(lat) - EARTH_RADIUS_KM * c
 

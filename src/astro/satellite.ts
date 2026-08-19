@@ -10,6 +10,8 @@ import {
   eciToGeodetic,
   eciVectorToHorizontal,
   observerEci,
+  siteFrame,
+  type SiteFrame,
 } from './coords'
 import { propagate, type StateVectorKm } from './kepler'
 import { propagateGp } from './sgp4'
@@ -37,16 +39,17 @@ function sunVectorEci(date: Date): [number, number, number] {
 /**
  * Le satellite est-il hors de l'ombre de la Terre ?
  * Modele d'ombre cylindrique : suffisant a la precision d'un affichage visuel.
+ *
+ * `sunUnit` est la direction du Soleil deja normalisee : la normalisation ne
+ * depend pas du satellite, elle appartient au contexte d'observation.
  */
-function isSunlit(satEci: readonly [number, number, number], sunEci: readonly [number, number, number]): boolean {
-  const sunNorm = Math.hypot(...sunEci)
-  const u: [number, number, number] = [sunEci[0] / sunNorm, sunEci[1] / sunNorm, sunEci[2] / sunNorm]
-  const projection = satEci[0] * u[0] + satEci[1] * u[1] + satEci[2] * u[2]
+function isSunlit(satEci: readonly [number, number, number], sunUnit: readonly [number, number, number]): boolean {
+  const projection = satEci[0] * sunUnit[0] + satEci[1] * sunUnit[1] + satEci[2] * sunUnit[2]
   if (projection > 0) return true // cote jour
   const perp = Math.hypot(
-    satEci[0] - projection * u[0],
-    satEci[1] - projection * u[1],
-    satEci[2] - projection * u[2],
+    satEci[0] - projection * sunUnit[0],
+    satEci[1] - projection * sunUnit[1],
+    satEci[2] - projection * sunUnit[2],
   )
   return perp > EARTH_RADIUS_KM
 }
@@ -88,11 +91,22 @@ function estimateMagnitude(rangeKm: number, phaseAngleDeg: number, intrinsicMag:
  */
 export interface ObservationContext {
   sunEci: [number, number, number]
+  /** Meme direction, normalisee — test d'ombre. */
+  sunUnit: [number, number, number]
   observerEci: [number, number, number]
+  /** Sinus et cosinus du site, partages par toutes les conversions. */
+  frame: SiteFrame
 }
 
 export function observationContext(date: Date, location: GeoLocation): ObservationContext {
-  return { sunEci: sunVectorEci(date), observerEci: observerEci(location, date) }
+  const sun = sunVectorEci(date)
+  const norm = Math.hypot(sun[0], sun[1], sun[2]) || 1
+  return {
+    sunEci: sun,
+    sunUnit: [sun[0] / norm, sun[1] / norm, sun[2] / norm],
+    observerEci: observerEci(location, date),
+    frame: siteFrame(location, date),
+  }
 }
 
 /** Etat observationnel complet d'un satellite a un instant donne. */
@@ -108,18 +122,28 @@ export function computeSatelliteState(
   const rho: [number, number, number] = [position[0] - obs[0], position[1] - obs[1], position[2] - obs[2]]
   const rangeKm = Math.hypot(...rho)
 
-  const horizontal = eciVectorToHorizontal(rho, location, date)
-  const geo = eciToGeodetic(position, date)
+  const horizontal = eciVectorToHorizontal(rho, location, date, ctx.frame)
+  const geo = eciToGeodetic(position, date, ctx.frame.gmst)
 
   const sun = ctx.sunEci
-  const sunlit = isSunlit(position, sun)
+  const sunlit = isSunlit(position, ctx.sunUnit)
 
-  // Angle de phase observateur-satellite-Soleil.
-  const satToSun: [number, number, number] = [sun[0] - position[0], sun[1] - position[1], sun[2] - position[2]]
-  const satToObs: [number, number, number] = [-rho[0], -rho[1], -rho[2]]
-  const dot = satToSun[0] * satToObs[0] + satToSun[1] * satToObs[1] + satToSun[2] * satToObs[2]
-  const phaseAngle =
-    Math.acos(Math.min(1, Math.max(-1, dot / (Math.hypot(...satToSun) * Math.hypot(...satToObs))))) * RAD
+  // L'angle de phase ne sert qu'a la magnitude, et la magnitude n'existe que
+  // pour un objet eclaire et leve. Sur un catalogue ou neuf objets sur dix sont
+  // sous l'horizon, cet arc cosinus ne se paie donc plus qu'une fois sur dix.
+  let magnitude: number | null = null
+  if (sunlit && horizontal.altitude > 0) {
+    const satToSun: [number, number, number] = [sun[0] - position[0], sun[1] - position[1], sun[2] - position[2]]
+    const satToObs: [number, number, number] = [-rho[0], -rho[1], -rho[2]]
+    const dot = satToSun[0] * satToObs[0] + satToSun[1] * satToObs[1] + satToSun[2] * satToObs[2]
+    const phaseAngle =
+      Math.acos(Math.min(1, Math.max(-1, dot / (Math.hypot(...satToSun) * Math.hypot(...satToObs))))) * RAD
+    magnitude = estimateMagnitude(
+      rangeKm,
+      phaseAngle,
+      el.noradId === ISS_NORAD_ID ? ISS_INTRINSIC_MAG : DEFAULT_INTRINSIC_MAG,
+    )
+  }
 
   // Vitesse radiale : projection de la vitesse relative sur la ligne de visee.
   const rangeRateKm =
@@ -135,14 +159,7 @@ export function computeSatelliteState(
     latitude: geo.latitude,
     longitude: geo.longitude,
     sunlit,
-    magnitude:
-      sunlit && horizontal.altitude > 0
-        ? estimateMagnitude(
-            rangeKm,
-            phaseAngle,
-            el.noradId === ISS_NORAD_ID ? ISS_INTRINSIC_MAG : DEFAULT_INTRINSIC_MAG,
-          )
-        : null,
+    magnitude,
     time: date,
   }
 }

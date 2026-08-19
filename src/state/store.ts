@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { BodyId, GeoLocation, OrbitalElements } from '@/astro/types'
 import type { TargetKind } from '@/astro/search'
-import type { CelestrakGroup } from '@/data-sources/celestrak'
+import { ALL_CELESTRAK_GROUPS, isCelestrakGroup, type CelestrakGroup } from '@/data-sources/celestrak'
 import { defaultElements } from '@/astro/kepler'
 import { DEFAULT_STATUS, type SourceStatus } from '@/data-sources/types'
 
@@ -203,9 +203,15 @@ interface SkyState {
   setTrackWindow: (m: number) => void
 
   // --- Catalogue CelesTrak ---
-  /** Groupe d'objets suivi. Un seul a la fois : les groupes se comptent en milliers. */
-  celestrakGroup: CelestrakGroup
-  setCelestrakGroup: (g: CelestrakGroup) => void
+  /**
+   * Groupes d'objets suivis, reunis en un seul catalogue. Tous par defaut :
+   * choisir sa categorie avant de voir quoi que ce soit n'a de sens que si l'on
+   * sait deja ce qu'on cherche.
+   */
+  celestrakGroups: CelestrakGroup[]
+  setCelestrakGroups: (g: CelestrakGroup[]) => void
+  /** Ajoute ou retire un groupe de la selection. */
+  toggleCelestrakGroup: (g: CelestrakGroup) => void
 }
 
 const DEFAULT_LAYERS: LayerVisibility = {
@@ -311,8 +317,14 @@ export const useSkyStore = create<SkyState>()(
       trackWindowMinutes: 90,
       setTrackWindow: (trackWindowMinutes) => set({ trackWindowMinutes }),
 
-      celestrakGroup: 'stations',
-      setCelestrakGroup: (celestrakGroup) => set({ celestrakGroup }),
+      celestrakGroups: ALL_CELESTRAK_GROUPS,
+      setCelestrakGroups: (celestrakGroups) => set({ celestrakGroups }),
+      toggleCelestrakGroup: (g) =>
+        set((s) => ({
+          celestrakGroups: s.celestrakGroups.includes(g)
+            ? s.celestrakGroups.filter((x) => x !== g)
+            : [...s.celestrakGroups, g],
+        })),
     }),
     {
       name: 'ciel.state',
@@ -328,7 +340,7 @@ export const useSkyStore = create<SkyState>()(
         aerosolAuto: s.aerosolAuto,
         satellites: s.satellites,
         trackWindowMinutes: s.trackWindowMinutes,
-        celestrakGroup: s.celestrakGroup,
+        celestrakGroups: s.celestrakGroups,
         fov: s.fov,
       }),
       /**
@@ -340,10 +352,16 @@ export const useSkyStore = create<SkyState>()(
        */
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<SkyState>
+        // Un groupe retire du catalogue depuis l'enregistrement ne doit pas
+        // survivre dans la selection : il produirait une requete vouee a echouer.
+        const groups = Array.isArray(saved.celestrakGroups)
+          ? saved.celestrakGroups.filter(isCelestrakGroup)
+          : current.celestrakGroups
         return {
           ...current,
           ...saved,
           layers: { ...DEFAULT_LAYERS, ...(saved.layers ?? {}) },
+          celestrakGroups: groups,
         }
       },
     },

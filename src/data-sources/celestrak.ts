@@ -20,7 +20,15 @@ const TTL_MS = 6 * 3600 * 1000
 /** Au-dela, un jeu d'elements SGP4 derive suffisamment pour induire en erreur. */
 export const STALE_EPOCH_DAYS = 3
 
-/** Groupes utiles. `active` compte plusieurs milliers d'objets : a manier avec soin. */
+/**
+ * Groupes suivis, **par ordre de priorite**.
+ *
+ * L'ordre n'est pas decoratif : quand la reunion des groupes demandes depasse
+ * le plafond de propagation, c'est la fin de cette liste qui est ecartee. Elle
+ * va donc du plus identifiable au plus nombreux — une station spatiale ou un
+ * objet du groupe « les plus brillants » vaut d'etre suivi nommement, le
+ * dix-millieme Starlink beaucoup moins.
+ */
 export const CELESTRAK_GROUPS = [
   { id: 'stations', label: 'Stations spatiales' },
   { id: 'visual', label: 'Les plus brillants' },
@@ -34,6 +42,18 @@ export const CELESTRAK_GROUPS = [
 
 export type CelestrakGroup = (typeof CELESTRAK_GROUPS)[number]['id']
 
+/** Tous les groupes, dans l'ordre de priorite ci-dessus. */
+export const ALL_CELESTRAK_GROUPS: CelestrakGroup[] = CELESTRAK_GROUPS.map((g) => g.id)
+
+const GROUP_LABELS = new Map<string, string>(CELESTRAK_GROUPS.map((g) => [g.id, g.label]))
+
+/** Libelle d'un groupe, ou son identifiant brut s'il n'est plus au catalogue. */
+export const groupLabel = (id: string): string => GROUP_LABELS.get(id) ?? id
+
+/** Vrai si l'identifiant designe encore un groupe connu. */
+export const isCelestrakGroup = (id: unknown): id is CelestrakGroup =>
+  typeof id === 'string' && GROUP_LABELS.has(id)
+
 /**
  * Enregistrement GP tel que CelesTrak le renvoie.
  *
@@ -46,6 +66,12 @@ export interface SatelliteRecord {
   /** Identifiant NORAD, stable dans le temps — sert de cle. */
   noradId: number
   name: string
+  /**
+   * Groupe qui a fourni l'objet. Un satellite peut appartenir a plusieurs
+   * groupes — l'ISS est a la fois une station et un objet brillant : c'est
+   * alors le plus prioritaire qui est retenu.
+   */
+  group: CelestrakGroup
   /** Enregistrement brut, transmis tel quel a `json2satrec`. */
   gp: GpRecord
   epoch: Date
@@ -68,12 +94,13 @@ function isUsable(record: unknown): record is GpRecord {
   )
 }
 
-function toRecord(gp: GpRecord): SatelliteRecord {
+function toRecord(gp: GpRecord, group: CelestrakGroup): SatelliteRecord {
   const epoch = new Date(gp.EPOCH.endsWith('Z') ? gp.EPOCH : `${gp.EPOCH}Z`)
   const epochAgeDays = (Date.now() - epoch.getTime()) / 86_400_000
   return {
     noradId: gp.NORAD_CAT_ID,
     name: gp.OBJECT_NAME?.trim() || `NORAD ${gp.NORAD_CAT_ID}`,
+    group,
     gp,
     epoch,
     epochAgeDays,
@@ -96,9 +123,57 @@ export function fetchGroup(group: CelestrakGroup): Promise<Sourced<SatelliteReco
       if (!Array.isArray(raw)) throw new Error('réponse inattendue : tableau attendu')
       // Un enregistrement incomplet est ecarte plutot que de faire echouer le
       // groupe entier : mieux vaut vingt satellites que zero.
-      const records = raw.filter(isUsable).map(toRecord)
+      const records = raw.filter(isUsable).map((gp) => toRecord(gp, group))
       if (records.length === 0) throw new Error('aucun élément exploitable')
       return records.sort((a, b) => a.name.localeCompare(b.name, 'fr'))
     },
   )
+}
+
+/** Du plus fiable au moins fiable — sert a resumer plusieurs statuts en un. */
+const ORIGIN_RANK: Record<string, number> = { 'mesuré': 0, cache: 1, 'défaut': 2 }
+
+/**
+ * Reunion de plusieurs groupes.
+ *
+ * Chaque groupe garde sa propre requete et sa propre entree de cache : demander
+ * la reunion ne coute donc rien de plus a la seconde visite, et un groupe qui
+ * echoue ne prive pas des autres. Les doublons sont ecartes par identifiant
+ * NORAD, en conservant la premiere occurrence — donc celle du groupe le plus
+ * prioritaire.
+ *
+ * Le statut renvoye est le moins bon des statuts obtenus : dire « mesuré »
+ * quand un groupe sur huit vient d'un cache de la veille serait trompeur.
+ */
+export async function fetchGroups(
+  groups: readonly CelestrakGroup[],
+): Promise<Sourced<SatelliteRecord[]> | null> {
+  // L'ordre de priorite prime sur celui de la demande : c'est lui qui decide
+  // du groupe retenu en cas de doublon, et de ce qui saute sous le plafond.
+  const ordered = ALL_CELESTRAK_GROUPS.filter((g) => groups.includes(g))
+  if (ordered.length === 0) return null
+  if (ordered.length === 1) return fetchGroup(ordered[0])
+
+  const results = await Promise.all(ordered.map((g) => fetchGroup(g)))
+  const ok = results.filter((r): r is Sourced<SatelliteRecord[]> => r !== null)
+  if (ok.length === 0) return null
+
+  const byNorad = new Map<number, SatelliteRecord>()
+  for (const result of ok) {
+    for (const record of result.value) {
+      if (!byNorad.has(record.noradId)) byNorad.set(record.noradId, record)
+    }
+  }
+
+  const worst = ok.reduce((a, b) => (ORIGIN_RANK[b.status.origin] > ORIGIN_RANK[a.status.origin] ? b : a))
+  const failed = ordered.length - ok.length
+  return {
+    value: [...byNorad.values()],
+    status: {
+      ...worst.status,
+      ...(failed > 0
+        ? { note: `${failed} groupe${failed > 1 ? 's' : ''} sur ${ordered.length} indisponible${failed > 1 ? 's' : ''}` }
+        : {}),
+    },
+  }
 }
