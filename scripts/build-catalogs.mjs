@@ -77,8 +77,10 @@ async function buildStars() {
   const iFlam = col('flam')
   const iCon = col('con')
   const iId = col('id')
+  const iDist = col('dist')      // parsecs ; 100000 = sentinelle (parallaxe inconnue)
+  const iAbsmag = col('absmag')  // magnitude absolue, deja reduite a 10 pc par HYG
 
-  const ra = [], dec = [], mag = [], ci = []
+  const ra = [], dec = [], mag = [], ci = [], absmag = []
   const named = []
 
   for (let l = 1; l < lines.length; l++) {
@@ -105,6 +107,13 @@ async function buildStars() {
     const c = parseFloat(f[iCi])
     ci.push(Number.isFinite(c) ? +c.toFixed(2) : 0)
 
+    // La sentinelle de distance (100000 pc) marque une parallaxe inconnue :
+    // l'absmag que HYG en tire est sans valeur, on la tait plutot que
+    // d'afficher une grandeur absolue fausse.
+    const dist = parseFloat(f[iDist])
+    const am = parseFloat(f[iAbsmag])
+    absmag.push(Number.isFinite(am) && dist < 90000 ? +am.toFixed(2) : null)
+
     const proper = f[iProper]?.trim()
     if (proper) {
       const bayer = f[iBayer]?.trim()
@@ -125,7 +134,7 @@ async function buildStars() {
     throw new Error(`magnitude ${brightest} dans stars.json : ${named.find((n) => n.i === i)?.n ?? `#${i}`}`)
   }
 
-  const payload = { magLimit: MAG_LIMIT, epoch: 'J2000', count: ra.length, ra, dec, mag, ci, named }
+  const payload = { magLimit: MAG_LIMIT, epoch: 'J2000', count: ra.length, ra, dec, mag, ci, absmag, named }
   writeFileSync(join(OUT, 'stars.json'), JSON.stringify(payload))
   console.log(`stars.json : ${ra.length} etoiles, ${named.length} nommees`)
 }

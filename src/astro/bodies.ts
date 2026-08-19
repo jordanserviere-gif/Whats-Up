@@ -44,6 +44,41 @@ export const BODY_BY_ID = new Map(BODIES.map((b) => [b.id, b]))
 
 const KM_PER_AU = A.KM_PER_AU
 
+/**
+ * Magnitude absolue H : magnitude qu'aurait le corps a 1 UA du Soleil et de
+ * l'observateur, a phase nulle (disque plein, faisant face au Soleil). C'est
+ * la convention des corps qui ne font que reflechir la lumiere solaire — donc
+ * tout ce qui suit, le Soleil excepte.
+ *
+ * Les valeurs sont le terme constant du modele photometrique d'astronomy-engine
+ * (le coefficient d'ordre zero de son polynome de phase, qui est exactement H
+ * par construction), a deux exceptions pres :
+ *  - Saturne : globe seul, sans les anneaux. Leur eclat depend de leur
+ *    inclinaison apparente, une geometrie d'observation et non une propriete
+ *    intrinseque du corps — l'inclure aurait fait varier H avec la date.
+ *  - Lune : son modele interne normalise la distance a la moyenne Terre-Lune,
+ *    pas a l'unite astronomique reelle ; -12.717 y devient donc +0.23 une fois
+ *    ramene a 1 UA, ce qui rejoint les valeurs publiees (+0,2 a +0,3).
+ */
+const ABSOLUTE_MAGNITUDE_H: Partial<Record<BodyId, number>> = {
+  mercury: -0.6,
+  venus: -4.47,
+  mars: -1.52,
+  jupiter: -9.4,
+  saturn: -9.0,
+  uranus: -7.19,
+  neptune: -6.87,
+  pluto: -1.0,
+  moon: 0.23,
+}
+
+/**
+ * Magnitude absolue du Soleil, convention stellaire (a 10 parsecs) — la meme
+ * que celle des etoiles du catalogue, puisque le Soleil en est une. Valeur
+ * nominale adoptee par l'UAI (resolution B2, 2015).
+ */
+const SUN_ABSOLUTE_MAGNITUDE = 4.83
+
 function observerOf(location: GeoLocation): A.Observer {
   return new A.Observer(location.latitude, location.longitude, location.elevation)
 }
@@ -123,6 +158,7 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
     sunDirectionEq: def.id === 'sun' ? [0, 0, 0] : [dx / dn, dy / dn, dz / dn],
     radiusKm: def.radiusKm,
     magnitude,
+    absoluteMagnitude: def.id === 'sun' ? SUN_ABSOLUTE_MAGNITUDE : (ABSOLUTE_MAGNITUDE_H[def.id] ?? magnitude),
     distanceAu,
     distanceKm,
     angularDiameter,

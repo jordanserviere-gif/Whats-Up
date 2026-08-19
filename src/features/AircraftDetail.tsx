@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Badge, Button, Card, CardBody, CardHeader, DataGrid, DataRow, Divider, StatTile } from '@/ui'
+import { Button, Card, CardBody, CardHeader, DataGrid, DataRow, Divider, StatTile } from '@/ui'
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { useSkyStore } from '@/state/store'
 import { useNearbyAircraft } from '@/state/hooks'
@@ -140,13 +140,6 @@ export function AircraftDetail() {
         overline={overline}
         title={title}
         subtitle={meta?.owner ?? (state.registration ? `immatriculation ${state.registration}` : `code ${state.hex}`)}
-        trailing={
-          altitudeFt !== null ? (
-            <Badge tone={above ? 'primary' : 'neutral'} icon="height">
-              {altitudeFt.toLocaleString('fr-FR')} ft
-            </Badge>
-          ) : undefined
-        }
       />
       <CardBody>
         {meta?.photoUrl && (
@@ -189,7 +182,10 @@ export function AircraftDetail() {
             ce sont des valeurs courtes, une pleine largeur chacune gaspillait
             la moitie de la ligne. */}
         <Divider />
+        {/* En pleine ligne comme le reste, pas dans une pastille de l'en-tete :
+            l'altitude n'a rien de plus important que la route ou le vario. */}
         <DataGrid columns={2}>
+          <DataRow label="Altitude" value={altitudeFt !== null ? altitudeFt.toLocaleString('fr-FR') : '—'} unit="ft" />
           <DataRow label="Immat." value={meta?.registration ?? state.registration ?? '—'} />
           <DataRow label="Route" value={state.trackDeg !== null ? `${Math.round(state.trackDeg)}°` : '—'} />
           <DataRow

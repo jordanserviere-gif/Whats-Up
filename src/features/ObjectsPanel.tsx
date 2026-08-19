@@ -144,6 +144,20 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
 
         <DataRow label="Ascension droite" value={formatRa(state.equatorial.ra)} />
         <DataRow label="Déclinaison" value={formatDms(state.equatorial.dec)} />
+        {/* La Lune n'a pas de pastille de magnitude — le cadran de phase en
+            tient la place — donc son eclat apparent n'apparaissait nulle part. */}
+        {state.id === 'moon' && (
+          <DataRow label="Magnitude apparente" value={state.magnitude.toFixed(1).replace('.', ',')} />
+        )}
+        <DataRow
+          label="Magnitude absolue"
+          value={state.absoluteMagnitude.toFixed(2).replace('.', ',')}
+          hint={
+            state.id === 'sun'
+              ? 'éclat à 10 parsecs — convention stellaire, le Soleil étant une étoile'
+              : 'éclat à 1 UA du Soleil et de l’observateur, disque plein'
+          }
+        />
         <DataRow label="Distance" value={distance.value} unit={distance.unit} />
         <DataRow label="Diamètre apparent" value={`${(state.angularDiameter * 60).toFixed(2).replace('.', ',')}′`} />
         {state.id !== 'sun' && (

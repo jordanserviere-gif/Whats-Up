@@ -56,6 +56,13 @@ export interface BodyState {
   radiusKm: number
   /** Magnitude visuelle apparente. */
   magnitude: number
+  /**
+   * Magnitude absolue. Deux conventions distinctes selon que le corps brille
+   * de lui-meme ou reflechit — voir `ABSOLUTE_MAGNITUDE_H` dans `bodies.ts` :
+   * pour le Soleil, magnitude a 10 parsecs (convention stellaire) ; pour tout
+   * le reste, magnitude H a 1 UA du Soleil et de l'observateur, phase nulle.
+   */
+  absoluteMagnitude: number
   /** Distance a l'observateur en unites astronomiques. */
   distanceAu: number
   /** Distance a l'observateur en km. */

@@ -15,6 +15,8 @@ interface RawStars {
   dec: number[]
   mag: number[]
   ci: number[]
+  /** Magnitude absolue (a 10 pc), `null` quand la parallaxe HYG est inconnue. */
+  absmag: Array<number | null>
   named: Array<{ i: number; n: string; d: string }>
 }
 
@@ -42,6 +44,8 @@ export interface NamedStar {
   ra: number
   dec: number
   magnitude: number
+  /** `null` quand HYG ne connait pas la parallaxe de l'etoile. */
+  absoluteMagnitude: number | null
 }
 
 /** Etoiles portant un nom propre, triees par eclat. */
@@ -53,6 +57,7 @@ export const NAMED_STARS: NamedStar[] = RAW.named
     ra: RAW.ra[s.i],
     dec: RAW.dec[s.i],
     magnitude: RAW.mag[s.i],
+    absoluteMagnitude: RAW.absmag[s.i],
   }))
   .sort((a, b) => a.magnitude - b.magnitude)
 

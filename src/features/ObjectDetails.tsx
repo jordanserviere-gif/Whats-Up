@@ -92,6 +92,13 @@ export function FixedObjectDetails({
 
         <DataRow label="Ascension droite" value={formatRa(ofDate.ra)} hint="équinoxe de la date" />
         <DataRow label="Déclinaison" value={formatDms(ofDate.dec)} hint="équinoxe de la date" />
+        {entry.absoluteMagnitude !== null && (
+          <DataRow
+            label="Magnitude absolue"
+            value={fr(entry.absoluteMagnitude)}
+            hint="éclat à 10 parsecs — ce que l’étoile montrerait vue de là"
+          />
+        )}
         {entry.rows.map((r) => (
           <DataRow key={r.label} label={r.label} value={r.value} unit={r.unit} hint={r.hint} />
         ))}
@@ -171,6 +178,13 @@ interface FixedObjectEntry {
   overline: string
   title: string
   magnitude: number | null
+  /**
+   * Magnitude a 10 parsecs. Fournie par HYG pour les etoiles a parallaxe
+   * connue ; jamais pour le ciel profond — la plupart de ces objets n'ont pas
+   * de distance fiable dans OpenNGC, et en deduire une grandeur absolue du
+   * seul decalage spectral serait faux pour tout ce qui n'est pas une galaxie.
+   */
+  absoluteMagnitude: number | null
   equatorialJ2000: Equatorial
   /** Brillance de surface, pour les objets etendus. */
   surfaceBrightness: number | null
@@ -186,6 +200,7 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       overline: 'Étoile',
       title: star.name,
       magnitude: star.magnitude,
+      absoluteMagnitude: star.absoluteMagnitude,
       equatorialJ2000: { ra: star.ra, dec: star.dec },
       surfaceBrightness: null,
       rows: [{ label: 'Désignation', value: star.designation }],
@@ -220,6 +235,7 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       overline: 'Ciel profond',
       title: o.messier > 0 ? `M${o.messier}` : o.id,
       magnitude: Number.isFinite(o.magnitude) ? o.magnitude : null,
+      absoluteMagnitude: null,
       equatorialJ2000: { ra: o.ra, dec: o.dec },
       surfaceBrightness: o.surfaceBrightness,
       rows,
@@ -232,6 +248,7 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
     overline: 'Constellation',
     title: constellation.name,
     magnitude: null,
+    absoluteMagnitude: null,
     equatorialJ2000: { ra: constellation.labelRa, dec: constellation.labelDec },
     surfaceBrightness: null,
     rows: [
