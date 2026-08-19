@@ -238,49 +238,71 @@ export function applyAerosolTurbidity(
 }
 
 /**
- * Epaisseur optique des aerosols qu'un trouble de 1 represente, mesuree dans
- * le monde reel — et non calculee depuis les constantes du modele.
+ * Concentration en particules fines des sites les plus purs, en µg/m³.
  *
- * La distinction est le point qui manquait. L'epaisseur optique interne du
- * modele a trouble 1 vaut `MIE_COEFFICIENT * MIE_SCALE_HEIGHT_M`, soit 0,025 :
- * c'est une constante artistique heritee de `glsl-atmosphere`, calee pour que
- * le ciel soit beau, pas pour egaler une grandeur radiometrique. La prendre
- * pour une AOD mesurable decalait toute l'echelle d'un facteur 1,6 — Paris,
- * a 0,14 d'AOD, ressortait a 3,1 alors que Pekin sature a 6.
- *
- * 0,05 est l'AOD que rendent effectivement les sites reputes les plus purs
- * (Cerro Paranal, Atlantique central) dans les reanalyses CAMS que sert
- * l'API. C'est donc cette valeur, et non celle du modele, qui doit
- * correspondre au « ciel tres pur » du reglage.
+ * Cerro Paranal, l'Atlantique central ou un sommet pyreneen par vent portant
+ * tournent autour de 3 : c'est le plancher de l'air ambiant, et donc ce qui
+ * doit correspondre au trouble 1 — le ciel « tres pur » du reglage.
  */
-const PRISTINE_AEROSOL_OPTICAL_DEPTH = 0.05
+const PRISTINE_PM25 = 3
 
 /**
- * Trouble atmospherique correspondant a une epaisseur optique des aerosols
- * mesuree (AOD a 550 nm, sans unite).
+ * Concentration d'un episode majeur — smog hivernal de Delhi, panache d'un
+ * grand incendie. C'est elle qui doit saturer l'echelle, pas un jour de brume
+ * ordinaire.
+ */
+const EXTREME_PM25 = 200
+
+/** Trouble maximal du modele, egal a la borne haute du curseur manuel. */
+const MAX_TURBIDITY = 6
+
+/**
+ * Exposant de la loi de puissance, entierement determine par les deux ancres
+ * ci-dessus : il n'y a pas de constante ajustee a la main dans cette courbe.
+ */
+const TURBIDITY_EXPONENT = Math.log(MAX_TURBIDITY) / Math.log(EXTREME_PM25 / PRISTINE_PM25)
+
+/**
+ * Trouble atmospherique deduit de la charge en aerosols **de surface**.
  *
  * C'est le pont entre une vraie mesure de qualite de l'air — voir
  * `data-sources/airQuality.ts` — et le reglage manuel : les deux pilotent
  * exactement la meme paire d'uniforms, par `applyAerosolTurbidity`.
  *
- * L'exposant 2/3 n'est pas un ajustement : `applyAerosolTurbidity` fait
- * croitre le coefficient de Mie en `t` et sa hauteur d'echelle en `sqrt(t)`,
- * donc l'epaisseur optique verticale qui en resulte croit en `t^1.5`.
- * Convertir une AOD en trouble, c'est inverser exactement cette relation.
+ * Le pilotage se faisait auparavant par l'epaisseur optique totale (AOD a
+ * 550 nm), et c'etait une erreur de modele. L'AOD integre **toute** la colonne
+ * atmospherique, cirrus et poussieres de haute troposphere compris, alors que
+ * `applyAerosolTurbidity` place ses aerosols dans une couche limite de 1,2 km
+ * de hauteur d'echelle. Les deux grandeurs se decorrelent completement : au
+ * Pic du Midi, sur dix jours, l'AOD est passee de 0,09 a 0,30 — un facteur
+ * trois, soit un trouble de 1,5 a 3,3 — pendant que le PM2,5 restait entre
+ * 2,1 et 2,9 µg/m³, c'est-a-dire un air parmi les plus purs mesurables. Le
+ * ciel se voilait sans qu'aucun aerosol ne soit apparu autour de
+ * l'observateur.
  *
- * L'echelle qui en sort, sur des mesures reelles :
+ * Ce qui blanchit l'horizon et diffuse le Soleil pour qui regarde depuis le
+ * sol, c'est la couche limite. On la mesure donc directement, par le PM2,5.
  *
- * | site                | AOD  | trouble |
- * |---------------------|------|---------|
- * | Cerro Paranal       | 0,05 |     1,0 |
- * | Atlantique central  | 0,08 |     1,4 |
- * | Pic du Midi, Paris  | 0,12 |     1,8 |
- * | Sahara (poussiere)  | 0,22 |     2,7 |
- * | Pekin (pic de smog) | 0,86 |     6,0 |
+ * Contrepartie assumee : une poussiere saharienne ou une fumee d'incendie qui
+ * passe en altitude sans descendre n'est plus prise en compte. Elle ne l'etait
+ * de toute facon pas correctement — elle etait modelisee comme une brume de
+ * basse couche, ce qui donnait le mauvais profil vertical.
+ *
+ * L'echelle qui en sort, sur des mesures relevees le 23 aout 2026 :
+ *
+ * | site            | PM2,5 | trouble |
+ * |-----------------|-------|---------|
+ * | Cerro Paranal   |   3,2 |     1,0 |
+ * | Paris           |   3,3 |     1,0 |
+ * | Bruxelles       |   4,3 |     1,2 |
+ * | Pic du Midi     |   6,3 |     1,4 |
+ * | Montreal        |    10 |     1,7 |
+ * | Delhi           |    73 |     3,9 |
+ * | Pekin           |   106 |     4,6 |
  */
-export function turbidityFromAerosolOpticalDepth(aod: number): number {
-  const ratio = Math.max(0.01, aod) / PRISTINE_AEROSOL_OPTICAL_DEPTH
-  return Math.min(6, Math.max(0.5, Math.pow(ratio, 2 / 3)))
+export function turbidityFromSurfaceAerosol(pm25: number): number {
+  const ratio = Math.max(0.3, pm25) / PRISTINE_PM25
+  return Math.min(MAX_TURBIDITY, Math.max(0.5, Math.pow(ratio, TURBIDITY_EXPONENT)))
 }
 
 export const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `

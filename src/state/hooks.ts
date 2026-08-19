@@ -13,9 +13,9 @@ import {
   computeSkyConditions,
 } from '@/astro/bodies'
 import { bortleFromSkyBrightness, lightPollutionLux } from '@/astro/photometry'
-import { fetchAerosolOpticalDepth } from '@/data-sources/airQuality'
+import { fetchSurfaceAerosol } from '@/data-sources/airQuality'
 import { fetchSkyBrightness } from '@/data-sources/lightPollution'
-import { turbidityFromAerosolOpticalDepth } from '@/scene/atmosphere'
+import { turbidityFromSurfaceAerosol } from '@/scene/atmosphere'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
 import { computeAircraftState, forgetAircraftTracks, type AircraftState } from '@/astro/aircraft'
 import { ensureAircraftPolling, getAircraftFeedSnapshot, stopAircraftPolling, subscribeAircraftFeed } from './aircraftFeed'
@@ -136,7 +136,7 @@ export function useSkyConditions() {
   )
 }
 
-/** Intervalle entre deux mesures d'AOD tant que le mode automatique est actif. */
+/** Intervalle entre deux mesures de qualite de l'air tant que le mode automatique est actif. */
 const AEROSOL_REFRESH_MS = 30 * 60_000
 
 /**
@@ -161,11 +161,11 @@ export function useAerosolAutoSync() {
 
     let cancelled = false
     const refresh = async () => {
-      const result = await fetchAerosolOpticalDepth(lat, lon)
+      const result = await fetchSurfaceAerosol(lat, lon)
       if (cancelled) return
       if (result) {
         useSkyStore.setState({
-          aerosolTurbidity: turbidityFromAerosolOpticalDepth(result.value),
+          aerosolTurbidity: turbidityFromSurfaceAerosol(result.value),
           autoAerosolStatus: result.status,
         })
       } else {

@@ -183,14 +183,14 @@ interface SkyState {
   aerosolTurbidity: number
   setAerosolTurbidity: (t: number) => void
   /**
-   * Trouble asservi a une mesure reelle de qualite de l'air (AOD) plutot qu'au
+   * Trouble asservi a une mesure reelle de qualite de l'air (PM2,5) plutot qu'au
    * curseur manuel — voir `useAerosolAutoSync` dans `state/hooks.ts`. Le
    * curseur reste utilisable des que ce mode est desactive : `aerosolTurbidity`
    * est la meme valeur dans les deux cas, seule change la main qui l'ecrit.
    */
   aerosolAuto: boolean
   setAerosolAuto: (auto: boolean) => void
-  /** Provenance de la derniere mesure d'AOD -- defaut tant qu'aucune n'a abouti. */
+  /** Provenance de la derniere mesure de qualite de l'air -- defaut tant qu'aucune n'a abouti. */
   autoAerosolStatus: SourceStatus
 
   // --- Satellites ---

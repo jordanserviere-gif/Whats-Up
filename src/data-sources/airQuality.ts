@@ -1,12 +1,12 @@
 /**
- * Trouble atmospherique mesure — epaisseur optique des aerosols (AOD), via
- * l'API air quality d'Open-Meteo. Gratuite, sans cle, CORS ouvert a tout
+ * Trouble atmospherique mesure — concentration en particules fines (PM2,5),
+ * via l'API air quality d'Open-Meteo. Gratuite, sans cle, CORS ouvert a toute
  * origine : contrairement a `adsb.ts`, aucun relais n'est necessaire ici.
  *
- * L'AOD est directement la grandeur physique que `uMieCoeff`/`uMieScaleHeight`
- * modelisent ensemble une fois integres sur la verticale : voir
- * `turbidityFromAerosolOpticalDepth` dans `scene/atmosphere.ts` pour la
- * conversion vers le trouble adimensionnel du reglage.
+ * On demandait auparavant l'epaisseur optique totale (AOD). C'est le PM2,5 qui
+ * decrit la couche limite, seule couche que le modele d'atmosphere sait
+ * representer — voir `turbidityFromSurfaceAerosol` dans `scene/atmosphere.ts`
+ * pour la conversion et la raison detaillee du changement.
  */
 import { fetchJson } from './fetchJson'
 import type { Sourced } from './types'
@@ -24,30 +24,30 @@ const BASE = 'https://air-quality-api.open-meteo.com/v1/air-quality'
 const CACHE_TTL_MS = 45 * 60_000
 
 interface RawAirQuality {
-  current?: { aerosol_optical_depth?: number | null }
+  current?: { pm2_5?: number | null }
 }
 
 /**
- * Position arrondie au dixieme de degre pour la cle de cache — l'AOD est une
- * grandeur regionale (panache de pollution, brume de sable), pas une mesure
- * locale au metre pres : arrondir davantage ne perdrait rien de reel et
- * eviterait de multiplier les entrees pour un lieu qui bouge de quelques
- * metres autour d'une position geolocalisee.
+ * Position arrondie au dixieme de degre pour la cle de cache — la charge en
+ * particules est une grandeur d'agglomeration, pas une mesure locale au metre
+ * pres : arrondir davantage ne perdrait rien de reel et eviterait de
+ * multiplier les entrees pour un lieu qui bouge de quelques metres autour
+ * d'une position geolocalisee.
  */
 function cacheKey(lat: number, lon: number): string {
-  return `air-quality:aod:${lat.toFixed(1)}:${lon.toFixed(1)}`
+  return `air-quality:pm25:${lat.toFixed(1)}:${lon.toFixed(1)}`
 }
 
-/** Epaisseur optique des aerosols au lieu donne, ou `null` si la mesure manque. */
-export async function fetchAerosolOpticalDepth(latitude: number, longitude: number): Promise<Sourced<number> | null> {
+/** Concentration en PM2,5 au lieu donne, en µg/m³, ou `null` si la mesure manque. */
+export async function fetchSurfaceAerosol(latitude: number, longitude: number): Promise<Sourced<number> | null> {
   const lat = Math.round(latitude * 10) / 10
   const lon = Math.round(longitude * 10) / 10
-  const url = `${BASE}?latitude=${lat}&longitude=${lon}&current=aerosol_optical_depth&timezone=UTC`
+  const url = `${BASE}?latitude=${lat}&longitude=${lon}&current=pm2_5&timezone=UTC`
 
   const result = await fetchJson<RawAirQuality, number | null>(
     url,
     { key: cacheKey(lat, lon), ttlMs: CACHE_TTL_MS },
-    (raw) => raw.current?.aerosol_optical_depth ?? null,
+    (raw) => raw.current?.pm2_5 ?? null,
   )
 
   if (!result || result.value === null || !Number.isFinite(result.value)) return null

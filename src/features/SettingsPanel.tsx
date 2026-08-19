@@ -266,7 +266,7 @@ export function SettingsPanel() {
             label="Source"
             value={autoAerosolStatus.origin}
             unit={autoAerosolStatus.ageMs !== null ? formatAge(autoAerosolStatus.ageMs) : undefined}
-            hint={autoAerosolStatus.note ?? 'Épaisseur optique des aérosols (AOD), rafraîchie toutes les trente minutes.'}
+            hint={autoAerosolStatus.note ?? 'Particules fines (PM2,5) au sol, rafraîchies toutes les trente minutes.'}
           />
         )}
         <p className="md-type-body-small">
