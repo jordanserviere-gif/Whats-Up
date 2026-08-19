@@ -42,6 +42,25 @@ import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
 
+/** Halo urbain sans teinte : il ne fait qu'eclaircir le ciel. */
+const NEUTRAL_GLOW = '#ffffff'
+
+/**
+ * Teinte a donner au halo urbain, ou `null` pour n'en donner aucune.
+ *
+ * L'ambre du token `--app-sky-light-pollution` decrit une nuit de ville vue a
+ * travers une atmosphere chargee : ce sont les gouttelettes et les aerosols
+ * qui, en diffusant la lumiere des lampes, en revelent la couleur. Par temps
+ * sec et par air clair, la meme lumiere remonte sans rencontrer grand-chose et
+ * le halo reste bien plus neutre — le teinter alors donne un ciel orange qui
+ * n'existe pas.
+ *
+ * Faute d'un critere d'humidite auquel l'asservir, la teinte reste desactivee.
+ * Rendre la constante egale a `colors.lightPollution` suffit a la retablir le
+ * jour ou ce critere existera.
+ */
+const LIGHT_POLLUTION_TINT: string | null = null
+
 /**
  * Vue du ciel.
  *
@@ -166,8 +185,14 @@ export function SkyCanvas() {
   const pollutionGain = useMemo(() => {
     if (!layers.atmosphere || sky.pollutionLux <= 0) return 0
     const nightLuma = 0.017
-    return (Math.pow(1 + sky.pollutionLux / AIRGLOW_LUX, 1 / 2.2) - 1) * nightLuma
-  }, [layers.atmosphere, sky.pollutionLux])
+    // Le rapport se prend sur tout ce qui n'est pas l'eclairage public — de
+    // nuit c'est l'airglow seul, et l'on retrouve alors exactement la valeur
+    // d'avant ; de jour c'est le Soleil, cent mille lux contre deux
+    // centiemes, et le halo disparait de lui-meme. Les lampes ne s'eteignent
+    // pas au lever du jour : c'est le ciel qui les noie.
+    const natural = Math.max(AIRGLOW_LUX, sky.illuminance - sky.pollutionLux)
+    return (Math.pow(sky.illuminance / natural, 1 / 2.2) - 1) * nightLuma
+  }, [layers.atmosphere, sky.pollutionLux, sky.illuminance])
 
   /**
    * Facteur jour/nuit applique au maillage realiste des avions.
@@ -453,7 +478,7 @@ export function SkyCanvas() {
           moonGlowColor={colors.moonGlow}
           aerosolTurbidity={aerosolTurbidity}
           pollutionGain={pollutionGain}
-          pollutionColor={colors.lightPollution}
+          pollutionColor={LIGHT_POLLUTION_TINT ?? NEUTRAL_GLOW}
         />
 
         {layers.stars && (
