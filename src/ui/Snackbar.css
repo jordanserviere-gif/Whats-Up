@@ -36,7 +36,7 @@
 @keyframes md-snackbar-in {
   from {
     opacity: 0;
-    transform: translateY(24px);
+    transform: translateY(1.5rem);
   }
   to {
     opacity: 1;

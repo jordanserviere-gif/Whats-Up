@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Badge, IconButton, SegmentedButton, Surface, Tooltip } from '@/ui'
+import { Badge, IconButton, SegmentedButton, Surface, Tooltip, cx } from '@/ui'
 import { TIME_SPEEDS, useSkyStore } from '@/state/store'
 import { useSkyConditions } from '@/state/hooks'
 import { MS_PER_DAY, MS_PER_HOUR, formatDate, formatTime, localTimeZone, toDateTimeLocalValue } from '@/astro/time'
@@ -41,6 +41,29 @@ export function TimelineBar() {
   const [windowStart, setWindowStart] = useState(() => windowStartFor(time))
   const windowEnd = windowStart + WINDOW_MS
 
+  // Tiroir mobile : sauts temporels, badges et pied de page n'y vivent que
+  // sur telephone (voir TimelineBar.css, @media 600px) — replies par defaut,
+  // ils laissent la frise a l'essentiel (lecture, horloge, bande, vitesse).
+  const [expanded, setExpanded] = useState(false)
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false)
+  const speedMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!speedMenuOpen) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) setSpeedMenuOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSpeedMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [speedMenuOpen])
+
   // Recentrage : uniquement hors manipulation, et seulement au bord.
   useEffect(() => {
     if (scrubbingRef.current) return
@@ -69,10 +92,12 @@ export function TimelineBar() {
     ticks.push({ left: ((t - windowStart) / WINDOW_MS) * 100, label: formatTime(new Date(t)) })
   }
 
+  const currentSpeed = TIME_SPEEDS.find((s) => s.value === speed) ?? TIME_SPEEDS[0]
+
   return (
-    <Surface level={3} shape="extra-large-increased" glass className="timeline">
+    <Surface level={3} shape="extra-large-increased" glass className={cx('timeline', expanded && 'is-expanded')}>
       <div className="timeline__row timeline__row--main">
-        <Tooltip content={playing ? 'Suspendre' : 'Lancer'} placement="top">
+        <Tooltip content={playing ? 'Suspendre' : 'Lancer'} placement="top" className="timeline__play">
           <IconButton
             icon={playing ? 'pause' : 'play_arrow'}
             label={playing ? 'Suspendre le temps' : 'Lancer le temps'}
@@ -159,48 +184,88 @@ export function TimelineBar() {
         </div>
 
         <SegmentedButton
-          className="timeline__speed"
+          className="timeline__speed timeline__speed--desktop"
           ariaLabel="Vitesse d’écoulement du temps"
           segments={TIME_SPEEDS.map((s) => ({ value: String(s.value), label: s.label, title: s.title }))}
           value={String(speed)}
           onChange={(v) => setSpeed(Number(v))}
         />
-      </div>
 
-      <div
-        className={`timeline__scrubber${scrubbing ? ' is-scrubbing' : ''}${
-          playing && speed !== 1 ? ' is-running' : ''
-        }`}
-      >
-        <LuminanceBand start={windowStart} end={windowEnd} location={location} samples={96} />
+        <div className="timeline__speed timeline__speed--mobile" ref={speedMenuRef}>
+          <button
+            type="button"
+            className="timeline__speed-trigger md-numeric"
+            aria-haspopup="listbox"
+            aria-expanded={speedMenuOpen}
+            aria-label={`Vitesse d’écoulement du temps : ${currentSpeed.title}`}
+            onClick={() => setSpeedMenuOpen((v) => !v)}
+          >
+            {currentSpeed.label}
+          </button>
+          {speedMenuOpen && (
+            <Surface level={3} shape="large" glass role="listbox" className="timeline__speed-menu">
+              {TIME_SPEEDS.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  role="option"
+                  aria-selected={s.value === speed}
+                  className={cx('timeline__speed-option', 'md-numeric', s.value === speed && 'is-selected')}
+                  onClick={() => {
+                    setSpeed(s.value)
+                    setSpeedMenuOpen(false)
+                  }}
+                >
+                  {s.label}
+                  <span className="md-type-label-small timeline__speed-option-title">{s.title}</span>
+                </button>
+              ))}
+            </Surface>
+          )}
+        </div>
 
-        {ticks.map((t) => (
-          <span key={t.left} className="timeline__tick" style={{ left: `${t.left}%` }} aria-hidden="true">
-            <span className="md-type-label-small timeline__tick-label">{t.label}</span>
-          </span>
-        ))}
+        <Tooltip content={expanded ? 'Réduire' : 'Plus de commandes'} placement="top" className="timeline__expand">
+          <IconButton
+            icon={expanded ? 'unfold_less' : 'unfold_more'}
+            label={expanded ? 'Réduire la frise' : 'Afficher les sauts temporels et les indicateurs'}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          />
+        </Tooltip>
 
-        {nowProgress !== null && (
-          <span className="timeline__now" style={{ left: `${nowProgress * 100}%` }} aria-hidden="true" />
-        )}
-        <span className="timeline__cursor" style={{ left: `${progress * 100}%` }} aria-hidden="true" />
+        <div
+          className={cx('timeline__scrubber', scrubbing && 'is-scrubbing', playing && speed !== 1 && 'is-running')}
+        >
+          <LuminanceBand start={windowStart} end={windowEnd} location={location} samples={96} />
 
-        <input
-          className="timeline__range"
-          type="range"
-          min={windowStart}
-          max={windowEnd}
-          step={30_000}
-          value={time}
-          aria-label="Position dans la journée"
-          aria-valuetext={`${formatDate(date)} ${formatTime(date)}`}
-          onPointerDown={beginScrub}
-          onPointerUp={endScrub}
-          onPointerCancel={endScrub}
-          onKeyDown={beginScrub}
-          onKeyUp={endScrub}
-          onChange={(e) => setTime(Number(e.target.value))}
-        />
+          {ticks.map((t) => (
+            <span key={t.left} className="timeline__tick" style={{ left: `${t.left}%` }} aria-hidden="true">
+              <span className="md-type-label-small timeline__tick-label">{t.label}</span>
+            </span>
+          ))}
+
+          {nowProgress !== null && (
+            <span className="timeline__now" style={{ left: `${nowProgress * 100}%` }} aria-hidden="true" />
+          )}
+          <span className="timeline__cursor" style={{ left: `${progress * 100}%` }} aria-hidden="true" />
+
+          <input
+            className="timeline__range"
+            type="range"
+            min={windowStart}
+            max={windowEnd}
+            step={30_000}
+            value={time}
+            aria-label="Position dans la journée"
+            aria-valuetext={`${formatDate(date)} ${formatTime(date)}`}
+            onPointerDown={beginScrub}
+            onPointerUp={endScrub}
+            onPointerCancel={endScrub}
+            onKeyDown={beginScrub}
+            onKeyUp={endScrub}
+            onChange={(e) => setTime(Number(e.target.value))}
+          />
+        </div>
       </div>
 
       <div className="timeline__footer">

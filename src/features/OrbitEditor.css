@@ -11,8 +11,8 @@
 }
 
 .orbit-editor__color {
-  width: 32px;
-  height: 32px;
+  width: 2rem;
+  height: 2rem;
   border: var(--md-sys-outline-width-thick) solid transparent;
   border-radius: var(--md-sys-shape-corner-medium);
   cursor: pointer;

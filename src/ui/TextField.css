@@ -1,5 +1,5 @@
 .md-text-field {
-  --_height: 56px;
+  --_height: 3.5rem;
   --_outline: var(--md-sys-color-outline);
   --_label-color: var(--md-sys-color-on-surface-variant);
   display: flex;
@@ -9,7 +9,7 @@
 }
 
 .md-text-field--compact {
-  --_height: 48px;
+  --_height: 3rem;
 }
 
 .md-text-field__box {
@@ -86,7 +86,7 @@
 }
 .md-text-field__box:focus-within .md-text-field__label,
 .md-text-field__input:not(:placeholder-shown) + .md-text-field__label {
-  top: 12px;
+  top: 0.75rem;
   transform: translateY(0) scale(0.75);
   font-weight: var(--md-sys-typescale-emphasized-body-small-weight);
 }
@@ -96,7 +96,7 @@
   flex: none;
 }
 .md-text-field__box:has(.md-text-field__leading) .md-text-field__label {
-  left: calc(var(--md-sys-spacing-4) + 20px + var(--md-sys-spacing-2));
+  left: calc(var(--md-sys-spacing-4) + 1.25rem + var(--md-sys-spacing-2));
 }
 
 .md-text-field__suffix {

@@ -22,6 +22,16 @@ body,
 html {
   color-scheme: light dark;
   -webkit-text-size-adjust: 100%;
+  /* Racine de l'echelle d'UI : tous les tokens dimensionnels sont en rem, donc
+   * ce seul point de controle redimensionne l'interface entiere (espacements,
+   * typographie, rayons, cibles tactiles) sans override par composant. */
+  font-size: 100%;
+}
+
+@media (max-width: 600px) {
+  html {
+    font-size: 75%;
+  }
 }
 
 /* Le theme sombre est le defaut : on observe le ciel de nuit. */
@@ -72,7 +82,7 @@ body {
   font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
   user-select: none;
-  font-size: var(--_icon-size, 24px);
+  font-size: var(--_icon-size, 1.5rem);
   font-variation-settings:
     'FILL' var(--_icon-fill, 0),
     'wght' var(--_icon-weight, 400),
@@ -98,8 +108,8 @@ body {
   scrollbar-color: var(--md-sys-color-outline-variant) transparent;
 }
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 0.5rem;
+  height: 0.5rem;
 }
 *::-webkit-scrollbar-thumb {
   background: var(--md-sys-color-outline-variant);

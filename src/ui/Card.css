@@ -14,8 +14,8 @@
 .md-card__header-icon {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 2.25rem;
+  height: 2.25rem;
   flex: none;
   border-radius: var(--md-sys-shape-corner-medium);
   background: var(--md-sys-color-primary-container);

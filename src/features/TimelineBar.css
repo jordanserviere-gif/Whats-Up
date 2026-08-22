@@ -17,7 +17,7 @@
 .timeline__clock {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.125rem;
   min-width: 0;
 }
 
@@ -51,7 +51,7 @@
 }
 
 .timeline__input {
-  height: 40px;
+  height: 2.5rem;
   padding-inline: var(--md-sys-spacing-2);
   border: var(--md-sys-outline-width-thick) solid var(--md-sys-color-primary);
   border-radius: var(--md-sys-shape-corner-medium);
@@ -78,12 +78,84 @@
   flex: none;
 }
 
+/* Vitesse mobile : bouton unique + menu, masques sur desktop ou le
+ * SegmentedButton (`--desktop`) reste utilise tel quel. */
+.timeline__speed--mobile {
+  position: relative;
+  display: none;
+}
+
+.timeline__speed-trigger {
+  height: var(--md-comp-icon-button-size-s);
+  padding-inline: var(--md-sys-spacing-3);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Le menu s'ouvre vers le haut : la frise est ancree en bas de l'ecran. */
+.timeline__speed-menu {
+  position: absolute;
+  bottom: calc(100% + var(--md-sys-spacing-2));
+  right: 0;
+  z-index: var(--app-z-sheet);
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: var(--md-sys-spacing-1);
+  min-width: 9rem;
+}
+
+.timeline__speed-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--md-sys-spacing-2);
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.timeline__speed-option:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+}
+.timeline__speed-option.is-selected {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.timeline__speed-option-title {
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 400;
+}
+.timeline__speed-option.is-selected .timeline__speed-option-title {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* Bascule du tiroir : masquee sur desktop, ou tout est deja visible. */
+.timeline__expand {
+  display: none;
+}
+
 /* --- Curseur temporel --- */
 .timeline__scrubber {
   position: relative;
   /* La poignee native se cale sur la hauteur de la bande : plus grande, elle
-   * deborderait de la barre. */
-  --_track-h: 46px;
+   * deborderait de la barre. Pleine largeur par defaut : sur desktop, la bande
+   * occupe sa propre ligne sous les commandes, exactement comme aujourd'hui. */
+  --_track-h: 2.875rem;
+  flex: 1 1 100%;
   height: var(--_track-h);
   display: flex;
   align-items: center;
@@ -105,8 +177,8 @@
 
 .timeline__tick-label {
   position: absolute;
-  top: 2px;
-  left: 3px;
+  top: 0.125rem;
+  left: 0.1875rem;
   color: color-mix(in srgb, var(--md-sys-color-on-surface) 62%, transparent);
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
@@ -126,11 +198,11 @@
 }
 .timeline__range::-webkit-slider-thumb {
   appearance: none;
-  width: 44px;
+  width: 2.75rem;
   height: var(--_track-h);
 }
 .timeline__range::-moz-range-thumb {
-  width: 44px;
+  width: 2.75rem;
   height: var(--_track-h);
   border: none;
   background: transparent;
@@ -139,10 +211,10 @@
 /* Poignee en barre : coherente avec le slider Expressive. */
 .timeline__cursor {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 4px;
-  margin-left: -2px;
+  top: -0.1875rem;
+  bottom: -0.1875rem;
+  width: 0.25rem;
+  margin-left: -0.125rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-on-surface);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-sys-color-surface-container-high) 85%, transparent);
@@ -150,14 +222,14 @@
   transition: left var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
 }
 .timeline__scrubber:hover .timeline__cursor {
-  width: 6px;
-  margin-left: -3px;
+  width: 0.375rem;
+  margin-left: -0.1875rem;
 }
 /* Pendant la manipulation, la tete de lecture colle au doigt : aucun ressort. */
 .timeline__scrubber.is-scrubbing .timeline__cursor {
   transition: none;
-  width: 6px;
-  margin-left: -3px;
+  width: 0.375rem;
+  margin-left: -0.1875rem;
 }
 /* En temps accelere non plus : le ressort de 389 ms est plus long que la
  * traversee complete de la fenetre a x86400, la tete trainerait derriere le
@@ -170,9 +242,9 @@
 .timeline__now {
   position: absolute;
   top: 50%;
-  width: 8px;
-  height: 8px;
-  margin: -4px 0 0 -4px;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: -0.25rem 0 0 -0.25rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-primary);
   box-shadow: 0 0 10px 2px color-mix(in srgb, var(--md-sys-color-primary) 60%, transparent);
@@ -202,35 +274,62 @@
   .timeline__speed {
     width: 100%;
   }
+  /* Le SegmentedButton reste utilise jusqu'a 600px (le bouton + menu mobile ne
+   * prend le relais qu'en dessous) : ses segments se partagent la largeur
+   * plutot que de laisser un vide a droite du conteneur, desormais plein largeur. */
+  .timeline__speed--desktop .md-segmented__item {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: var(--md-sys-spacing-1);
+  }
 }
 
 /* --- Telephone ---
- * La frise ne doit pas manger la moitie basse de l'ecran : on la ramene a
- * trois lignes serrees (horloge, sauts, vitesse) au lieu de la demi-douzaine
- * que produit le repli naturel du flex. */
+ * La frise se reduit a l'essentiel : lecture, horloge, bande, vitesse, sur une
+ * seule ligne. Sauts temporels, badges et pied de page passent dans un tiroir
+ * replie par defaut (bouton « unfold »), pour ne jamais manger la moitie basse
+ * de l'ecran. */
 @media (max-width: 600px) {
   .timeline {
     gap: var(--md-sys-spacing-1);
     padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3) var(--md-sys-spacing-1);
   }
 
+  /* Grille plutot que flex-wrap : chaque commande a sa case fixe, seule la
+   * bande recoit une colonne `1fr` — elle seule sacrifie sa largeur pour que
+   * tout le reste tienne, toujours, sur une seule ligne. Le tiroir ajoute une
+   * rangee pleine largeur au-dessus, sans jamais toucher a cette ligne. */
   .timeline__row--main {
-    gap: var(--md-sys-spacing-2);
+    display: grid;
+    grid-template-columns: auto auto 1fr auto auto;
+    grid-template-areas: 'play clock scrubber speed expand';
+    align-items: center;
+    column-gap: var(--md-sys-spacing-2);
+    row-gap: var(--md-sys-spacing-2);
+  }
+  .timeline.is-expanded .timeline__row--main {
+    grid-template-areas:
+      'jumps jumps jumps jumps jumps'
+      'play clock scrubber speed expand';
   }
 
-  /* Le bouton de lecture reste la cible principale, mais sans etre monumental. */
-  .timeline__row--main .md-icon-button--m {
-    --_size: 44px;
+  .timeline__play {
+    grid-area: play;
+  }
+  /* Le bouton de lecture reste la cible principale, mais sans etre monumental.
+   * La classe est portee par le wrapper Tooltip : le bouton en est un enfant. */
+  .timeline__play .md-icon-button--m {
+    --_size: 2.75rem;
   }
 
-  /* Horloge et badges cote a cote sur la premiere ligne.
-   * Base nulle : l'horloge doit se retrecir au lieu de pousser le bouton de
-   * lecture sur une ligne a lui tout seul. */
+  /* L'horloge se limite a l'heure : elle ne doit prendre que la place de son
+   * contenu, pour laisser le maximum de largeur a la bande. */
   .timeline__clock {
-    flex: 1 1 0;
+    grid-area: clock;
     flex-direction: row;
     align-items: center;
     gap: var(--md-sys-spacing-2);
+    min-width: 0;
     overflow: hidden;
   }
   .timeline__clock-button {
@@ -240,13 +339,17 @@
     font-size: var(--md-sys-typescale-title-large-size);
     line-height: var(--md-sys-typescale-title-large-line-height);
   }
-  /* Les badges defilent plutot que de se replier ligne apres ligne. */
+  /* Repliees par defaut : elles ne reapparaissent que dans le tiroir. */
   .timeline__badges {
+    display: none;
     flex: 1 1 auto;
     flex-wrap: nowrap;
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
+  }
+  .timeline.is-expanded .timeline__badges {
+    display: flex;
   }
   .timeline__badges > * {
     flex: 0 0 auto;
@@ -255,24 +358,57 @@
     display: none;
   }
 
-  /* Sauts et vitesse : deux lignes pleine largeur, densite reduite. */
+  /* Sauts temporels : repliés par defaut, pleine largeur au-dessus du reste
+   * une fois le tiroir ouvert (sa propre rangee de grille, voir plus haut). */
   .timeline__jumps {
+    display: none;
+    grid-area: jumps;
     width: 100%;
     justify-content: space-between;
   }
+  .timeline.is-expanded .timeline__jumps {
+    display: flex;
+  }
   .timeline__jumps .md-icon-button {
-    --_size: 36px;
-  }
-  .timeline__speed .md-segmented__item {
-    flex: 1 1 0;
-    min-width: 0;
-    padding-inline: var(--md-sys-spacing-1);
+    --_size: 2.25rem;
   }
 
+  /* Vitesse : le SegmentedButton cede la place au bouton + menu compact. */
+  .timeline__speed--desktop {
+    display: none;
+  }
+  .timeline__speed--mobile {
+    grid-area: speed;
+    display: block;
+  }
+
+  .timeline__expand {
+    grid-area: expand;
+    display: inline-flex;
+  }
+
+  /* La bande partage desormais la ligne principale avec lecture/horloge/vitesse ;
+   * sa colonne `1fr` est la seule a ceder de la largeur quand ca manque. */
   .timeline__scrubber {
-    --_track-h: 34px;
+    grid-area: scrubber;
+    min-width: 2.5rem;
+    margin-top: 0;
+    --_track-h: 2.125rem;
   }
 
+  /* Graduations : la piste est trop etroite pour des libelles lisibles, et
+   * l'heure exacte est deja affichee dans l'horloge. Le trait reste, discret. */
+  .timeline__tick-label {
+    display: none;
+  }
+
+  /* Pied de page : replie par defaut, comme les sauts temporels. */
+  .timeline__footer {
+    display: none;
+  }
+  .timeline.is-expanded .timeline__footer {
+    display: flex;
+  }
   /* Le fuseau est deja rappele dans les reglages : seul l'eclairement reste. */
   .timeline__zone {
     display: none;

@@ -40,16 +40,16 @@
   font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
   letter-spacing: var(--md-sys-typescale-label-large-tracking);
   /* Decale sous l'objet pour ne pas le masquer. */
-  margin: 14px 0 0 14px;
+  margin: 0.875rem 0 0 0.875rem;
 }
 
 .sky-label--satellite {
   font-family: var(--md-ref-typeface-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  margin: 12px 0 0 12px;
+  margin: 0.75rem 0 0 0.75rem;
 }
 
 .sky-label--cardinal {
@@ -68,7 +68,7 @@
   font-family: var(--md-sys-typescale-label-medium-font);
   font-size: var(--md-sys-typescale-label-medium-size);
   letter-spacing: var(--md-sys-typescale-label-medium-tracking);
-  margin: 8px 0 0 8px;
+  margin: 0.5rem 0 0 0.5rem;
   opacity: 0.78;
 }
 
@@ -78,7 +78,7 @@
  * position, contrairement aux etiquettes de texte qui se decalent pour ne pas
  * recouvrir le disque de l'objet. */
 .sky-label--aircraft {
-  --_icon-size: 15px;
+  --_icon-size: 0.9375rem;
   translate: -50% -50%;
   color: var(--app-body-satellite);
   text-shadow: 0 0 4px rgb(0 0 0 / 0.7);

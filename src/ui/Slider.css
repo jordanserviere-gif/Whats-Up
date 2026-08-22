@@ -1,7 +1,7 @@
 .md-slider {
-  --_track-height: 16px;
-  --_handle-width: 4px;
-  --_gap: 6px;
+  --_track-height: 1rem;
+  --_handle-width: 0.25rem;
+  --_gap: 0.375rem;
   display: flex;
   flex-direction: column;
   gap: var(--md-sys-spacing-1);
@@ -71,10 +71,10 @@
 /* Poignee en barre : signature Expressive. */
 .md-slider__handle {
   position: absolute;
-  top: -4px;
+  top: -0.25rem;
   left: var(--_pct);
   width: var(--_handle-width);
-  height: calc(var(--_track-height) + 8px);
+  height: calc(var(--_track-height) + 0.5rem);
   margin-left: calc(var(--_handle-width) / -2);
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-primary);
@@ -85,15 +85,15 @@
 
 .md-slider__track-row:hover .md-slider__handle,
 .md-slider__track-row:focus-within .md-slider__handle {
-  width: 2px;
+  width: 0.125rem;
 }
 
 .md-slider__anchor {
   position: absolute;
   top: 50%;
-  width: 4px;
-  height: 4px;
-  margin: -2px 0 0 -2px;
+  width: 0.25rem;
+  height: 0.25rem;
+  margin: -0.125rem 0 0 -0.125rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-on-secondary-container);
   opacity: 0.9;
@@ -104,7 +104,7 @@
   bottom: calc(100% + var(--md-sys-spacing-2));
   left: 50%;
   transform: translateX(-50%);
-  padding: 2px var(--md-sys-spacing-2);
+  padding: 0.125rem var(--md-sys-spacing-2);
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-inverse-surface);
   color: var(--md-sys-color-inverse-on-surface);

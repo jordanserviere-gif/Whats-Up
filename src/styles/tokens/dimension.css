@@ -4,50 +4,51 @@
 :root {
   /* Echelle d'espacement (multiple de 4). */
   --md-sys-spacing-0: 0px;
-  --md-sys-spacing-1: 4px;
-  --md-sys-spacing-2: 8px;
-  --md-sys-spacing-3: 12px;
-  --md-sys-spacing-4: 16px;
-  --md-sys-spacing-5: 20px;
-  --md-sys-spacing-6: 24px;
-  --md-sys-spacing-7: 28px;
-  --md-sys-spacing-8: 32px;
-  --md-sys-spacing-10: 40px;
-  --md-sys-spacing-12: 48px;
-  --md-sys-spacing-14: 56px;
-  --md-sys-spacing-16: 64px;
+  --md-sys-spacing-1: 0.25rem;
+  --md-sys-spacing-2: 0.5rem;
+  --md-sys-spacing-3: 0.75rem;
+  --md-sys-spacing-4: 1rem;
+  --md-sys-spacing-5: 1.25rem;
+  --md-sys-spacing-6: 1.5rem;
+  --md-sys-spacing-7: 1.75rem;
+  --md-sys-spacing-8: 2rem;
+  --md-sys-spacing-10: 2.5rem;
+  --md-sys-spacing-12: 3rem;
+  --md-sys-spacing-14: 3.5rem;
+  --md-sys-spacing-16: 4rem;
 
   /* Cible tactile minimale. */
-  --md-sys-touch-target-min: 48px;
+  --md-sys-touch-target-min: 3rem;
 
   /* Hauteurs de composants (tailles Expressive : xs → xl). */
-  --md-comp-button-height-xs: 32px;
-  --md-comp-button-height-s: 40px;
-  --md-comp-button-height-m: 56px;
-  --md-comp-button-height-l: 96px;
-  --md-comp-button-height-xl: 136px;
+  --md-comp-button-height-xs: 2rem;
+  --md-comp-button-height-s: 2.5rem;
+  --md-comp-button-height-m: 3.5rem;
+  --md-comp-button-height-l: 6rem;
+  --md-comp-button-height-xl: 8.5rem;
 
-  --md-comp-icon-button-size-xs: 32px;
-  --md-comp-icon-button-size-s: 40px;
-  --md-comp-icon-button-size-m: 56px;
-  --md-comp-icon-button-size-l: 96px;
+  --md-comp-icon-button-size-xs: 2rem;
+  --md-comp-icon-button-size-s: 2.5rem;
+  --md-comp-icon-button-size-m: 3.5rem;
+  --md-comp-icon-button-size-l: 6rem;
 
-  --md-comp-fab-size-small: 40px;
-  --md-comp-fab-size-medium: 56px;
-  --md-comp-fab-size-large: 96px;
+  --md-comp-fab-size-small: 2.5rem;
+  --md-comp-fab-size-medium: 3.5rem;
+  --md-comp-fab-size-large: 6rem;
 
-  --md-comp-top-app-bar-height: 64px;
-  --md-comp-navigation-rail-width: 96px;
-  --md-comp-navigation-rail-width-expanded: 240px;
+  --md-comp-top-app-bar-height: 4rem;
+  --md-comp-navigation-rail-width: 6rem;
+  --md-comp-navigation-rail-width-expanded: 15rem;
 
-  /* Traits et contours. */
+  /* Traits et contours : epaisseur en px, volontairement hors echelle — un
+   * trait doit rester net au pixel pres, quelle que soit la densite de l'UI. */
   --md-sys-outline-width-thin: 1px;
   --md-sys-outline-width-thick: 2px;
   --md-sys-outline-width-focus: 3px;
 
   /* Panneaux applicatifs. */
-  --app-side-panel-width: 380px;
-  --app-timeline-height: 120px;
+  --app-side-panel-width: 23.75rem;
+  --app-timeline-height: 7.5rem;
   --app-z-scene: 0;
   --app-z-overlay: 10;
   --app-z-chrome: 20;

@@ -3,7 +3,13 @@
   inset: 0;
   pointer-events: none;
   z-index: var(--app-z-chrome);
-  padding: var(--md-sys-spacing-4);
+  /* Le HUD borde l'ecran de part en part (canvas plein cadre, `viewport-fit:
+   * cover`) : en PWA installee sans chrome Safari, encoche/Dynamic Island
+   * mordraient sur la boussole et la recherche sans cette marge. */
+  padding-top: calc(var(--md-sys-spacing-4) + env(safe-area-inset-top, 0px));
+  padding-inline-start: calc(var(--md-sys-spacing-4) + env(safe-area-inset-left, 0px));
+  padding-inline-end: calc(var(--md-sys-spacing-4) + env(safe-area-inset-right, 0px));
+  padding-bottom: var(--md-sys-spacing-4);
   display: grid;
   /* Trois colonnes : reperes de visee, recherche, commandes.
    * Trois rangees : barre haute, corps de scene, conditions. */
@@ -31,8 +37,8 @@
 
 .sky-hud__compass-dial {
   position: relative;
-  width: 44px;
-  height: 44px;
+  width: 2.75rem;
+  height: 2.75rem;
   flex: none;
   border-radius: var(--md-sys-shape-corner-full);
   border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
@@ -43,10 +49,10 @@
 .sky-hud__compass-needle {
   position: absolute;
   left: 50%;
-  top: 4px;
-  width: 3px;
-  height: 16px;
-  margin-left: -1.5px;
+  top: 0.25rem;
+  width: 0.1875rem;
+  height: 1rem;
+  margin-left: -0.09375rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-primary);
 }
@@ -54,7 +60,7 @@
 .sky-hud__compass-north {
   position: absolute;
   left: 50%;
-  bottom: 3px;
+  bottom: 0.1875rem;
   translate: -50% 0;
   color: var(--md-sys-color-on-surface-variant);
 }
@@ -168,7 +174,10 @@
 
 @media (max-width: 900px) {
   .sky-hud {
-    padding: var(--md-sys-spacing-2);
+    padding-top: calc(var(--md-sys-spacing-2) + env(safe-area-inset-top, 0px));
+    padding-inline-start: calc(var(--md-sys-spacing-2) + env(safe-area-inset-left, 0px));
+    padding-inline-end: calc(var(--md-sys-spacing-2) + env(safe-area-inset-right, 0px));
+    padding-bottom: var(--md-sys-spacing-2);
     gap: var(--md-sys-spacing-2);
   }
   .sky-hud__view-tools,
@@ -180,23 +189,6 @@
   }
 }
 
-/* Tres etroit : la recherche prend toute la largeur sur sa propre ligne. */
-@media (max-width: 600px) {
-  .sky-hud {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .sky-hud__search {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .sky-hud__live-layers {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .sky-hud__layers {
-    grid-row: 3;
-  }
-  .sky-hud__view-tools {
-    grid-row: 4;
-  }
-}
+/* La recherche reste sur la ligne du haut, entre la boussole et les calques
+ * en direct, a toutes les largeurs : le SearchBar se retrecit deja proprement
+ * (icone + entree en `min-width: 0`), pas besoin de lui ceder sa propre ligne. */

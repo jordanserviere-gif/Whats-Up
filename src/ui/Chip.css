@@ -3,7 +3,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--md-sys-spacing-2);
-  height: 36px;
+  height: 2.25rem;
   /* Une puce ne se comprime jamais : son libelle est deja court, et le rogner
    * la rend illisible. Dans une serie defilante, c'est la serie qui glisse. */
   flex: none;
@@ -54,8 +54,8 @@
 }
 
 .md-chip__dot {
-  width: 10px;
-  height: 10px;
+  width: 0.625rem;
+  height: 0.625rem;
   border-radius: var(--md-sys-shape-corner-full);
   flex: none;
   box-shadow: 0 0 8px currentColor;

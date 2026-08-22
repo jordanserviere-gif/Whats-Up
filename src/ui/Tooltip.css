@@ -8,7 +8,7 @@
   z-index: var(--app-z-tooltip);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.125rem;
   max-width: 240px;
   padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
   border-radius: var(--md-sys-shape-corner-extra-small);

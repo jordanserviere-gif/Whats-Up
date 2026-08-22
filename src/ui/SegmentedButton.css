@@ -1,7 +1,7 @@
 .md-segmented {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
+  gap: 0.125rem;
+  padding: 0.125rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-surface-container-high);
 }
@@ -45,11 +45,11 @@
 }
 
 .md-segmented--s {
-  --_h: 36px;
+  --_h: 2.25rem;
   --_px: var(--md-sys-spacing-3);
 }
 .md-segmented--m {
-  --_h: 44px;
+  --_h: 2.75rem;
   --_px: var(--md-sys-spacing-4);
 }
 

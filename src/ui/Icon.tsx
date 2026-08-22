@@ -19,7 +19,9 @@ export function Icon({ name, size = 24, filled = false, weight = 400, grade = 0,
       aria-hidden="true"
       style={
         {
-          '--_icon-size': `${size}px`,
+          // En rem, pas en px : une icone doit suivre l'echelle d'UI globale
+          // (variable racine sur `html`) comme le reste des tokens dimensionnels.
+          '--_icon-size': `${size / 16}rem`,
           '--_icon-fill': filled ? 1 : 0,
           '--_icon-weight': weight,
           '--_icon-grade': grade,

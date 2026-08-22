@@ -25,6 +25,7 @@ export interface SurfaceProps {
   outlined?: boolean
   className?: string
   style?: CSSProperties
+  role?: string
   children?: ReactNode
 }
 
@@ -40,10 +41,12 @@ export function Surface({
   outlined = false,
   className,
   style,
+  role,
   children,
 }: SurfaceProps) {
   return (
     <Tag
+      role={role}
       className={cx('md-surface', `md-surface--l${level}`, glass && 'md-surface--glass', outlined && 'md-surface--outlined', className)}
       style={{ '--_shape': `var(--md-sys-shape-corner-${shape})`, ...style } as CSSProperties}
     >

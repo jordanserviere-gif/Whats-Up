@@ -4,7 +4,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.125rem;
 }
 
 .md-list__subheader {
@@ -68,8 +68,8 @@
 }
 
 .md-list-item__dot {
-  width: 12px;
-  height: 12px;
+  width: 0.75rem;
+  height: 0.75rem;
   flex: none;
   border-radius: var(--md-sys-shape-corner-full);
   box-shadow: 0 0 10px 1px currentColor;

@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   gap: var(--md-sys-spacing-2);
-  height: 56px;
+  height: 3.5rem;
   padding-inline: var(--md-sys-spacing-4);
   border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline);
   border-radius: var(--md-sys-shape-corner-large);
@@ -24,7 +24,7 @@
 
 .md-select__label {
   position: absolute;
-  top: 8px;
+  top: 0.5rem;
   left: var(--md-sys-spacing-4);
   color: var(--md-sys-color-on-surface-variant);
   pointer-events: none;
@@ -33,7 +33,7 @@
   color: var(--md-sys-color-primary);
 }
 .md-select__box:has(.md-select__leading) .md-select__label {
-  left: calc(var(--md-sys-spacing-4) + 20px + var(--md-sys-spacing-2));
+  left: calc(var(--md-sys-spacing-4) + 1.25rem + var(--md-sys-spacing-2));
 }
 
 .md-select__native {

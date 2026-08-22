@@ -39,8 +39,8 @@
 .app__mark {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: radial-gradient(
     circle at 30% 30%,
@@ -50,8 +50,8 @@
   );
 }
 .app__mark-dot {
-  width: 10px;
-  height: 10px;
+  width: 0.625rem;
+  height: 0.625rem;
   border-radius: var(--md-sys-shape-corner-full);
   background: var(--md-sys-color-on-primary);
   box-shadow: 0 0 12px 2px var(--md-sys-color-primary);
