@@ -21,6 +21,7 @@ import { rayleighSuite } from '../rayleigh/rayleigh.validation'
 import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
+import { displayTransformSuite } from './display.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -40,5 +41,7 @@ export function allSuites(): SuiteResult[] {
     solarSpectrumSuite(),
     // Phase 3 — diffusion moleculaire.
     rayleighSuite(),
+    // Phase 0.5 — chaine d'affichage lineaire.
+    displayTransformSuite(),
   ]
 }

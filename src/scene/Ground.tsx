@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { BackSide, Color, ShaderMaterial } from 'three'
 import { useFrame } from '@react-three/fiber'
+import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { GROUND_RADIUS } from './sceneMath'
 
 /**
@@ -40,6 +41,7 @@ export function Ground({
           }
         `,
         fragmentShader: /* glsl */ `
+          ${DISPLAY_TONEMAP_GLSL}
           varying vec3 vDir;
           uniform vec3 uGround;
           uniform vec3 uGlow;
@@ -49,7 +51,10 @@ export function Ground({
             // il s'assombrit franchement.
             float depth = clamp(-vDir.y, 0.0, 1.0);
             vec3 col = mix(uGlow, uGround, smoothstep(0.0, 0.18, depth)) * uBrightness;
-            gl_FragColor = vec4(col, 1.0);
+            // Le sol n'a pas encore d'albedo physique ni de transport : sa
+            // couleur reste une valeur d'affichage, remontee en radiance. La
+            // cale disparaitra en phase 9, avec la perspective aerienne.
+            gl_FragColor = vec4(radianceFromDisplay(col), 1.0);
           }
         `,
       }),

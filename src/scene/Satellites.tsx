@@ -1,3 +1,4 @@
+import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { useEffect, useMemo, useRef } from 'react'
 import {
   AdditiveBlending,
@@ -117,6 +118,7 @@ export function SatelliteMarker({
           }
         `,
         fragmentShader: /* glsl */ `
+          ${DISPLAY_TONEMAP_GLSL}
           varying vec2 vUv;
           uniform vec3 uColor;
           uniform float uOpacity;
@@ -128,7 +130,7 @@ export function SatelliteMarker({
             float core = smoothstep(1.0, 0.25, d);
             float ring = smoothstep(0.55, 0.75, d) * smoothstep(1.0, 0.85, d);
             float a = max(core * mix(0.35, 1.0, uSunlit), ring);
-            gl_FragColor = vec4(uColor, a * uOpacity);
+            gl_FragColor = vec4(radianceFromDisplay(uColor), a * uOpacity);
           }
         `,
       }),
@@ -238,6 +240,7 @@ export function SatelliteField({
           }
         `,
         fragmentShader: /* glsl */ `
+          ${DISPLAY_TONEMAP_GLSL}
           varying float vIntensity;
           void main() {
             if (vIntensity < 0.004) discard;
@@ -247,7 +250,7 @@ export function SatelliteField({
             float alpha = core * vIntensity;
             if (alpha < 0.004) discard;
             // Un satellite ne renvoie que la lumiere du Soleil : il est blanc.
-            gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+            gl_FragColor = vec4(radianceFromDisplay(vec3(1.0)), alpha);
           }
         `,
       }),

@@ -50,10 +50,10 @@ aucune réorganisation.
 | --- | --- | --- | --- |
 | **0** | Baseline et infrastructure | **VALIDATED** | coût GPU mesuré · sondes de non-régression |
 | **1** | État atmosphérique + thermodynamique | **VALIDATED** | US1976 à 4,4·10⁻⁵ des tables |
-| **0.5** | Passe d'affichage HDR linéaire | **TODO** | ⚠️ prérequis de la phase 4 |
+| **0.5** | Passe d'affichage HDR linéaire | **VALIDATED** | 11 matériaux portés · nuit identique au bit près |
 | **2** | Base spectrale (`SpectralGrid`, `SolarSpectrum`, `SpectralSensor`) | **VALIDATED** | données acquises et commitées ; invariance à la résolution vérifiée |
 | **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
-| **4** | Soleil direct + extinction | **TODO** | dépend de 0.5 |
+| **4** | Soleil direct + extinction | **TODO** | débloquée |
 | **5** | Single scattering | **TODO** | |
 | **6** | Aérosols + Mie | **TODO** | précalcul hors ligne |
 | **7** | Absorption atmosphérique | **TODO** | |
@@ -114,6 +114,81 @@ aucune réorganisation.
 - **Saturation à l'horizon** : `254,250,241` — écrêtage du tone mapping matériau.
 - **Horizon anti-solaire au coucher** : `91,27,18`, rouge saturé du côté opposé
   au Soleil. À confronter à la diffusion multiple.
+
+---
+
+## Phase 0.5 — Passe d'affichage HDR linéaire · VALIDATED
+
+Refactor de plomberie, sans nouvelle physique. C'était le blocage structurel
+identifié par l'audit : le tone mapping vivait *à l'intérieur* de chaque
+matériau et écrêtait à [0,1], donc aucune grandeur physique ne survivait au
+fragment shader.
+
+### Livré
+
+- `scene/display/tonemap.ts` — le transform d'affichage et son inverse, en TS et
+  en GLSL, source unique.
+- `scene/display/DisplayEffect.tsx` — la passe, via `wrapEffect`.
+- **11 matériaux portés en radiance linéaire** : fond de ciel, corps, disque
+  solaire, halo, réticule, anneaux de Saturne, avions, traînées, sol, étoiles,
+  ciel profond, satellites, grilles, figures de constellations.
+- Chaîne de rendu : composeur **inconditionnel** en `HalfFloatType`, bloom
+  optionnel à l'intérieur, passe d'affichage en dernier.
+
+### La cale de transition
+
+Les matériaux pas encore physiques gardent des couleurs d'affichage héritées.
+`radianceFromDisplay()` les remonte en radiance, exactement, de sorte que la
+passe les restitue à l'identique. **Ce n'est pas un réglage : c'est une cale
+calculée, et chaque phase supprime la sienne** — le Soleil en 4, le ciel en 5,
+le sol en 9, l'airglow en 11.
+
+Le sur-éclat du Soleil suit la même logique : la valeur brute 6 signifiait « six
+fois le blanc » dans un espace où le blanc valait 1. En linéaire, cela se dit
+`6 × RADIANCE_AT_DISPLAY_WHITE`. La traduction préserve le sens de la constante
+au lieu de la deviner.
+
+### Mesures
+
+| Régime | Dérive |
+| --- | --- |
+| Nuit, crépuscule nautique | **zéro** — identique au pixel près |
+| Ciel de jour | +3 à +7 niveaux, plus clair |
+| Horizon au coucher, canal bleu | 18 niveaux, tombe à 0 |
+| Disque solaire | 255,255,255 — inchangé |
+| Coût GPU du noyau | 1,53 → 1,57 ns/px (bruit) |
+
+**La nuit identique au bit près** est la vérification qui compte : là où la
+diffusion est nulle, la cale restitue exactement l'original. L'inverse est donc
+juste.
+
+**Le jour plus clair est plus correct** : le socle nocturne est désormais
+additionné *en radiance* avant la courbe, au lieu d'être plaqué sur une valeur
+déjà compressée.
+
+### Artefact mis à nu, pas introduit
+
+Au coucher, le canal bleu de l'horizon tombe à 0. La cause est la
+**re-saturation ×1,4** : sur un orange très saturé elle pousse le bleu en
+négatif, et l'écrêtage le ramène à zéro. Le socle nocturne, ajouté après coup
+dans l'ancienne chaîne, masquait le phénomène. `DISPLAY_SATURATION` est un
+facteur cosmétique déjà signalé comme tel ; il disparaîtra quand la physique
+pourra le remplacer.
+
+### Erreur de méthode corrigée
+
+Le banc GPU tournait **dans l'onglet de l'application** et mesurait donc le
+noyau *plus* la charge de la scène. Le chiffre est monté à 2,74 ns/px alors que
+le GLSL mesuré n'avait pas changé d'un caractère. Le banc s'exécute désormais
+dans une page vierge servie par Vite : 1,57 ns/px, dans le bruit de l'original.
+
+### Décision : pas de feature flag
+
+La phase 0 le proposait, et je l'avais différé ici. Il n'a finalement pas été
+introduit : le conserver aurait imposé deux variantes de chaque nuanceur, pour
+un chemin destiné à disparaître. **La référence de comparaison existe déjà** —
+les sondes committées et l'historique git — et c'est elle qui a servi à mesurer
+la dérive. Un flag n'aurait rien ajouté qu'un doublement de la surface de code.
 
 ---
 
@@ -330,3 +405,4 @@ l'observateur, ni de l'état de l'atmosphère.
 | 2026-08-25 | Phases 0 et 1 — baseline GPU et sondes committées |
 | 2026-08-25 | Phase 2 — base spectrale ; données CIE et solaires acquises ; **222 contrôles, aucun échec** |
 | 2026-08-25 | Phase 3 — Rayleigh ; cible de la phase 2 atteinte à 0,7 % ; **249 contrôles, aucun échec** |
+| 2026-08-26 | Phase 0.5 — chaîne HDR linéaire ; 11 matériaux portés ; nuit identique au bit près ; **268 contrôles** |

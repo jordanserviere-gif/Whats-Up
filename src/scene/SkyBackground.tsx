@@ -2,10 +2,10 @@ import { useMemo } from 'react'
 import { BackSide, Color, ShaderMaterial, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { DOME_RADIUS } from './sceneMath'
+import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import {
   ATMOSPHERE_GLSL,
   ATMOSPHERE_HAZE_COLOR_FN,
-  ATMOSPHERE_TONEMAP_FN,
   ATMOSPHERE_UNIFORM_DECLARATIONS,
   applyAerosolTurbidity,
   atmosphereUniforms,
@@ -52,7 +52,7 @@ function buildSkyMaterial(): ShaderMaterial {
   const fragmentShader = /* glsl */ `
     ${ATMOSPHERE_GLSL}
     ${ATMOSPHERE_UNIFORM_DECLARATIONS}
-    ${ATMOSPHERE_TONEMAP_FN}
+    ${DISPLAY_TONEMAP_GLSL}
     ${ATMOSPHERE_HAZE_COLOR_FN}
 
     varying vec3 vDir;
@@ -88,7 +88,15 @@ function buildSkyMaterial(): ShaderMaterial {
       float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
       night += uPollution * (0.3 + 0.7 * lowSky);
 
-      gl_FragColor = vec4(night + scattered, 1.0);
+      // La teinte de nuit est encore une couleur d'affichage peinte a la main — socle
+      // nocturne, lueur lunaire, halo urbain. On la remonte en radiance pour
+      // l'additionner a la diffusion, qui en est une. La conversion est exacte :
+      // de nuit, ou la diffusion est nulle, le transform d'affichage restitue
+      // exactement la couleur d'origine.
+      //
+      // Cette cale disparaitra en phase 11, quand airglow et pollution
+      // lumineuse deviendront de vraies sources du transfert radiatif.
+      gl_FragColor = vec4(radianceFromDisplay(night) + scattered, 1.0);
     }
   `
 

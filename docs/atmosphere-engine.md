@@ -535,6 +535,62 @@ donc une seule pour tout le spectre.
 
 ---
 
+### `scene/display/tonemap.ts`
+
+**Rôle.** Le transform d'affichage — l'unique endroit où une radiance devient un
+pixel. Et son inverse.
+
+**La courbe n'a pas changé** : ACES filmique (Narkowicz 2015) puis re-saturation
+×1,4, exactement les opérations qui vivaient dans `scene/atmosphere.ts`. La
+phase 0.5 les **déplace**, elle ne les modifie pas — c'est ce qui permet de
+vérifier le refactor par comparaison de pixels plutôt que par jugement.
+
+**L'inverse, et à quoi il sert.** Tous les matériaux ne sont pas encore
+physiques. Un trait de grille, une étoile, le sol : leurs couleurs sont des
+valeurs d'affichage héritées, pas des radiances. Les laisser telles quelles dans
+un tampon linéaire les ferait traverser la courbe une seconde fois.
+
+`radianceFromDisplay()` convertit une couleur d'affichage en la radiance qui
+s'affichera **identiquement**. Ce n'est pas un réglage : c'est une cale calculée,
+exacte par construction, qui rend le refactor neutre pour les couches pas encore
+portées. **Chaque phase supprime sa propre cale** en rendant son matériau
+physique — le Soleil en phase 4, le ciel en 5, le sol en 9, l'airglow en 11. Le
+jour où plus aucun appelant n'utilise `radianceFromDisplay`, la transition est
+terminée.
+
+L'inverse est analytique parce que la re-saturation **préserve la luminance** :
+`luma(sortie) = luma(entrée)`, donc `m = (c − (1−S)·luma(c))/S`, puis
+l'inversion de la quadratique ACES.
+
+`RADIANCE_AT_DISPLAY_WHITE = 7,2417` — la radiance qui s'affiche exactement en
+blanc. Elle sert deux fois : seuil du bloom, et facteur de traduction de
+l'ancien sur-éclat du Soleil.
+
+**Tests.** `atmosphere/validation/display.validation.ts` — aller-retour à 10⁻¹⁶,
+monotonie sous la saturation, écrêtage au-delà, conservation de la luminance,
+pente à l'origine (0,2143 = 0,03/0,14).
+
+---
+
+### `scene/display/DisplayEffect.tsx`
+
+**Rôle.** La passe d'affichage, appliquée une seule fois en fin de chaîne.
+
+```
+scène → tampon demi-flottant → Bloom → DisplayEffect → sRGB → écran
+```
+
+**Le bloom passe avant, et c'est délibéré.** Un halo lumineux est un phénomène
+optique : il se produit sur la lumière, pas sur des pixels déjà compressés. Son
+seuil s'exprime de ce fait en radiance — celle qui s'affiche en blanc — là où
+l'ancien seuil de 1 se comparait à des valeurs déjà écrêtées, ce qui interdisait
+structurellement au ciel de déborder quelle que soit sa luminance réelle.
+
+Le composeur est désormais **inconditionnel** : son format de tampon ne peut
+plus dépendre d'un réglage d'interface.
+
+---
+
 ### `validation/harness.ts`
 
 **Rôle.** Harnais de validation numérique, sans renderer, sans DOM, sans GPU.
@@ -573,7 +629,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 249 contrôles, 10 suites, aucun échec.**
+**État : 268 contrôles, 11 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -722,4 +778,48 @@ c'est Beer-Lambert appliqué à une section efficace en λ⁻⁴·⁰⁹⁵.
 
 ---
 
-*Dernière mise à jour : phases 0 à 3 validées.*
+## Ce que la migration linéaire a changé — phase 0.5
+
+Le refactor a été mesuré, pas jugé. Sondes comparées à la référence committée :
+
+| Régime | Dérive |
+| --- | --- |
+| Nuit, crépuscule nautique | **zéro** — identique au pixel près |
+| Ciel de jour | **+3 à +7 niveaux**, systématiquement plus clair |
+| Horizon au coucher, canal bleu | **18 niveaux**, tombe à 0 |
+| Disque solaire | 255,255,255 — inchangé |
+| Coût GPU du noyau | 1,53 → 1,57 ns/px (dans le bruit) |
+
+**La nuit est identique au bit près.** C'est la vérification la plus utile : là
+où la diffusion est nulle, la cale `radianceFromDisplay` restitue exactement la
+couleur d'origine. L'inverse est donc juste.
+
+**Le jour est légèrement plus clair, et c'est plus correct.** Le socle nocturne
+était auparavant ajouté *après* la courbe, sur une valeur déjà compressée. Il est
+maintenant ajouté *en radiance*, avant — là où la courbe est plus raide, d'où un
+incrément plus visible. Additionner des radiances puis compresser est juste ;
+additionner une valeur d'affichage à une valeur déjà compressée ne l'est pas.
+
+**Un artefact a été mis à nu.** Au coucher, le canal bleu de l'horizon tombe à 0
+au lieu de 18. La cause n'est pas la migration mais la **re-saturation ×1,4** :
+sur un orange très saturé, elle pousse le bleu en négatif et l'écrêtage le ramène
+à zéro. Le socle nocturne, ajouté après coup dans l'ancienne chaîne, masquait le
+phénomène. `DISPLAY_SATURATION` est un facteur cosmétique, déjà signalé comme
+tel ; il disparaîtra quand la physique pourra le remplacer. Le noter valait mieux
+que le masquer à nouveau.
+
+### Une erreur de méthode corrigée au passage
+
+Le banc GPU tournait **dans l'onglet de l'application**. Il additionnait donc au
+noyau le coût de tout ce que la scène rend par ailleurs, soixante fois par
+seconde. Le chiffre est passé de 1,53 à 1,87 puis 2,74 ns/px au fil du refactor,
+alors que **le GLSL mesuré n'avait pas changé d'un caractère**.
+
+Le banc s'exécute désormais dans une page vierge servie par le serveur de
+développement — vierge pour ne rien mesurer d'autre, servie par le serveur pour
+que l'import du module passe par Vite. Mesure isolée : **1,57 ns/px**, soit 2,6 %
+de l'ancienne, dans le bruit.
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1, 2 et 3 validées.*

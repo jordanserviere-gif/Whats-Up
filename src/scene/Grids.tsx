@@ -9,6 +9,7 @@ import {
   hourCircle,
   verticalCircle,
 } from './sceneMath'
+import { toRadiance } from './display/tonemap'
 import type { GeoLocation } from '@/astro/types'
 
 function circleGeometry(points: Float32Array) {
@@ -20,7 +21,10 @@ function circleGeometry(points: Float32Array) {
 /** Materiau de trait, partage par tous les cercles d'une meme grille. */
 function useLineMaterial(color: string, opacity: number) {
   const material = useMemo(() => new LineBasicMaterial({ transparent: true, depthWrite: false }), [])
-  material.color.set(color)
+  // Les traits n'ont pas de radiance propre : leur couleur est un token
+  // d'interface, remonte en radiance pour traverser la passe d'affichage sans
+  // s'assombrir.
+  toRadiance(material.color.set(color))
   material.opacity = opacity
   return material
 }

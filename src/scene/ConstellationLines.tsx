@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react'
-import { BufferAttribute, BufferGeometry, LineSegments, Matrix4 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, LineSegments, Matrix4 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { buildConstellationGeometry } from '@/astro/catalog'
+import { toRadiance } from './display/tonemap'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 import type { GeoLocation } from '@/astro/types'
 
@@ -19,6 +20,9 @@ export function ConstellationLines({
 }) {
   const ref = useRef<LineSegments>(null)
   const matrix = useRef(new Matrix4())
+  // Passer un objet `Color` plutot qu'une chaine : `Material.color.set()` le
+  // copie tel quel, sans reconversion d'espace, ce qui preserve la radiance.
+  const radiance = useMemo(() => toRadiance(new Color(color)), [color])
 
   const geometry = useMemo(() => {
     const { positions } = buildConstellationGeometry(date)
@@ -42,7 +46,7 @@ export function ConstellationLines({
 
   return (
     <lineSegments ref={ref} geometry={geometry} frustumCulled={false} renderOrder={0}>
-      <lineBasicMaterial color={color} transparent opacity={0.55 * Math.min(1, darkness * 2)} depthWrite={false} />
+      <lineBasicMaterial color={radiance} transparent opacity={0.55 * Math.min(1, darkness * 2)} depthWrite={false} />
     </lineSegments>
   )
 }

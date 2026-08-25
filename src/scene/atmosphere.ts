@@ -345,38 +345,7 @@ export const ATMOSPHERE_UNIFORM_DECLARATIONS = /* glsl */ `
 `
 
 /**
- * Re-saturation post-courbe filmique. Meme constante que le fond de ciel — pas
- * un uniform, pour que rien ne puisse les faire diverger.
- */
-export const ATMOSPHERE_SATURATION = 1.4
-
-/**
- * Tone mapping partage entre le fond de ciel et tout objet qui se fond dans
- * lui — traitement identique, uniforms identiques (`hazeColorAlong` les
- * reutilise), donc meme resultat pixel pour pixel.
- *
- * C'est le point precis qui manquait : un corps evaluait sa propre diffusion
- * avec un mappage different (`1 - exp(-x)` simple) de celui du ciel qui
- * l'entoure (courbe filmique ACES + re-saturation). Deux calculs physiquement
- * corrects mais visuellement incompatibles ne se fondent pas l'un dans
- * l'autre — un disque en conjonction avec le Soleil, presque entierement
- * cote nuit, se detachait alors du ciel au lieu de s'y noyer, exactement
- * comme il le devrait avant qu'une eclipse ne commence.
- */
-export const ATMOSPHERE_TONEMAP_FN = /* glsl */ `
-  vec3 atmosphereTonemap(vec3 x) {
-    // Approximation filmique ACES (Narkowicz 2015).
-    vec3 mapped = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
-    // La courbe desature fortement les hautes lumieres : on lui rend sa
-    // couleur en reecartant les canaux autour de leur luminance.
-    float luma = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
-    return clamp(mix(vec3(luma), mapped, ${ATMOSPHERE_SATURATION.toFixed(2)}), 0.0, 1.0);
-  }
-`
-
-/**
- * Voile atmospherique le long de `dir`, dans les memes unites que
- * `SkyBackground`, et transmittance associee.
+ * Radiance atmospherique le long de `dir`, et transmittance associee.
  *
  * `hazeColorTo` rend les deux moities de l'equation du transfert : ce que
  * l'atmosphere ajoute (retour de la fonction) et ce qu'elle laisse passer
@@ -384,11 +353,22 @@ export const ATMOSPHERE_TONEMAP_FN = /* glsl */ `
  * qu'eclaircir son objet ; la seconde est ce qui le fait rougir et faiblir en
  * descendant vers l'horizon, comme n'importe quel astre reel.
  *
- * L'attenuation s'applique a une couleur deja en espace d'affichage, alors que
- * la transmittance est une grandeur lineaire : le produit est donc une
- * approximation. Elle reste juste la ou cela compte — monotone, achromatique
- * au zenith, fortement rouge a l'horizon — et evite d'avoir a refaire toute la
- * chaine de rendu en radiometrie lineaire pour un ecart imperceptible.
+ * ## Radiance lineaire, non bornee
+ *
+ * La fonction rendait auparavant une couleur **deja passee au tone mapping et
+ * ecretee a [0,1]**. C'etait le blocage structurel du rendu : aucune grandeur
+ * physique ne survivait au fragment shader, et le produit
+ * `couleur_affichage × transmittance` melangeait deux espaces — ce que le
+ * commentaire d'alors reconnaissait comme une approximation.
+ *
+ * Elle rend desormais une **radiance lineaire**, dans les memes unites que
+ * l'entree, sans borne superieure. La courbe d'affichage est appliquee une
+ * seule fois, tout a la fin, par `scene/display/DisplayEffect`. Le produit
+ * `radiance × transmittance` est alors exact, et non plus approche.
+ *
+ * `uAtmosphereExposure` reste applique ici : c'est encore une constante de
+ * calibrage du modele, et elle disparaitra avec l'ancrage radiometrique de la
+ * phase 4.
  */
 export const ATMOSPHERE_HAZE_COLOR_FN = /* glsl */ `
   vec3 hazeColorTo(vec3 dir, float maxPath, out vec3 transmittance) {
@@ -399,7 +379,7 @@ export const ATMOSPHERE_HAZE_COLOR_FN = /* glsl */ `
       uRayleighCoeff, uMieCoeff, uRayleighScaleHeight, uMieScaleHeight, uMieG,
       maxPath, transmittance
     );
-    return atmosphereTonemap(raw * uAtmosphereExposure);
+    return raw * uAtmosphereExposure;
   }
 
   /** Diffusion et extinction sur toute la traversee — pour un astre, hors de l'atmosphere. */

@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-25T21:25:36.501Z",
+  "recordedAt": "2026-08-25T22:21:18.673Z",
   "environment": {
     "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl2": true,
@@ -17,24 +17,24 @@
       "phase": "baseline",
       "measurements": {
         "1440x900": {
-          "msPerPass": 1.9833333333954215,
-          "nsPerPixel": 1.5303497942865907
+          "msPerPass": 2.5208333333333335,
+          "nsPerPixel": 1.9450874485596708
         },
         "720x450": {
-          "msPerPass": 0.4333333333488554,
-          "nsPerPixel": 1.3374485597186894
+          "msPerPass": 0.725000000015522,
+          "nsPerPixel": 2.2376543210355617
         },
         "360x225": {
-          "msPerPass": 0.10729166667442769,
-          "nsPerPixel": 1.3245884774620702
+          "msPerPass": 0.14375000000776103,
+          "nsPerPixel": 1.7746913581205064
         }
       },
-      "nsPerPixel": 1.5303497942865907,
+      "nsPerPixel": 1.9450874485596708,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 1.9833333333954215,
-        "1440x900@dpr2": 7.933333333581686,
-        "1920x1080@dpr2": 12.693333333730697
+        "1440x900@dpr1": 2.5208333333333335,
+        "1440x900@dpr2": 10.083333333333334,
+        "1920x1080@dpr2": 16.133333333333333
       }
     }
   },
@@ -44,34 +44,34 @@
       "sunAltitude": 64.5361320534411,
       "directions": {
         "zenith": [
-          64,
-          103,
-          133
+          67,
+          106,
+          137
         ],
         "vers-soleil-30": [
-          61,
-          122,
-          158
+          64,
+          124,
+          160
         ],
         "vers-soleil-horizon": [
-          157,
-          183,
-          189
+          158,
+          184,
+          190
         ],
         "perpendiculaire-30": [
-          26,
-          90,
-          128
+          30,
+          93,
+          131
         ],
         "antisoleil-30": [
-          18,
-          79,
-          114
+          22,
+          82,
+          118
         ],
         "antisoleil-horizon": [
-          133,
-          172,
-          181
+          135,
+          173,
+          183
         ]
       }
     },
@@ -80,14 +80,14 @@
       "sunAltitude": 35.727907095350375,
       "directions": {
         "zenith": [
-          18,
-          65,
-          96
+          23,
+          69,
+          102
         ],
         "vers-soleil-30": [
-          183,
-          193,
-          201
+          185,
+          194,
+          202
         ],
         "vers-soleil-horizon": [
           219,
@@ -95,19 +95,19 @@
           216
         ],
         "perpendiculaire-30": [
-          22,
-          82,
-          116
-        ],
-        "antisoleil-30": [
-          22,
+          28,
           86,
           121
         ],
+        "antisoleil-30": [
+          28,
+          89,
+          126
+        ],
         "antisoleil-horizon": [
-          155,
-          190,
-          195
+          157,
+          191,
+          196
         ]
       }
     },
@@ -116,34 +116,34 @@
       "sunAltitude": 9.34211536110358,
       "directions": {
         "zenith": [
-          14,
-          43,
-          61
+          18,
+          48,
+          68
         ],
         "vers-soleil-30": [
-          105,
-          131,
-          144
+          108,
+          134,
+          147
         ],
         "vers-soleil-horizon": [
           254,
-          250,
+          249,
           241
         ],
         "perpendiculaire-30": [
-          25,
-          67,
-          88
+          29,
+          71,
+          94
         ],
         "antisoleil-30": [
-          37,
-          93,
-          119
+          42,
+          96,
+          123
         ],
         "antisoleil-horizon": [
-          164,
-          181,
-          163
+          165,
+          182,
+          166
         ]
       }
     },
@@ -152,34 +152,34 @@
       "sunAltitude": -0.07186923330731076,
       "directions": {
         "zenith": [
-          14,
-          19,
-          23
+          17,
+          23,
+          29
         ],
         "vers-soleil-30": [
-          55,
-          53,
-          47
+          58,
+          57,
+          54
         ],
         "vers-soleil-horizon": [
           255,
           195,
-          18
+          0
         ],
         "perpendiculaire-30": [
-          24,
-          30,
-          31
+          28,
+          35,
+          38
         ],
         "antisoleil-30": [
-          38,
-          46,
-          43
+          41,
+          51,
+          50
         ],
         "antisoleil-horizon": [
-          91,
-          27,
-          18
+          95,
+          33,
+          0
         ]
       }
     },
@@ -194,12 +194,12 @@
         ],
         "vers-soleil-30": [
           5,
-          6,
-          13
+          7,
+          14
         ],
         "vers-soleil-horizon": [
-          20,
-          12,
+          25,
+          15,
           17
         ],
         "perpendiculaire-30": [
@@ -288,6 +288,27 @@
           5,
           6,
           15
+        ]
+      }
+    },
+    "disque-solaire": {
+      "time": "2026-06-21T12:00:00Z",
+      "sunAltitude": null,
+      "directions": {
+        "centre-disque": [
+          255,
+          255,
+          255
+        ],
+        "limbe": [
+          255,
+          255,
+          255
+        ],
+        "couronne": [
+          255,
+          255,
+          255
         ]
       }
     }

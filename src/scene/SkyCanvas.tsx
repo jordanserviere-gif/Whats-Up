@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
-import { Matrix4, NoToneMapping } from 'three'
+import { DisplayEffect } from './display/DisplayEffect'
+import { RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
+import { HalfFloatType, Matrix4, NoToneMapping } from 'three'
 import { BODIES } from '@/astro/bodies'
 import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
 import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
@@ -567,22 +569,40 @@ export function SkyCanvas() {
           <ConstellationLabels labels={constellationLabelData} host={labelHost} color={colors.constellationLabel} />
         )}
 
-        {/* Le tampon en virgule flottante laisse passer les valeurs superieures a
-            1 : c'est ce qui permet au Soleil, rendu a intensite 6, de deborder en
-            halo lumineux plutot que d'etre simplement ecrete au blanc. */}
-        {layers.bloom && (
-          // Le composeur rend hors ecran : l'antialiasing demande au contexte
-          // WebGL ne s'y applique pas, il faut le lui redemander. Sans cela les
-          // traits fins — grilles, figures, traces de satellites — sont
-          // rasterises en tout ou rien, et chaque pixel qu'ils traversent
-          // s'allume puis s'eteint des que le ciel tourne : le ciel scintille.
-          <EffectComposer multisampling={4}>
-            {/* Seuil a 1 : le ciel, ramene sous 1 par la courbe filmique, ne
-                deborde pas. Seules les vraies sources — le Soleil, rendu a
-                intensite 6 — alimentent le halo. */}
-            <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={1.2} radius={0.8} />
-          </EffectComposer>
-        )}
+        {/* Chaine d'affichage.
+
+            La scene emet desormais de la **radiance lineaire non bornee** : le
+            tone mapping ne vit plus dans les materiaux, il est applique une
+            seule fois ici. Le composeur est donc inconditionnel — son format de
+            tampon ne peut plus dependre d'un reglage d'interface — et rend en
+            demi-flottant pour que les valeurs superieures au blanc survivent
+            jusqu'a la passe d'affichage.
+
+            L'ordre compte : le bloom passe **avant** le transform d'affichage.
+            Un halo lumineux est un phenomene optique, il se produit sur la
+            lumiere et non sur des pixels deja compresses. Son seuil s'exprime
+            de ce fait en radiance — celle qui s'affiche exactement en blanc —
+            la ou l'ancien seuil de 1 se comparait a des valeurs deja ecretees,
+            ce qui interdisait structurellement au ciel de deborder quelle que
+            soit sa luminance reelle.
+
+            Le multisampling reste demande explicitement : le composeur rend
+            hors ecran, ou l'antialiasing du contexte WebGL ne s'applique pas.
+            Sans lui, les traits fins scintillent des que le ciel tourne. */}
+        <EffectComposer multisampling={4} frameBufferType={HalfFloatType}>
+          {layers.bloom ? (
+            <Bloom
+              mipmapBlur
+              luminanceThreshold={RADIANCE_AT_DISPLAY_WHITE}
+              luminanceSmoothing={0.15}
+              intensity={1.2}
+              radius={0.8}
+            />
+          ) : (
+            <></>
+          )}
+          <DisplayEffect />
+        </EffectComposer>
       </Canvas>
       <div className="sky-labels" ref={labelHost} aria-hidden="true" />
     </div>

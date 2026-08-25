@@ -147,9 +147,29 @@ const environment = await page.evaluate(() => {
 // 1. Cout GPU des noyaux
 // ---------------------------------------------------------------------------
 
+/**
+ * Page vierge, servie depuis l'origine du serveur de developpement.
+ *
+ * **Le banc doit tourner sans l'application.** Mesure dans l'onglet de la
+ * scene, il additionnait au noyau le cout de tout ce que l'application rend par
+ * ailleurs, a soixante images par seconde. Le chiffre montait alors avec la
+ * charge du rendu au lieu de decrire le noyau — c'est ce qui a produit une
+ * derive apparente de 79 % lors du passage a la chaine lineaire, alors que le
+ * code GLSL mesure n'avait pas change d'un caractere.
+ *
+ * L'origine doit rester celle du serveur pour que `import('/src/…')` passe par
+ * la transformation de Vite ; on intercepte donc une URL du serveur plutot que
+ * d'utiliser `about:blank`.
+ */
+const bench = await browser.newPage()
+await bench.route('**/__bench.html', (route) =>
+  route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>bench</title>' }),
+)
+await bench.goto(`${BASE}/__bench.html`)
+
 const kernels = {}
 for (const kernel of KERNELS) {
-  const result = await page.evaluate(
+  const result = await bench.evaluate(
     async ({ source }) => {
       const module = await import('/src/scene/atmosphere.ts')
       // eslint-disable-next-line no-new-func
@@ -292,6 +312,46 @@ async function readPixels(points) {
   )
 }
 
+/**
+ * Sonde du disque solaire.
+ *
+ * Le Soleil est la seule surface de la scene dont la valeur depasse largement
+ * le blanc : c'est donc elle qui revele si la chaine d'affichage conserve son
+ * ecretage et son debordement en halo. Aucune sonde de ciel ne peut le dire —
+ * elles echantillonnent toutes des valeurs sous le blanc.
+ */
+async function probeSunDisc() {
+  const aim = await page.evaluate(
+    ({ location }) => {
+      const store = window.__skyStore
+      store.setState({
+        time: new Date('2026-06-21T12:00:00Z').getTime(),
+        live: false,
+        playing: false,
+        location,
+        fov: 0.6,
+      })
+      return null
+    },
+    { location: PARIS },
+  ).then(async () => {
+    await page.waitForTimeout(500)
+    return page.evaluate(() => window.__bodyStates?.find((b) => b.id === 'sun')?.horizontal ?? null)
+  })
+
+  if (!aim) return null
+  await page.evaluate(({ azimuth, altitude }) => window.__skyStore.getState().lookAt(azimuth, altitude), aim)
+  // Le champ passe de 60° a 0,6° : la camera a une constante de temps, il faut
+  // lui laisser franchir les deux ordres de grandeur avant de lire un pixel.
+  await page.waitForTimeout(2600)
+
+  return readPixels([
+    { name: 'centre-disque', x: 0.5, y: 0.5 },
+    { name: 'limbe', x: 0.5, y: 0.34 },
+    { name: 'couronne', x: 0.5, y: 0.12 },
+  ])
+}
+
 const probes = {}
 for (const scenario of PROBE_SCENARIOS) {
   // Chaque direction est visee au centre de l'ecran : c'est la seule facon
@@ -329,6 +389,9 @@ for (const scenario of PROBE_SCENARIOS) {
   probes[scenario.name] = entry
 }
 
+const sunDisc = await probeSunDisc()
+if (sunDisc) probes['disque-solaire'] = { time: '2026-06-21T12:00:00Z', sunAltitude: null, directions: sunDisc }
+
 await browser.close()
 
 // ---------------------------------------------------------------------------
@@ -364,7 +427,10 @@ for (const [name, k] of Object.entries(kernels)) {
 
 console.log('\n--- Sondes de rendu (RGB au centre de l’ecran) ---')
 for (const [name, entry] of Object.entries(probes)) {
-  console.log(`\n${name}  (Soleil a ${entry.sunAltitude.toFixed(1)}°)`)
+  // La sonde du disque solaire n'a pas de hauteur associee : elle vise le
+  // Soleil, elle ne decrit pas une direction du ciel a un instant donne.
+  const when = entry.sunAltitude === null ? '' : `  (Soleil a ${entry.sunAltitude.toFixed(1)}°)`
+  console.log(`\n${name}${when}`)
   for (const [dir, rgb] of Object.entries(entry.directions)) {
     console.log(`  ${dir.padEnd(22)} ${rgb.map((v) => String(v).padStart(3)).join(' ')}`)
   }

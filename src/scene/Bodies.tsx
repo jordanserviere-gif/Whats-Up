@@ -18,16 +18,32 @@ import { bodyOrientation } from '@/astro/orientation'
 import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels } from '@/astro/photometry'
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
+import { DISPLAY_TONEMAP_GLSL, RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
 import {
   ATMOSPHERE_GLSL,
   ATMOSPHERE_HAZE_COLOR_FN,
-  ATMOSPHERE_TONEMAP_FN,
   ATMOSPHERE_UNIFORM_DECLARATIONS,
   applyAerosolTurbidity,
   atmosphereUniforms,
 } from './atmosphere'
 
 const DEG = Math.PI / 180
+
+/**
+ * Sur-eclat du disque solaire, en multiples de la radiance qui s'affiche en
+ * blanc.
+ *
+ * Le materiau rendait auparavant la valeur brute 6, dans un espace ou le blanc
+ * valait 1 : le Soleil y etait donc six fois au-dessus du blanc, ce qui le
+ * faisait ecreter a l'affichage et deborder en halo. Le tampon etant desormais
+ * lineaire, « six fois le blanc » se dit `6 × RADIANCE_AT_DISPLAY_WHITE`. La
+ * traduction preserve exactement le sens de l'ancienne constante.
+ *
+ * Ce n'est pas une grandeur physique — la phase 4 la remplacera par la vraie
+ * radiance solaire, qui depasse celle du ciel de plusieurs ordres de grandeur.
+ */
+const SUN_OVERBRIGHT = 6
+const SUN_GAIN = SUN_OVERBRIGHT * RADIANCE_AT_DISPLAY_WHITE
 
 /** Taille monde d'un objet devant occuper `pixels` a l'ecran, a la distance `depth`. */
 function worldSizeForPixels(pixels: number, camera: PerspectiveCamera, viewportHeight: number, depth: number): number {
@@ -81,7 +97,7 @@ function bodyMaterial() {
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
-      ${ATMOSPHERE_TONEMAP_FN}
+      ${DISPLAY_TONEMAP_GLSL}
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec3 vNormal;
       varying vec3 vViewDir;
@@ -153,7 +169,12 @@ function bodyMaterial() {
         //   le halo — la, l'objet est une source ponctuelle, pas une surface.
         vec3 transmittance;
         vec3 haze = hazeColorAlong(normalize(vDir), transmittance);
-        gl_FragColor = vec4(col * transmittance + haze, 1.0);
+        // La couleur du disque est encore en espace d'affichage : albedo de carte multiplie
+        // par un eclairement sans unite. On la remonte en radiance pour que le
+        // produit par la transmittance et la somme avec le voile se fassent
+        // dans le meme espace — ce que l'ancienne chaine ne pouvait pas faire,
+        // et reconnaissait comme une approximation.
+        gl_FragColor = vec4(radianceFromDisplay(col) * transmittance + haze, 1.0);
       }
     `,
   })
@@ -171,7 +192,7 @@ function sunMaterial() {
   return new ShaderMaterial({
     uniforms: {
       uTint: { value: new Vector3(1, 1, 1) },
-      uGain: { value: 6 },
+      uGain: { value: SUN_GAIN },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -219,6 +240,7 @@ function glowMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
+      ${DISPLAY_TONEMAP_GLSL}
       varying vec2 vUv;
       uniform vec3 uColor;
       uniform float uOpacity;
@@ -229,7 +251,7 @@ function glowMaterial() {
         if (r > 1.0) discard;
         float core = smoothstep(uCore, 0.0, r);
         float halo = pow(max(0.0, 1.0 - r), uFalloff);
-        gl_FragColor = vec4(uColor, (core * 0.85 + halo) * uOpacity);
+        gl_FragColor = vec4(radianceFromDisplay(uColor), (core * 0.85 + halo) * uOpacity);
       }
     `,
   })
@@ -263,6 +285,7 @@ function selectionMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
+      ${DISPLAY_TONEMAP_GLSL}
       varying vec2 vUv;
       uniform vec3 uColor;
       uniform float uOpacity;
@@ -275,7 +298,7 @@ function selectionMaterial() {
         // crenele des qu'il devient fin.
         float feather = max(0.004, uThickness * 0.35);
         float a = smoothstep(1.0, 1.0 - feather, r) * smoothstep(inner, inner + feather, r);
-        gl_FragColor = vec4(uColor, a * uOpacity);
+        gl_FragColor = vec4(radianceFromDisplay(uColor), a * uOpacity);
       }
     `,
   })
@@ -365,7 +388,7 @@ function Body({
       // Un Soleil haut est blanc et eblouissant ; c'est l'extinction qui le
       // rougit et l'affaiblit quand il descend, comme dans le ciel.
       ;(surface.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-      surface.uniforms.uGain.value = 6 * Math.pow(10, -0.4 * extinction * 0.5)
+      surface.uniforms.uGain.value = SUN_GAIN * Math.pow(10, -0.4 * extinction * 0.5)
     } else {
       const sd = equatorialDirectionToScene(state.sunDirectionEq, date, location, scratch.current)
       ;(surface.uniforms.uBodySunDir.value as Vector3).set(sd[0], sd[1], sd[2])
@@ -528,6 +551,7 @@ function SaturnRings({
           }
         `,
         fragmentShader: /* glsl */ `
+          ${DISPLAY_TONEMAP_GLSL}
           varying vec3 vLocal;
           uniform sampler2D uMap;
           uniform float uHasMap;
@@ -543,7 +567,7 @@ function SaturnRings({
             float t = clamp((r - uInner) / (uOuter - uInner), 0.0, 1.0);
             vec4 sampled = uHasMap > 0.5 ? texture2D(uMap, vec2(t, 0.5)) : vec4(uColor, 0.85);
             if (sampled.a < 0.01) discard;
-            gl_FragColor = vec4(sampled.rgb * uTint * uBrightness, sampled.a);
+            gl_FragColor = vec4(radianceFromDisplay(sampled.rgb * uTint * uBrightness), sampled.a);
           }
         `,
       }),

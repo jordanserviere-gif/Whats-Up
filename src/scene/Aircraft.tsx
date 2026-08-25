@@ -16,10 +16,10 @@ import {
 import { getAircraftHistory } from '@/state/aircraftFeed'
 import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
+import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import {
   ATMOSPHERE_GLSL,
   ATMOSPHERE_HAZE_COLOR_FN,
-  ATMOSPHERE_TONEMAP_FN,
   ATMOSPHERE_UNIFORM_DECLARATIONS,
   applyAerosolTurbidity,
   atmosphereUniforms,
@@ -111,7 +111,7 @@ function aircraftMaterial() {
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
-      ${ATMOSPHERE_TONEMAP_FN}
+      ${DISPLAY_TONEMAP_GLSL}
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec3 vView;
       uniform vec3 uColor;
@@ -120,7 +120,7 @@ function aircraftMaterial() {
       void main() {
         vec3 transmittance;
         vec3 haze = hazeColorTo(vView, uRangeM, transmittance);
-        gl_FragColor = vec4(uColor * transmittance + haze, uOpacity);
+        gl_FragColor = vec4(radianceFromDisplay(uColor) * transmittance + haze, uOpacity);
       }
     `,
   })
@@ -252,7 +252,7 @@ function contrailMaterial() {
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
       ${ATMOSPHERE_UNIFORM_DECLARATIONS}
-      ${ATMOSPHERE_TONEMAP_FN}
+      ${DISPLAY_TONEMAP_GLSL}
       ${ATMOSPHERE_HAZE_COLOR_FN}
       varying vec2 vUv;
       varying vec3 vView;
@@ -285,7 +285,7 @@ function contrailMaterial() {
         // s'eloignant ce que l'air leur prend.
         vec3 transmittance;
         vec3 haze = hazeColorTo(vView, uRangeM, transmittance);
-        gl_FragColor = vec4(uColor * transmittance + haze, min(alpha, 0.85));
+        gl_FragColor = vec4(radianceFromDisplay(uColor) * transmittance + haze, min(alpha, 0.85));
       }
     `,
   })

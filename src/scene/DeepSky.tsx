@@ -20,6 +20,7 @@ import {
   skySurfaceBrightness,
 } from '@/astro/photometry'
 import type { GeoLocation } from '@/astro/types'
+import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 
 const DEG = Math.PI / 180
@@ -177,6 +178,7 @@ export function DeepSky({
         }
       `,
       fragmentShader: /* glsl */ `
+        ${DISPLAY_TONEMAP_GLSL}
         varying vec2 vUv;
         varying vec3 vColor;
         varying float vSemiMajor;
@@ -230,7 +232,7 @@ export function DeepSky({
           float falloff = (core + halo) * (1.0 - smoothstep(0.8, 1.0, d));
           float alpha = falloff * opacity;
           if (alpha < 0.004) discard;
-          gl_FragColor = vec4(vColor, alpha);
+          gl_FragColor = vec4(radianceFromDisplay(vColor), alpha);
         }
       `,
     })

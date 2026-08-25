@@ -9,6 +9,7 @@ import {
   POINT_VISIBILITY_FADE_END,
   POINT_VISIBILITY_FADE_START,
 } from '@/astro/photometry'
+import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 import type { GeoLocation } from '@/astro/types'
 
@@ -116,6 +117,7 @@ export function Starfield({
           }
         `,
         fragmentShader: /* glsl */ `
+          ${DISPLAY_TONEMAP_GLSL}
           varying vec3 vColor;
           varying float vIntensity;
           void main() {
@@ -127,7 +129,7 @@ export function Starfield({
             float halo = exp(-r * r * 1.6) * 0.35;
             float alpha = (core + halo) * vIntensity;
             if (alpha < 0.004) discard;
-            gl_FragColor = vec4(vColor, alpha);
+            gl_FragColor = vec4(radianceFromDisplay(vColor), alpha);
           }
         `,
       }),
