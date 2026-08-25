@@ -52,7 +52,7 @@ aucune réorganisation.
 | **1** | État atmosphérique + thermodynamique | **VALIDATED** | US1976 à 4,4·10⁻⁵ des tables |
 | **0.5** | Passe d'affichage HDR linéaire | **TODO** | ⚠️ prérequis de la phase 4 |
 | **2** | Base spectrale (`SpectralGrid`, `SolarSpectrum`, `SpectralSensor`) | **VALIDATED** | données acquises et commitées ; invariance à la résolution vérifiée |
-| **3** | Rayleigh physique | **TODO** | cible chiffrée posée : transmission zénithale 90,2 % |
+| **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
 | **4** | Soleil direct + extinction | **TODO** | dépend de 0.5 |
 | **5** | Single scattering | **TODO** | |
 | **6** | Aérosols + Mie | **TODO** | précalcul hors ligne |
@@ -249,6 +249,79 @@ les attendus sont aussi faillibles que le code.
 
 ---
 
+## Phase 3 — Rayleigh physique · VALIDATED
+
+### Livré
+
+- `rayleigh/standardAir.ts` — indice de Peck & Reeder (1972), facteur de King et
+  dépolarisation par composition (Bodhaine 1999).
+- `rayleigh/rayleigh.ts` — section efficace, coefficient de diffusion, fonction
+  de phase dépolarisée, colonne moléculaire, épaisseur optique, transmittance
+  spectrale.
+
+### Résultats
+
+| Grandeur | Obtenue | Référence |
+| --- | --- | --- |
+| n(550 nm) − 1 | 2,7782·10⁻⁴ | 2,7782·10⁻⁴ |
+| Facteur de King F(550) | 1,0488 | ~1,0484 |
+| Dépolarisation ρ(550) | 0,02832 | 0,027–0,030 |
+| σ(550 nm) | 4,510·10⁻³¹ m² | — |
+| **τ_R(550 nm), niveau de la mer** | **0,09711** | **0,0973** (Bodhaine) |
+| β(550 nm), niveau de la mer | 1,149·10⁻⁵ m⁻¹ | — |
+| Exposant spectral effectif | 4,095 | ~4,09 |
+
+### La cible de la phase 2 est atteinte
+
+| Chemin | Éclairement, Soleil au zénith |
+| --- | --- |
+| Spectre ASTM G173 → CMF CIE → luminance | **133,1 klx** hors atmosphère |
+| … × transmittance Rayleigh | **120,9 klx** au sol |
+| `astro/photometry.ts` | **120 klx** au sol |
+
+**0,7 % d'écart entre deux chaînes qui ne partagent aucune ligne de code.**
+Transmission obtenue 90,81 % (photopique) contre 90,2 % visés — cible écrite
+avant l'existence du module.
+
+L'écart résiduel est attendu et a un nom : il manque l'ozone (phase 7) et les
+aérosols (phase 6). Le Rayleigh seul devait transmettre *un peu plus* que la
+réalité.
+
+### Contrôles sans référence externe
+
+- Fonction de phase normalisée sur la sphère : écart 10⁻¹⁵ (forme idéalisée
+  **et** forme dépolarisée).
+- Colonne moléculaire vs équilibre hydrostatique `P₀·N_A/(M·g₀)` : 2,3·10⁻³ —
+  **recoupement direct entre les phases 1 et 3**.
+- `β ∝ N(z)` exactement (10⁻¹²) : la section efficace ne dépend pas de
+  l'altitude, sous peine de compter deux fois la densité.
+- τ au Pic du Midi proportionnel au rapport de pression : 7,9·10⁻⁴.
+
+### Émergence obtenue
+
+À masse d'air 38, la transmittance vaut **0,00 % dans le bleu et 46,7 % dans le
+rouge**. Le rougissement du Soleil couchant sort de Beer-Lambert appliqué à une
+section efficace en λ⁻⁴·⁰⁹⁵ — aucune couleur n'est écrite nulle part.
+
+De même, `σ(450)/σ(650) = 4,50` : le ciel bleu, sans qu'aucun bleu n'apparaisse
+dans le code.
+
+### Correction apportée à l'audit
+
+L'audit annonçait `β_R(550 nm) ≈ 1,35·10⁻⁵ m⁻¹` comme valeur de référence. Le
+calcul depuis Bodhaine donne **1,149·10⁻⁵**. La valeur de l'audit était erronée,
+vraisemblablement contaminée par la constante de rendu `13,0·10⁻⁶` du shader
+actuel. `docs/atmosphere-engine-audit.md` est corrigé.
+
+### Ce que cela dit du rendu actuel
+
+Le shader code `[5,5 · 13,0 · 22,4]·10⁻⁶ m⁻¹` en dur. La valeur physique pour le
+vert est 1,149·10⁻⁵ : **le rendu surestime la diffusion moléculaire d'environ
+13 %**, et ne la fait dépendre ni de la composition, ni de l'altitude de
+l'observateur, ni de l'état de l'atmosphère.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -256,3 +329,4 @@ les attendus sont aussi faillibles que le code.
 | 2026-08-25 | Audit d'intégration — verdict **GO WITH REFACTOR** |
 | 2026-08-25 | Phases 0 et 1 — baseline GPU et sondes committées |
 | 2026-08-25 | Phase 2 — base spectrale ; données CIE et solaires acquises ; **222 contrôles, aucun échec** |
+| 2026-08-25 | Phase 3 — Rayleigh ; cible de la phase 2 atteinte à 0,7 % ; **249 contrôles, aucun échec** |

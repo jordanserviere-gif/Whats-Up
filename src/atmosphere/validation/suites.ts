@@ -17,6 +17,7 @@ import {
   solarSpectrumSuite,
   spectralGridSuite,
 } from '../spectral/spectral.validation'
+import { rayleighSuite } from '../rayleigh/rayleigh.validation'
 import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
@@ -37,5 +38,7 @@ export function allSuites(): SuiteResult[] {
     sensorSuite(),
     blackbodySuite(),
     solarSpectrumSuite(),
+    // Phase 3 — diffusion moleculaire.
+    rayleighSuite(),
   ]
 }

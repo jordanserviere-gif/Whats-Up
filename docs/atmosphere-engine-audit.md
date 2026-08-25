@@ -693,7 +693,7 @@ testable sans GPU — c'est déjà le cas de `photometry.ts`.
 | | dépendance à P (linéaire), à T (∝1/T) | analytique | 1 % |
 | | dispersion n(400)−n(700) | Ciddor | 1·10⁻⁷ |
 | | effet de l'humidité (signe et ordre) | Ciddor | qualitatif + ordre |
-| **Rayleigh** | β_R(550 nm) au niveau de la mer | ~1,35·10⁻⁵ m⁻¹ (Bodhaine 1999) | 2 % |
+| **Rayleigh** | β_R(550 nm) au niveau de la mer | **1,149·10⁻⁵ m⁻¹** (calcule depuis Bodhaine 1999 — la valeur de ~1,35·10⁻⁵ annoncee ici en premiere redaction etait erronee, contaminee par la constante de rendu 13,0·10⁻⁶) | 2 % |
 | | exposant spectral effectif 400→700 nm | ≈ −4,09 | 0,05 |
 | | profondeur optique zénithale à 550 nm | ≈ 0,097 | 3 % |
 | | normalisation de la phase : ∮p dΩ = 1 | analytique | 1·10⁻⁶ |

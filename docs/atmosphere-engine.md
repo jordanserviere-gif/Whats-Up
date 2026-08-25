@@ -431,6 +431,110 @@ plus bas.
 
 ---
 
+### `rayleigh/standardAir.ts`
+
+**Rôle.** Indice de réfraction et facteur de King de l'air standard — les deux
+grandeurs optiques qui entrent dans la section efficace de Rayleigh.
+
+**Modèles.** Peck & Reeder (1972) pour la dispersion de l'air sec standard
+(15 °C, 101 325 Pa) ; Bodhaine et al. (1999) pour le facteur de King pondéré par
+la composition et pour la correction de l'indice à la teneur en CO₂.
+
+```
+(n − 1)·10⁸ = 8060,51 + 2480990/(132,274 − σ²) + 17455,7/(39,32957 − σ²)     σ = 1/λ_µm
+
+F_air = (78,084·F_N2 + 20,946·F_O2 + 0,934·F_Ar + C·F_CO2) / (78,084 + 20,946 + 0,934 + C)
+F_N2 = 1,034 + 3,17·10⁻⁴σ²      F_O2 = 1,096 + 1,385·10⁻³σ² + 1,448·10⁻⁴σ⁴
+```
+
+**Le point qui compte : « standard » n'est pas « approché ».** L'indice calculé
+ici est celui de l'air à 15 °C et 101 325 Pa, et ce n'est *pas* une
+approximation. La section efficace de Rayleigh est une propriété **moléculaire**,
+et la combinaison `(n²−1)/N` qui y intervient est quasi indépendante de la
+densité (Lorentz-Lorenz). Évaluer `n` et `N` aux mêmes conditions de référence
+donne donc la bonne section efficace partout dans l'atmosphère.
+
+L'indice **local** — celui qui courbe les rayons, qui dépend de P, T et de
+l'humidité — est un autre objet, et il arrive à la phase 10 (Ciddor). Les
+confondre serait une erreur de nature, pas de précision.
+
+**Le facteur de King n'est pas un détail.** Il vaudrait 1 pour des molécules
+sphériques ; l'air étant diatomique il vaut **1,0488** à 550 nm. **La diffusion
+Rayleigh réelle est donc près de 5 % plus forte** que ce que donne le modèle
+idéalisé.
+
+**Résultats.**
+
+| Grandeur | Obtenue | Publiée |
+| --- | --- | --- |
+| n(550 nm) − 1 | 2,7782·10⁻⁴ | 2,7782·10⁻⁴ |
+| Facteur de King F(550) | 1,0488 | ~1,0484 |
+| Dépolarisation ρ(550) | 0,02832 | 0,027–0,030 |
+
+---
+
+### `rayleigh/rayleigh.ts`
+
+**Rôle.** Section efficace, coefficient de diffusion, fonction de phase,
+épaisseur optique. **Le premier phénomène optique réel du moteur, et celui d'où
+sort la couleur du ciel.**
+
+**Équation.** Bodhaine et al. (1999), eq. 2 :
+
+```
+σ(λ) = 24π³ (n² − 1)² / (λ⁴ N_s² (n² + 2)²) × F(air, λ)
+β(λ, z) = σ(λ) · N(z)              [m⁻¹]
+τ(λ)    = σ(λ) · ∫N dz
+```
+
+**Rien ici ne mentionne le bleu.** La section efficace décroît en λ⁻⁴ parce que
+c'est ce que donne le calcul ; le ciel est bleu en conséquence.
+
+**λ⁻⁴, mais pas exactement.** L'indice et le facteur de King dépendent eux aussi
+de λ. L'exposant effectif **mesuré** sur le visible vaut **4,095**, pas 4.
+L'architecture ne suppose nulle part une loi de puissance : elle évalue la
+formule complète, et l'exposant est une grandeur mesurée par la validation, pas
+une entrée.
+
+**Séparation précalcul / runtime.** `σ(λ)` est moléculaire : elle ne dépend ni de
+l'altitude, ni de P, ni de T. Elle se tabule une fois pour toutes. `N(z)` vient
+de la phase 1. Leur produit ne se recalcule pour rien. C'est la première
+occasion concrète du moteur de séparer ce qui se met en cache de ce qui doit
+être runtime.
+
+**Fonction de phase, avec dépolarisation** — pas la forme idéalisée :
+
+```
+p(θ) = 3 / (16π(1 + 2γ)) · [(1 + 3γ) + (1 − γ)cos²θ]        γ = ρ/(2 − ρ)
+```
+
+La dépolarisation **remonte le minimum à 90°** : `p(0°)/p(90°)` vaut 1,945 au
+lieu de 2. C'est mesurable — la lumière du ciel à 90° du Soleil n'est jamais
+totalement polarisée — et c'est une des rares corrections de quelques pour cent
+qui change une propriété *qualitative* plutôt qu'une intensité.
+
+**Fréquence.** `σ` : une fois. `β` : par échantillon, mais c'est une
+multiplication. `τ` zénithale : une intégration de colonne, indépendante de λ,
+donc une seule pour tout le spectre.
+
+**Résultats.**
+
+| Grandeur | Valeur |
+| --- | --- |
+| σ(550 nm) | 4,510·10⁻³¹ m² (4,510·10⁻²⁷ cm²) |
+| **τ_R(550 nm), niveau de la mer** | **0,09711** (Bodhaine : 0,0973) |
+| β(550 nm), niveau de la mer | **1,149·10⁻⁵ m⁻¹** |
+| Exposant spectral effectif | 4,095 |
+| σ(450)/σ(650) | 4,50 |
+| τ_R(550) au Pic du Midi (2 877 m) | 0,0683 — 30 % de colonne en moins |
+
+> **Le rendu actuel code `13,0·10⁻⁶ m⁻¹` en dur pour le vert.** La valeur
+> physique est 1,149·10⁻⁵ — le rendu surestime la diffusion moléculaire
+> d'environ 13 %, et ne la fait dépendre ni de l'état de l'atmosphère ni de
+> l'altitude de l'observateur.
+
+---
+
 ### `validation/harness.ts`
 
 **Rôle.** Harnais de validation numérique, sans renderer, sans DOM, sans GPU.
@@ -469,7 +573,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 222 contrôles, 9 suites, aucun échec.**
+**État : 249 contrôles, 10 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -585,4 +689,37 @@ son spectre est creusé de raies de Fraunhofer.
 
 ---
 
-*Dernière mise à jour : phases 0, 1 et 2 validées.*
+## Le raccord se referme — phase 3
+
+La cible posée en phase 2 était : **retrouver 90,2 % de transmission zénithale à
+partir du Rayleigh seul**. Elle a été écrite avant que le module n'existe.
+
+| Chemin | Éclairement, Soleil au zénith |
+| --- | --- |
+| Spectre ASTM G173 → CMF CIE → luminance | **133,1 klx** hors atmosphère |
+| … × transmittance Rayleigh (Bodhaine + US1976) | **120,9 klx** au sol |
+| `astro/photometry.ts`, paliers tabulés depuis la littérature des crépuscules | **120 klx** au sol |
+
+**0,7 % d'écart entre deux chaînes de calcul qui ne partagent aucune ligne de
+code.** L'une part d'un spectre solaire mesuré et des fonctions colorimétriques
+CIE ; l'autre de paliers d'éclairement relevés dans la littérature. Elles se
+rejoignent à travers une extinction calculée depuis la théorie de Rayleigh et un
+profil de densité hydrostatique.
+
+Transmission obtenue : **90,81 %** en pondération photopique (90,75 % à 550 nm
+seul) contre 90,2 % visés.
+
+L'écart résiduel est attendu et a un nom : il manque encore l'**ozone**
+(phase 7) et les **aérosols** (phase 6), qui retirent tous deux de la lumière.
+Le Rayleigh seul devait donc transmettre *un peu plus* que la réalité — c'est ce
+qu'on observe.
+
+### Et le coucher de Soleil, sans code dédié
+
+À masse d'air 38 (Soleil à l'horizon), la transmittance Rayleigh vaut **0,00 %
+dans le bleu et 46,7 % dans le rouge**. Aucune couleur n'est écrite nulle part :
+c'est Beer-Lambert appliqué à une section efficace en λ⁻⁴·⁰⁹⁵.
+
+---
+
+*Dernière mise à jour : phases 0 à 3 validées.*
