@@ -43,6 +43,7 @@ import { AIRGLOW_LUX } from '@/astro/photometry'
 import { sunDiscTint } from '@/atmosphere/transport/directSolar'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
+import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
 import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
@@ -177,11 +178,31 @@ export function SkyCanvas() {
    * s'eteignent exactement au meme rythme pendant une eclipse ou en vue
    * depuis l'espace plutot que de deriver chacun de son cote.
    */
+/**
+   * Attenuation due a une eclipse, partagee par les deux echelles d'exposition.
+   *
+   * Le plancher de 8·10⁻⁴ represente l'atmosphere eclairee hors de l'ombre :
+   * pendant la totalite le ciel devient crepusculaire, pas noir. C'est une
+   * approximation — la vraie luminance sous l'ombre vient d'un transport
+   * horizontal depuis la penombre, hors de portee d'un modele a symetrie de
+   * revolution.
+   */
+  const eclipseDimming = Math.sqrt(1 - sky.obscuration + 8e-4 * sky.obscuration)
+
   const atmosphereExposure = useMemo(() => {
     if (!layers.atmosphere) return 0
-    const eclipse = Math.pow(1 - sky.obscuration + 8e-4 * sky.obscuration, 0.5)
-    return 0.3 * eclipse
-  }, [layers.atmosphere, sky.obscuration])
+    return 0.3 * eclipseDimming
+  }, [layers.atmosphere, eclipseDimming])
+
+  /**
+   * Exposition d'affichage du ciel physique — voir `display/exposure.ts`.
+   *
+   * Elle porte la radiance reelle de la table de ciel dans l'espace du
+   * transform d'affichage. Distincte de `atmosphereExposure`, qui reste une
+   * constante de calibrage de l'ancien noyau : les deux echelles coexistent le
+   * temps que les corps et les avions passent au meme transport (phase 9).
+   */
+  const skyExposure = layers.atmosphere ? SKY_DISPLAY_EXPOSURE * eclipseDimming : 0
 
   /**
    * Intensite d'affichage du halo urbain.
@@ -218,6 +239,7 @@ export function SkyCanvas() {
    * nuit, comme les feux de position dans la vraie vie.
    */
   const dayFactor = Math.min(1, Math.max(0.12, (sky.sunAltitude + 6) / 6))
+
 
   /**
    * Direction du Soleil dans le repere de la scene.
@@ -504,7 +526,9 @@ export function SkyCanvas() {
         <CameraRig canvas={host} onPick={onPick} />
 
         <SkyBackground
-          atmosphereExposure={atmosphereExposure}
+          skyExposure={skyExposure}
+          observerElevationM={location.elevation}
+          atmosphereEnabled={layers.atmosphere}
           sunAltitude={sky.sunAltitude}
           sunAzimuth={sky.sunAzimuth}
           moonAltitude={layers.atmosphere ? sky.moonAltitude : -90}
@@ -512,7 +536,6 @@ export function SkyCanvas() {
           lunarLux={layers.atmosphere ? sky.lunarLux : 0}
           nightColor={colors.skyZenith}
           moonGlowColor={colors.moonGlow}
-          aerosolTurbidity={aerosolTurbidity}
           pollutionGain={pollutionGain}
           pollutionColor={LIGHT_POLLUTION_TINT ?? NEUTRAL_GLOW}
         />

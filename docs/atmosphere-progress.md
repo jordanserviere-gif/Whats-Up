@@ -54,7 +54,7 @@ aucune réorganisation.
 | **2** | Base spectrale (`SpectralGrid`, `SolarSpectrum`, `SpectralSensor`) | **VALIDATED** | données acquises et commitées ; invariance à la résolution vérifiée |
 | **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
 | **4** | Soleil direct + extinction | **VALIDATED** | 3 paliers de `photometry.ts` retrouvés à < 2 % |
-| **5** | Single scattering | **VALIDATED** | déficit comblé (−4 % à 5°) · solveur de référence, pas encore au rendu |
+| **5** | Single scattering | **VALIDATED** | déficit comblé (−4 % à 5°) · **au rendu** via la table de ciel |
 | **6** | Aérosols + Mie | **TODO** | cible : retirer une part du dépassement de +5 à +35 % |
 | **7** | Absorption atmosphérique | **TODO** | cible : crépuscule ×2,8 trop clair et zénith pas assez bleu |
 | **8** | Multiple scattering | **TODO** | cible : réparer le crépuscule mort |
@@ -607,6 +607,81 @@ conséquent bien plus court que je ne l'avais écrit.
 
 ---
 
+## Infrastructure — table de ciel · VALIDATED
+
+Le ciel physique arrive à l'écran. Le nuanceur du fond de ciel n'intègre plus
+aucun rayon : il échantillonne une table calculée par le solveur des phases 1
+à 5, téléversée en `DataTexture`. **Aucun render target n'a été nécessaire.**
+
+### Livré
+
+- `atmosphere/lut/skyViewLut.ts` — construction par direction, remplissage par
+  tranches de lignes, accesseur TS et GLSL.
+- `scene/useSkyViewLut.ts` — texture tenue à jour, construction étalée.
+- `scene/display/exposure.ts` — l'ancrage entre luminance réelle et pixel.
+- `scene/SkyBackground.tsx` — le matériau échantillonne au lieu d'intégrer.
+
+### Mesures
+
+| Grandeur | Valeur |
+| --- | --- |
+| Table | 64 × 32, RGBA flottant, 32 ko |
+| Construction | ~40 ms, étalée sur 8 images |
+| Erreur max | **3 niveaux sur 255** |
+| p95 en temps réel | 16,8 ms |
+| p95 à ×3600 | 50,0 → **16,8 ms** |
+| p95 à ×86400 | **16,8 ms** |
+
+### Deux décisions de mesure
+
+**L'erreur est mesurée en niveaux d'affichage, pas en relatif.** Au bord de
+l'ombre terrestre, l'erreur relative atteint plusieurs centaines de pour cent :
+une interpolation ne peut pas représenter une discontinuité. En niveaux, elle
+vaut 3 sur 255 — parce que les deux valeurs y sont sombres, et que c'est ce que
+l'œil voit. Mes premières mesures annonçaient 18 à 60 niveaux : elles avaient
+été prises à une exposition d'essai qui écrêtait le ciel.
+
+**Le hoquet a été supprimé sans rogner sur la physique.** Réduire à 8 bandes
+aurait fait gagner la moitié du coût pour 10 niveaux d'écart. Étaler la
+construction sur huit images le supprime entièrement, à 16 bandes.
+
+### L'exposition : un choix documenté, pas de la physique
+
+| Ancrage | Blanc à | Statut |
+| --- | --- | --- |
+| Photographique (0,9 sous 120 klx) | 34 377 cd/m² | probablement l'avenir |
+| **Continuité** (zénith de midi inchangé) | **86 302 cd/m²** | **retenu** |
+
+Cette étape change le modèle du ciel ; y mêler un changement d'exposition
+rendrait les deux impossibles à juger séparément. Le rendu actuel est 2,5× plus
+sombre que la convention photographique.
+
+### Une erreur d'intégration instructive
+
+`useSkyViewLut` utilise `useFrame`, et je l'avais appelé depuis `SkyCanvas` —
+**en dehors du `<Canvas>`**. React Three Fiber refuse ses hooks hors du canevas,
+et le composant entier crashait : toutes les sondes rendaient un blanc uniforme
+qui était la page, pas le ciel. Le correctif est aussi une meilleure conception —
+le matériau du ciel possède la table qu'il échantillonne.
+
+### Ce que l'image montre
+
+Midi : dégradé bleu propre, blanchissant vers l'horizon. Coucher : bande orange
+à l'horizon, **ciel moyen gris-olive**.
+
+Ce vert-olive n'est pas un défaut : c'est le diagnostic de la phase 5 devenu
+visible. Sans ozone, la lumière rougie par une longue colonne horizontale
+diffuse ensuite en Rayleigh, qui favorise le bleu — rouge × bleu ≈ neutre. C'est
+le résultat de Hulburt (1953). Cible chiffrée **et** visuelle pour la phase 7.
+
+### Dette
+
+Les corps et les avions gardent l'ancien noyau : **le ciel et le voile des objets
+suivent deux modèles différents**, et un astre bas ne se fond plus exactement
+dans le ciel. Se solde à la phase 9.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -619,3 +694,4 @@ conséquent bien plus court que je ne l'avais écrit.
 | 2026-08-26 | Phase 4 — Soleil direct ; paliers de photometry.ts retrouvés à < 2 % ; banc GPU corrigé (−90 % sur les chiffres publiés) ; **305 contrôles** |
 | 2026-08-26 | Phase 5 — diffusion simple ; déficit de 44 % comblé ; ciel bleu, arche crépusculaire et ombre terrestre émergents ; **329 contrôles** |
 | 2026-08-26 | Table de colonne moléculaire ; solveur ×4 ; LUT de ciel ramenée à 34 ms ; chiffres de la phase 5 corrigés ; **359 contrôles** |
+| 2026-08-26 | Table de ciel ; **le ciel physique est à l'écran** ; construction étalée, p95 inchangé à ×86400 ; **379 contrôles** |

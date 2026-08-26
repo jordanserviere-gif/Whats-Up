@@ -21,6 +21,7 @@ import { rayleighSuite } from '../rayleigh/rayleigh.validation'
 import { directSolarSuite, slantPathSuite } from '../transport/directSolar.validation'
 import { singleScatteringSuite } from '../transport/singleScattering.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
+import { skyViewLutSuite } from '../lut/skyViewLut.validation'
 import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
@@ -53,5 +54,6 @@ export function allSuites(): SuiteResult[] {
     singleScatteringSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
+    skyViewLutSuite(),
   ]
 }

@@ -709,6 +709,84 @@ pas de sens près de zéro), cohérence avec le solveur de référence, monotoni
 
 ---
 
+### `lut/skyViewLut.ts` et `scene/useSkyViewLut.ts`
+
+**Rôle.** La radiance du ciel, précalculée par direction et livrée au rendu
+comme texture. **Le nuanceur du fond de ciel n'intègre plus rien : il
+échantillonne.**
+
+**La symétrie qui divise le travail par deux.** L'atmosphère est à symétrie de
+révolution et les rayons solaires sont parallèles : le ciel est donc
+*exactement* symétrique par rapport au plan vertical contenant le Soleil. Ne
+stocker que 0–180° d'azimut relatif n'est pas une approximation mais une
+conséquence du modèle. Elle cessera d'être exacte en phase 13.
+
+**Paramétrisation.** `u` = azimut relatif / 180°, `v = √(hauteur/90°)`. Le carré
+concentre les lignes près de l'horizon : la première ligne d'une table de 32
+tombe à **0,094°**, là où un maillage uniforme la placerait à 2,9° — au-dessus
+de toute l'arche crépusculaire.
+
+**Construction étalée.** Les 2 048 directions coûtent ~40 ms d'un trait :
+imperceptible une fois par minute en temps réel, mais un hoquet net en avance
+rapide (p95 mesuré à 50 ms). Le travail est donc réparti sur plusieurs images,
+quatre lignes à la fois, dans un tampon séparé — la texture ne change qu'une
+fois la table complète, donc sans déchirure.
+
+| Régime | p95 avant | p95 après |
+| --- | --- | --- |
+| Temps réel | 16,8 ms | **16,8 ms** |
+| ×3600 | 50,0 ms | **16,8 ms** |
+| ×86400 | — | **16,8 ms** |
+
+**Erreur mesurée en niveaux d'affichage, pas en relatif.** La distinction n'est
+pas rhétorique : au bord de l'ombre terrestre, l'erreur *relative* atteint
+plusieurs centaines de pour cent — l'interpolation ne peut pas représenter une
+discontinuité. En niveaux, elle vaut **3 sur 255**, parce que les deux valeurs y
+sont sombres et que c'est ce que l'œil voit.
+
+| Grandeur | Valeur |
+| --- | --- |
+| Table | 64 × 32, RGBA flottant, **32 ko** |
+| Construction | ~40 ms, étalée sur 8 images |
+| Erreur max | **3 niveaux sur 255** |
+| Reconstruction | quand le Soleil bouge de 0,25° |
+
+> **Format.** Flottant simple avec filtrage linéaire — `OES_texture_float_linear`,
+> présent sur la machine de référence. **Sur mobile, le demi-flottant serait le
+> format sûr**, à prévoir avant tout déploiement iOS.
+
+---
+
+### `scene/display/exposure.ts`
+
+**Rôle.** Le pont entre une luminance réelle et un pixel.
+
+Le moteur produit désormais des luminances : le ciel de midi avoisine
+1 200 cd/m². Il faut décider laquelle s'affiche en blanc, et **cette décision
+n'est pas de la physique — c'est de la photographie.**
+
+**Ce n'est pas un modèle d'adaptation.** L'œil qui regarde un coucher de Soleil
+est adapté à une scène sombre ; le même œil à midi ne l'est pas. Reproduire cela
+demande une boucle d'adaptation temporelle. Ici, l'exposition est fixe.
+
+**Deux ancrages, et celui qui est retenu.**
+
+| Ancrage | Blanc à | Statut |
+| --- | --- | --- |
+| Photographique — surface lambertienne 0,9 sous 120 klx | 34 377 cd/m² | convention usuelle, probablement l'avenir |
+| **Continuité** — le zénith de midi s'affiche comme avant | **86 302 cd/m²** | **retenu** |
+
+Le choix est délibéré : cette étape change le **modèle** du ciel, et y mêler une
+modification de l'exposition rendrait les deux impossibles à juger séparément.
+On mesure d'abord la physique à apparence constante. C'est la même démarche
+qu'en phase 0.5, où le sur-éclat du Soleil avait été *traduit* plutôt que
+redeviné.
+
+Conséquence chiffrée : le rendu actuel est **2,5× plus sombre** que la
+convention photographique.
+
+---
+
 ### `scene/display/tonemap.ts`
 
 **Rôle.** Le transform d'affichage — l'unique endroit où une radiance devient un
@@ -803,7 +881,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 359 contrôles, 15 suites, aucun échec.**
+**État : 379 contrôles, 16 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1160,4 +1238,54 @@ Tant que ce n'est pas fait, le rendu continue d'afficher l'ancien noyau
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4, 5 et table de colonne validées.*
+## Le ciel physique arrive à l'écran
+
+Le nuanceur du fond de ciel n'intègre plus aucun rayon. Il échantillonne une
+table calculée par le solveur des phases 1 à 5 : atmosphère standard, spectre
+solaire mesuré, sections efficaces de Rayleigh dérivées, transport oblique en
+géométrie sphérique, diffusion simple avec test d'ombre terrestre.
+
+### Ce que les sondes montrent
+
+| Scénario | Avant | Après |
+| --- | --- | --- |
+| Midi, zénith | `67,106,137` | `57,109,171` |
+| Midi, horizon | `133,172,181` | `207,215,214` |
+| Coucher, vers le Soleil | `255,195,0` | `212,156,0` |
+| Coucher, opposé | `95,33,0` | `180,78,0` |
+| Crépuscule civil, vers le Soleil | `25,15,17` | `46,21,8` |
+| Nuit | `3,4,10` | `3,4,10` (inchangé) |
+
+Le zénith est plus saturé, l'horizon blanchit franchement, et **le crépuscule
+existe** là où l'ancien rendu ne produisait que le socle nocturne peint.
+
+### Le vert-olive du ciel crépusculaire n'est pas un défaut
+
+C'est **le diagnostic de la phase 5 devenu visible**. Au coucher, la lumière qui
+atteint les points de diffusion en altitude a traversé une colonne horizontale
+énorme : elle est rougie. Elle diffuse ensuite en Rayleigh, qui favorise le
+bleu. Rouge × bleu ≈ neutre — d'où un ciel moyen gris-olive au lieu du bleu
+profond attendu.
+
+C'est exactement le résultat de Hulburt (1953) : **le bleu du ciel crépusculaire
+vient de la bande de Chappuis de l'ozone, pas de Rayleigh.** Les nombres de la
+phase 5 le disaient (zénith crépusculaire quasi blanc, chromaticité 0,339 ·
+0,346) ; l'image le confirme. C'est une cible chiffrée *et* visuelle pour la
+phase 7.
+
+### La dette de cette étape
+
+Les corps et les avions continuent d'utiliser `hazeColorAlong()`, l'ancien
+noyau. **Le ciel et le voile des objets suivent donc temporairement deux modèles
+différents** : un astre bas sur l'horizon ne se fond plus exactement dans le ciel
+qui l'entoure — propriété que le code d'origine avait pris soin d'établir. Elle
+se solde à la phase 9, quand la perspective atmosphérique des objets passera au
+même transport.
+
+Le banc GPU continue de mesurer l'ancien noyau, qui reste payé par les fragments
+de corps et d'avions. Le ciel, lui, ne coûte plus qu'un accès de texture.
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4, 5, tables de colonne et de
+ciel validées ; le ciel physique est à l'écran.*
