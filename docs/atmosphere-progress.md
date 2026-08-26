@@ -54,9 +54,9 @@ aucune réorganisation.
 | **2** | Base spectrale (`SpectralGrid`, `SolarSpectrum`, `SpectralSensor`) | **VALIDATED** | données acquises et commitées ; invariance à la résolution vérifiée |
 | **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
 | **4** | Soleil direct + extinction | **VALIDATED** | 3 paliers de `photometry.ts` retrouvés à < 2 % |
-| **5** | Single scattering | **TODO** | cible chiffrée : combler le déficit de 44 % à 5° |
-| **6** | Aérosols + Mie | **TODO** | précalcul hors ligne |
-| **7** | Absorption atmosphérique | **TODO** | |
+| **5** | Single scattering | **VALIDATED** | déficit comblé (−4 % à 5°) · solveur de référence, pas encore au rendu |
+| **6** | Aérosols + Mie | **TODO** | cible : retirer une part du dépassement de +5 à +35 % |
+| **7** | Absorption atmosphérique | **TODO** | cible : crépuscule ×2,8 trop clair et zénith pas assez bleu |
 | **8** | Multiple scattering | **TODO** | cible : réparer le crépuscule mort |
 | **9** | Perspective atmosphérique sur les objets | **TODO** | la couture existe déjà |
 | **10** | Indice de réfraction spectral | **TODO** | |
@@ -471,6 +471,73 @@ qu'effacée. Le raisonnement sur le budget tient ; son échelle change.
 
 ---
 
+## Phase 5 — Single scattering · VALIDATED
+
+### Livré
+
+- `transport/singleScattering.ts` — radiance du ciel, éclairement diffus
+  hémisphérique, colonne vers l'espace avec test d'ombre terrestre.
+
+### La cible de la phase 4 est atteinte
+
+Direct 4,50 klx + diffus 3,15 klx = **7,65 klx** à 5°, contre 8,0 publiés. Le
+déficit de 44 % était bien le ciel.
+
+### Le bilan, et le signe de l'écart
+
+| Hauteur | Calculé | Publié | Écart |
+| --- | --- | --- | --- |
+| 90° | 125,9 klx | 120,0 | **+5 %** |
+| 45° | 87,0 klx | 82,0 | **+6 %** |
+| 20° | 39,0 klx | 34,0 | +15 % |
+| 10° | 17,6 klx | 13,0 | +35 % |
+| 5° | 7,6 klx | 8,0 | −4 % |
+
+Le dépassement croît avec la longueur du trajet : c'est la signature d'une
+**extinction manquante**. Cible chiffrée des phases 6 et 7. Un accord parfait
+aurait signalé deux erreurs qui se compensent.
+
+**Requalification de la phase 4** : elle comparait un éclairement *direct* à des
+paliers *globaux*. Son excellent accord masquait un direct trop fort.
+
+### Émergences
+
+| Structure | Mesure |
+| --- | --- |
+| Zénith bleu | (0,243 · 0,251) · B/R = 3,33 |
+| Blanchiment vers l'horizon | (0,244 · 0,253) → (0,308 · 0,336) |
+| Gradient | 1 013 → 5 923 cd/m² |
+| Minimum à 90° du Soleil | 3 207 · **1 905** · 2 110 cd/m² |
+| Arche crépusculaire (−4°) | 355 · 9,0 · **0,00** cd/m² |
+| Ombre de la Terre | zéro exact à l'horizon anti-solaire |
+
+Aucune n'est écrite. Toutes sortent de la géométrie, de λ⁻⁴·¹ et du test
+d'ombre.
+
+### Le crépuscule trop clair, et son diagnostic
+
+×2,1 à 0°, ×3,0 à −2°, ×2,8 à −4°. Deux manques agissent en sens contraire :
+la diffusion multiple *ajouterait* de la lumière, l'ozone en *retirerait*. Le
+signe dit que **l'absorption domine** — ce qui recoupe Hulburt (1953) : le bleu
+du ciel crépusculaire vient de la bande de Chappuis. Le modèle le confirme par
+défaut, son zénith crépusculaire étant quasi blanc.
+
+Réserve : les paliers sont interpolés en logarithme et le modèle n'a pas de
+réfraction. Seuls l'ordre de grandeur et le signe sont exploitables.
+
+### Non fait, et pourquoi
+
+**Le solveur n'est pas branché au rendu.** À 5,5 ms par direction, une LUT de
+ciel 32×64 coûterait onze secondes. Le chemin est celui de l'audit : une LUT de
+transmittance 2D (altitude, cosinus zénithal) remplaçant l'intégration du rayon
+secondaire par un accès de texture — après quoi la diffusion simple devient
+moins chère que le noyau brute-force actuel.
+
+C'est une étape d'infrastructure (render targets, formats flottants), pas un
+branchement. Le rendu continue d'afficher `glsl-atmosphere` en attendant.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -481,3 +548,4 @@ qu'effacée. Le raisonnement sur le budget tient ; son échelle change.
 | 2026-08-25 | Phase 3 — Rayleigh ; cible de la phase 2 atteinte à 0,7 % ; **249 contrôles, aucun échec** |
 | 2026-08-26 | Phase 0.5 — chaîne HDR linéaire ; 11 matériaux portés ; nuit identique au bit près ; **268 contrôles** |
 | 2026-08-26 | Phase 4 — Soleil direct ; paliers de photometry.ts retrouvés à < 2 % ; banc GPU corrigé (−90 % sur les chiffres publiés) ; **305 contrôles** |
+| 2026-08-26 | Phase 5 — diffusion simple ; déficit de 44 % comblé ; ciel bleu, arche crépusculaire et ombre terrestre émergents ; **329 contrôles** |

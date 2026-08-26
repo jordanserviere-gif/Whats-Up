@@ -619,6 +619,43 @@ Soleil correct sur un ciel faux. La grandeur absolue existe déjà
 
 ---
 
+### `transport/singleScattering.ts`
+
+**Rôle.** La lumière du ciel. Radiance diffusée vers la caméra, et éclairement
+diffus hémisphérique.
+
+```
+L(λ,d) = E₀(λ)·σ(λ)·p(θ,λ) · ∫ N(h(t))·exp[−σ(λ)·(C_prim(t) + C_sec(t))] dt
+```
+
+`θ` est **constant le long du rayon** — les rayons solaires sont parallèles à
+l'échelle de l'atmosphère — donc la fonction de phase sort de l'intégrale et se
+calcule une fois par direction plutôt qu'une fois par pas.
+
+**Rien n'est bleu dans ce fichier.** Aucune couleur, aucun dégradé, aucune
+constante ajustée. Le ciel est bleu parce que `σ(λ)` varie en λ⁻⁴·¹ ; il
+blanchit vers l'horizon parce que l'auto-extinction finit par rattraper le gain
+de diffuseurs, dans le bleu avant le rouge.
+
+**Le test d'ombre fait le crépuscule.** `columnToSpace()` rend `Infinity` quand
+le rayon vers le Soleil rencontre la Terre. C'est **toute** la physique du
+crépuscule : un point haut voit encore le Soleil quand l'observateur ne le voit
+plus. Aucune géométrie d'ombre n'est écrite ailleurs.
+
+**Distribution des pas.** Quadratique sur le rayon primaire, resserrée près de
+l'observateur : une visée rasante parcourt 1 133 km mais l'essentiel de la
+densité tient dans les premières dizaines. Convergence vérifiée à 4,4·10⁻⁴ entre
+48×128 et 192×512 pas.
+
+**Coût.** ~5,5 ms par direction (16 bandes, 48×128 pas). C'est un solveur de
+**référence**, pas un moteur de rendu — voir la note d'intégration plus bas.
+
+**Ce qui manque, et le signe que ça donne.** Diffusion multiple (phase 8),
+réflexion du sol (`groundAlbedo`, déclaré et pas encore lu), aérosols (phase 6),
+ozone (phase 7).
+
+---
+
 ### `scene/display/tonemap.ts`
 
 **Rôle.** Le transform d'affichage — l'unique endroit où une radiance devient un
@@ -713,7 +750,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 305 contrôles, 13 suites, aucun échec.**
+**État : 329 contrôles, 14 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -975,4 +1012,94 @@ partageront une échelle radiométrique — phase 5.
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1, 2, 3 et 4 validées.*
+## Le ciel, et ce que son erreur raconte — phase 5
+
+### La cible de la phase 4 est atteinte
+
+Le Soleil direct seul rendait 4,50 klx à 5° contre 8,0 klx tabulés. Le déficit
+de 44 % devait être le ciel diffus. Il l'est :
+
+| | Éclairement horizontal à 5° |
+| --- | --- |
+| Direct (phase 4) | 4,50 klx |
+| Diffus (phase 5) | **3,15 klx** |
+| Total | **7,65 klx** contre 8,0 publiés (−4 %) |
+
+### Le bilan complet, et le signe de l'écart
+
+| Hauteur | Calculé | Publié | Écart |
+| --- | --- | --- | --- |
+| 90° | 125,9 klx | 120,0 | **+5 %** |
+| 45° | 87,0 klx | 82,0 | **+6 %** |
+| 20° | 39,0 klx | 34,0 | +15 % |
+| 10° | 17,6 klx | 13,0 | +35 % |
+| 5° | 7,6 klx | 8,0 | −4 % |
+
+**Le dépassement est le résultat utile.** Il ne s'agissait pas de faire
+coïncider : le modèle n'a encore ni ozone ni aérosols, qui ne font que *retirer*
+de la lumière. Un accord parfait aurait signalé deux erreurs qui se compensent.
+L'excès mesure ce que les phases 6 et 7 doivent retirer, et il croît avec la
+longueur du trajet — exactement comme une extinction manquante.
+
+> **Requalification du résultat de la phase 4.** Elle annonçait « 120,9 klx
+> calculés contre 120 000 publiés ». Mais les paliers de `photometry.ts` sont
+> des éclairements **globaux**, et la phase 4 ne calculait que le direct. Que le
+> direct seul atteigne le global signifiait que le direct était trop fort d'à
+> peu près la fraction diffuse. La phase 5 le rend visible.
+
+### Ce qui émerge, sans être écrit
+
+| Structure | Mesure |
+| --- | --- |
+| Zénith bleu | chromaticité (0,243 · 0,251) contre (0,313 · 0,329) pour le blanc · B/R = 3,33 |
+| Blanchiment vers l'horizon | (0,244 · 0,253) au zénith → (0,308 · 0,336) à 2° |
+| Gradient de luminance | 1 013 cd/m² au zénith → 5 923 à 2° |
+| Fonction de phase lisible dans le ciel | 3 207 vers le Soleil · **1 905 à 90°** · 2 110 à l'opposé |
+| Arche crépusculaire (Soleil à −4°) | 355 cd/m² à 2° vers le Soleil · 9,0 au zénith · **0,00 à l'opposé** |
+| Rougissement du crépuscule | (0,491 · 0,440) à l'horizon contre (0,339 · 0,346) au zénith |
+
+Le zéro exact à l'horizon anti-solaire est **l'ombre de la Terre**. Elle sort du
+seul test de rencontre du rayon secondaire avec le sol.
+
+### Le crépuscule est trop clair, et ça dit quelque chose
+
+| Hauteur solaire | Calculé / publié |
+| --- | --- |
+| 0° | ×2,1 |
+| −2° | ×3,0 |
+| −4° | ×2,8 |
+
+Deux manques agissent en sens **contraire** : la diffusion multiple ajouterait
+de la lumière, l'absorption par l'ozone en retirerait. Le signe de l'écart dit
+donc lequel domine — et c'est **l'absorption**.
+
+Cela recoupe le résultat classique de Hulburt (1953) : le bleu du ciel
+crépusculaire est un effet de la bande de Chappuis de l'ozone, pas de Rayleigh.
+Le modèle le confirme *par défaut* : son zénith crépusculaire est quasi blanc
+(0,339 · 0,346) là où le ciel réel est franchement bleu. C'est une cible chiffrée
+pour la phase 7.
+
+> Réserve honnête : les paliers de `photometry.ts` sont eux-mêmes des valeurs de
+> littérature interpolées en logarithme, et le modèle n'a pas de réfraction —
+> à 0° géométrique le Soleil réel est encore partiellement visible. La
+> comparaison au crépuscule porte donc de l'incertitude des deux côtés. Seul
+> l'ordre de grandeur et le signe sont exploitables.
+
+### Ce qui reste pour le voir à l'écran
+
+Le solveur coûte **~5,5 ms par direction**. Une LUT de ciel 32×64 en coûterait
+onze secondes : inutilisable tel quel.
+
+Le chemin est celui que l'audit décrivait : une **LUT de transmittance 2D**
+indexée par (altitude, cosinus zénithal), qui remplace l'intégration du rayon
+secondaire par un accès de texture. La diffusion simple devient alors moins
+chère que le noyau brute-force actuel (0,95 ns/px). C'est une étape
+d'infrastructure à part entière — render targets, formats flottants — et non un
+branchement.
+
+Tant qu'elle n'est pas faite, le rendu continue d'afficher l'ancien noyau
+`glsl-atmosphere`, et le solveur physique reste une référence numérique.
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4 et 5 validées.*

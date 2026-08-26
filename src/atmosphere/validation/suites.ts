@@ -19,6 +19,7 @@ import {
 } from '../spectral/spectral.validation'
 import { rayleighSuite } from '../rayleigh/rayleigh.validation'
 import { directSolarSuite, slantPathSuite } from '../transport/directSolar.validation'
+import { singleScatteringSuite } from '../transport/singleScattering.validation'
 import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
@@ -47,5 +48,7 @@ export function allSuites(): SuiteResult[] {
     // Phase 4 — transport direct.
     slantPathSuite(),
     directSolarSuite(),
+    // Phase 5 — diffusion simple.
+    singleScatteringSuite(),
   ]
 }
