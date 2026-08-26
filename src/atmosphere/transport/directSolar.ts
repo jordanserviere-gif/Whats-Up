@@ -21,10 +21,9 @@
  *
  * ## Ce qui manque encore, et se voit dans les chiffres
  *
- * L'extinction compte desormais la diffusion moleculaire **et** l'absorption par
- * l'ozone. Il manque encore les aerosols (phase 6), qui retirent surtout aux
- * faibles hauteurs, ainsi que les bandes de O₂ et H₂O — etroites, situees dans
- * le proche infrarouge, et sans effet notable sur la couleur.
+ * L'extinction compte la diffusion moleculaire, l'absorption par l'ozone et
+ * l'extinction par les aerosols. Il reste les bandes de O₂ et H₂O — etroites,
+ * situees dans le proche infrarouge, et sans effet notable sur la couleur.
  *
  * Le ciel diffus n'est pas la non plus : ce module ne rend que le **rayonnement
  * direct**, pas l'eclairement global. La difference est negligeable Soleil
@@ -48,6 +47,7 @@ import {
 } from '../spectral/SpectralSensor'
 import { columnsToSpace } from './slantPath'
 import { ozoneCrossSectionOn } from '../absorption/ozone'
+import { type AerosolOptics } from '../mie/aerosol'
 
 export interface DirectSolarResult {
   /** Irradiance spectrale transmise, W/m²/nm, **normale au faisceau**. */
@@ -102,6 +102,8 @@ export interface DirectSolarOptions {
   co2MoleFraction?: number
   /** Colonne totale d'ozone, unites Dobson. */
   ozoneColumnDobsonUnits?: number
+  /** Proprietes optiques des aerosols — voir `mie/aerosol.ts`. */
+  aerosols?: AerosolOptics
 }
 
 /**
@@ -115,7 +117,7 @@ export function directSolar(
   altitudeDeg: number,
   options: DirectSolarOptions = {},
 ): DirectSolarResult {
-  const { observerElevationM = 0, distanceAu = 1, co2MoleFraction, ozoneColumnDobsonUnits } = options
+  const { observerElevationM = 0, distanceAu = 1, co2MoleFraction, ozoneColumnDobsonUnits, aerosols } = options
 
   // La visee du Soleil part de l'observateur : son cosinus zenithal est le
   // sinus de la hauteur solaire.
@@ -124,6 +126,7 @@ export function directSolar(
     Math.sin((altitudeDeg * Math.PI) / 180),
     1024,
     ozoneColumnDobsonUnits,
+    aerosols?.scaleHeightM,
   )
   const sigma = crossSectionsOn(grid, co2MoleFraction)
   const sigmaOzone = ozoneCrossSectionOn(grid)
@@ -134,7 +137,10 @@ export function directSolar(
   for (let i = 0; i < grid.count; i++) {
     // Colonne infinie sous l'horizon geometrique : `exp(−∞)` vaut zero, et
     // `Math.exp` le rend correctement sans cas particulier.
-    transmittance[i] = Math.exp(-sigma[i] * columns.air - sigmaOzone[i] * columns.ozone)
+    // Les aerosols eteignent par extinction totale — diffusion **et**
+    // absorption : les deux retirent de la lumiere au faisceau direct.
+    const aerosolTau = aerosols ? aerosols.extinction[i] * columns.aerosolShape * aerosols.groundNumberDensity : 0
+    transmittance[i] = Math.exp(-sigma[i] * columns.air - sigmaOzone[i] * columns.ozone - aerosolTau)
     spectrum[i] = incident[i] * transmittance[i]
   }
 

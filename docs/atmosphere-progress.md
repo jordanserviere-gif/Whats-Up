@@ -55,7 +55,7 @@ aucune réorganisation.
 | **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
 | **4** | Soleil direct + extinction | **VALIDATED** | 3 paliers de `photometry.ts` retrouvés à < 2 % |
 | **5** | Single scattering | **VALIDATED** | déficit comblé (−4 % à 5°) · **au rendu** via la table de ciel |
-| **6** | Aérosols + Mie | **TODO** | cible : le résidu de +2 à +18 %, croissant avec le trajet |
+| **6** | Aérosols + Mie | **VALIDATED** | Bohren-Huffman · bilan de journée refermé à 1–2 % |
 | **7** | Absorption atmosphérique | **VALIDATED** | ozone · les deux cibles de la phase 5 atteintes |
 | **8** | Multiple scattering | **TODO** | cible : le déficit de −23 % à 5° et sous −6° |
 | **9** | Perspective atmosphérique sur les objets | **TODO** | la couture existe déjà |
@@ -751,6 +751,68 @@ C'est une meilleure carte du restant qu'un écart de signe constant.
 
 ---
 
+## Phase 6 — Aérosols et théorie de Mie · VALIDATED
+
+### Livré
+
+- `mie/mie.ts` — solveur de Bohren & Huffman : coefficients, efficacités,
+  asymétrie, fonction de phase.
+- `mie/aerosol.ts` — distribution log-normale, profil vertical, propriétés
+  tabulées, pont avec le réglage de trouble.
+- Troisième canal dans la table de colonnes ; source de diffusion à deux termes.
+
+### Le bilan de journée se referme
+
+| Hauteur | Phase 5 | +ozone | **+aérosols** |
+| --- | --- | --- | --- |
+| 90° | +5 % | +2 % | **+1 %** |
+| 45° | +6 % | +2 % | **+1 %** |
+| 20° | +15 % | +6 % | **+2 %** |
+| 10° | +35 % | +18 % | **+9 %** |
+
+Trois modules construits séparément convergent à 1–2 % de paliers tabulés qui
+n'ont participé à aucun des calculs.
+
+### Le rayon médian est calé sur une observable
+
+L'exposant d'Ångström est ce que la science atmosphérique utilise pour
+contraindre la taille des aérosols. `r_g = 0,05 µm` donne α = 1,29 — et **ω₀ et
+g suivent dans leurs plages publiées sans être touchés** : 0,954 et 0,646. Un
+paramètre calé, trois observables d'accord.
+
+### Ce que le contrôle `ω₀ ≤ 1` a attrapé
+
+Une convention de signe inversée sur la partie imaginaire de l'indice. Le
+calcul rendait des albédos de **1,5** — une particule diffusant plus de lumière
+qu'elle n'en intercepte. Rien d'autre ne l'aurait signalé : les sections
+efficaces avaient l'air plausibles.
+
+### Mie contre Bodhaine, par deux chemins
+
+Une molécule d'air traitée comme une sphère minuscule doit rendre ce que le
+module Rayleigh calcule autrement. L'écart résiduel **est exactement le facteur
+de King**, absent d'un modèle de sphère isotrope. Le corriger ramène l'accord à
+**4·10⁻⁴**.
+
+Le premier test que j'avais écrit comparait les deux ratios spectraux entre eux
+et échouait à 0,20 %. En regardant les nombres, l'assertion utile était bien
+meilleure : `Mie × King = Bodhaine`. Test remplacé par plus fort, pas assoupli.
+
+### Une régression réparée, et signalée
+
+En câblant la table de ciel, j'avais retiré `aerosolTurbidity` de
+`SkyBackground` **sans le signaler**. Le réglage de trouble n'affectait plus le
+ciel depuis deux commits. Réparé, et physique désormais : le trouble se traduit
+en épaisseur optique à 550 nm.
+
+### Ce que le trouble fait maintenant
+
+Zénith qui s'éclaircit et se désature, horizon qui **s'assombrit** (l'extinction
+de basse couche l'emporte), halo solaire qui triple. À l'écran, le dégradé
+vertical s'aplatit : `142,169,202` au trouble 1, `221,226,231` au trouble 6.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -765,3 +827,4 @@ C'est une meilleure carte du restant qu'un écart de signe constant.
 | 2026-08-26 | Table de colonne moléculaire ; solveur ×4 ; LUT de ciel ramenée à 34 ms ; chiffres de la phase 5 corrigés ; **359 contrôles** |
 | 2026-08-26 | Table de ciel ; **le ciel physique est à l'écran** ; construction étalée, p95 inchangé à ×86400 ; **379 contrôles** |
 | 2026-08-26 | Phase 7 — ozone ; les deux cibles de la phase 5 atteintes ; le crépuscule devient bleu ; **405 contrôles** |
+| 2026-08-26 | Phase 6 — aérosols et Mie ; bilan de journée refermé à 1–2 % ; trouble rendu physique ; **440 contrôles** |

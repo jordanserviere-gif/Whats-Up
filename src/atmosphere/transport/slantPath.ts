@@ -138,6 +138,16 @@ export interface SpeciesColumns {
   air: number
   /** Colonne d'ozone, m⁻² — l'absorption de Chappuis en depend. */
   ozone: number
+  /**
+   * Colonne d'aerosols **normalisee**, en metres : `∫exp(−z/H) ds`.
+   *
+   * Elle est purement geometrique, sans densite. C'est deliberé : la quantite
+   * d'aerosols change avec le trouble, plusieurs fois par session, alors que
+   * cette integrale ne depend que de la hauteur d'echelle. Les separer evite de
+   * refaire la geometrie a chaque changement de reglage — il suffit de
+   * multiplier par la densite au sol et la section efficace.
+   */
+  aerosolShape: number
 }
 
 /**
@@ -158,30 +168,37 @@ export function columnsToSpace(
   cosZenith: number,
   steps = 128,
   ozoneColumnDobsonUnits?: number,
+  aerosolScaleHeightM = 1200,
 ): SpeciesColumns {
   const r = EARTH_MEAN_RADIUS_M + altitudeM
   const mu = Math.max(-1, Math.min(1, cosZenith))
 
   if (mu < 0 && r * Math.sqrt(1 - mu * mu) < EARTH_MEAN_RADIUS_M) {
-    return { air: Number.POSITIVE_INFINITY, ozone: Number.POSITIVE_INFINITY }
+    return {
+      air: Number.POSITIVE_INFINITY,
+      ozone: Number.POSITIVE_INFINITY,
+      aerosolShape: Number.POSITIVE_INFINITY,
+    }
   }
 
   const discriminant = r * r * mu * mu + (TOP_RADIUS * TOP_RADIUS - r * r)
-  if (!(discriminant > 0)) return { air: 0, ozone: 0 }
+  if (!(discriminant > 0)) return { air: 0, ozone: 0, aerosolShape: 0 }
   const total = -r * mu + Math.sqrt(discriminant)
-  if (!(total > 0)) return { air: 0, ozone: 0 }
+  if (!(total > 0)) return { air: 0, ozone: 0, aerosolShape: 0 }
 
   const step = total / steps
   let air = 0
   let ozone = 0
+  let aerosolShape = 0
   for (let i = 0; i < steps; i++) {
     const t = (i + 0.5) * step
     const radius = Math.sqrt(t * t + 2 * t * r * mu + r * r)
     const altitude = radius - EARTH_MEAN_RADIUS_M
     air += standardProfile(altitude).numberDensityPerM3 * step
     ozone += ozoneNumberDensity(altitude, ozoneColumnDobsonUnits) * step
+    aerosolShape += Math.exp(-Math.max(0, altitude) / aerosolScaleHeightM) * step
   }
-  return { air, ozone }
+  return { air, ozone, aerosolShape }
 }
 
 export function columnToSpace(altitudeM: number, cosZenith: number, steps = 128): number {

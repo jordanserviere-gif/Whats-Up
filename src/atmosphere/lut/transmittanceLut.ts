@@ -85,6 +85,8 @@ export interface ColumnLut {
   readonly column: Float32Array
   /** Colonne d'ozone, m⁻². Meme rangement. */
   readonly ozone: Float32Array
+  /** Colonne d'aerosols normalisee, m. Meme rangement — voir `SpeciesColumns`. */
+  readonly aerosol: Float32Array
   /** Colonne totale d'ozone pour laquelle la table a ete calculee, unites Dobson. */
   readonly ozoneColumnDobsonUnits: number
 }
@@ -142,6 +144,8 @@ export interface ColumnLutOptions {
   height?: number
   /** Colonne totale d'ozone, unites Dobson. */
   ozoneColumnDobsonUnits?: number
+  /** Hauteur d'echelle des aerosols, m. */
+  aerosolScaleHeightM?: number
   /**
    * Pas d'integration par entree.
    *
@@ -167,22 +171,30 @@ export interface ColumnLutOptions {
  * etat change — pas a chaque image.
  */
 export function buildColumnLut(options: ColumnLutOptions = {}): ColumnLut {
-  const { width = 256, height = 64, steps = 128, ozoneColumnDobsonUnits = DEFAULT_OZONE_COLUMN_DU } = options
+  const {
+    width = 256,
+    height = 64,
+    steps = 128,
+    ozoneColumnDobsonUnits = DEFAULT_OZONE_COLUMN_DU,
+    aerosolScaleHeightM = 1200,
+  } = options
   const column = new Float32Array(width * height)
   const ozone = new Float32Array(width * height)
+  const aerosol = new Float32Array(width * height)
 
   for (let y = 0; y < height; y++) {
     const v = (y + 0.5) / height
     for (let x = 0; x < width; x++) {
       const u = (x + 0.5) / width
       const { altitudeM, cosZenith } = columnLutParams(u, v, width, height)
-      const columns = columnsToSpace(altitudeM, cosZenith, steps, ozoneColumnDobsonUnits)
+      const columns = columnsToSpace(altitudeM, cosZenith, steps, ozoneColumnDobsonUnits, aerosolScaleHeightM)
       column[y * width + x] = columns.air
       ozone[y * width + x] = columns.ozone
+      aerosol[y * width + x] = columns.aerosolShape
     }
   }
 
-  return { width, height, column, ozone, ozoneColumnDobsonUnits }
+  return { width, height, column, ozone, aerosol, ozoneColumnDobsonUnits }
 }
 
 /**
@@ -196,7 +208,11 @@ export function sampleColumnLut(lut: ColumnLut, altitudeM: number, cosZenith: nu
   const r = RADIUS + altitudeM
   const mu = Math.max(-1, Math.min(1, cosZenith))
   if (mu < 0 && r * Math.sqrt(1 - mu * mu) < RADIUS) {
-    return { air: Number.POSITIVE_INFINITY, ozone: Number.POSITIVE_INFINITY }
+    return {
+      air: Number.POSITIVE_INFINITY,
+      ozone: Number.POSITIVE_INFINITY,
+      aerosolShape: Number.POSITIVE_INFINITY,
+    }
   }
 
   const [u, v] = columnLutUv(altitudeM, mu, lut.width, lut.height)
@@ -214,7 +230,7 @@ export function sampleColumnLut(lut: ColumnLut, altitudeM: number, cosZenith: nu
     (source[y0 * lut.width + x0] * (1 - tx) + source[y0 * lut.width + x1] * tx) * (1 - ty) +
     (source[y1 * lut.width + x0] * (1 - tx) + source[y1 * lut.width + x1] * tx) * ty
 
-  return { air: bilinear(lut.column), ozone: bilinear(lut.ozone) }
+  return { air: bilinear(lut.column), ozone: bilinear(lut.ozone), aerosolShape: bilinear(lut.aerosol) }
 }
 
 /**

@@ -49,7 +49,6 @@
  * **La reflexion du sol**, condition aux limites que `AtmosphereState` declare
  * deja (`groundAlbedo`) et que personne ne lit encore.
  *
- * **Les aerosols** (phase 6).
  *
  * ## Extinction et diffusion ne sont plus la meme chose
  *
@@ -76,6 +75,7 @@ import {
 } from '../spectral/SpectralSensor'
 import { standardProfile } from '../thermodynamics/standardAtmosphere'
 import { ozoneCrossSectionOn, ozoneNumberDensity } from '../absorption/ozone'
+import { aerosolNumberDensity, aerosolPhase, type AerosolOptics } from '../mie/aerosol'
 import { EARTH_MEAN_RADIUS_M, degToRad, directionFromHorizontal } from '../core/units'
 import { ATMOSPHERE_TOP_M, columnsToSpace } from './slantPath'
 import { sampleColumnLut, type ColumnLut } from '../lut/transmittanceLut'
@@ -90,6 +90,13 @@ export interface SingleScatteringOptions {
   secondarySteps?: number
   /** Colonne totale d'ozone, unites Dobson. */
   ozoneColumnDobsonUnits?: number
+  /**
+   * Proprietes optiques des aerosols — voir `mie/aerosol.ts`.
+   *
+   * Omises, l'atmosphere est parfaitement claire. C'est utile pour isoler ce
+   * que les aerosols apportent, et c'est le chemin qu'emprunte la validation.
+   */
+  aerosols?: AerosolOptics
   /**
    * Table de colonnes atmospheriques — voir `lut/transmittanceLut.ts`.
    *
@@ -172,6 +179,7 @@ export function skyRadiance(
     primarySteps = 48,
     secondarySteps = 128,
     ozoneColumnDobsonUnits,
+    aerosols,
     columnLut,
   } = options
 
@@ -182,6 +190,14 @@ export function skyRadiance(
   const sigma = crossSectionsOn(grid, co2MoleFraction)
   const sigmaOzone = ozoneOn(grid)
   const phase = phaseOn(grid, cosTheta, co2MoleFraction)
+
+  // Fonction de phase des aerosols, tabulee une fois par direction. Elle est
+  // tres differente de celle de Rayleigh : fortement dirigee vers l'avant, avec
+  // un rapport de cent entre 0° et 90°.
+  const aerosolPhaseByBand = aerosols ? new Float64Array(grid.count) : null
+  if (aerosols && aerosolPhaseByBand) {
+    for (let b = 0; b < grid.count; b++) aerosolPhaseByBand[b] = aerosolPhase(aerosols, b, cosTheta)
+  }
   const incident = distanceAu === 1 ? solarIrradianceOn(grid) : scaleToDistance(solarIrradianceOn(grid), distanceAu)
 
   // Observateur sur l'axe zenithal, comme partout dans ce module.
@@ -210,6 +226,7 @@ export function skyRadiance(
   // Colonnes accumulees sur le rayon primaire, depuis l'observateur.
   let primaryAir = 0
   let primaryOzone = 0
+  let primaryAerosol = 0
 
   let previousT = 0
   for (let i = 0; i < primarySteps; i++) {
@@ -227,25 +244,52 @@ export function skyRadiance(
     const altitude = radius - RADIUS
     const density = standardProfile(altitude).numberDensityPerM3
     const ozoneDensity = ozoneNumberDensity(altitude, ozoneColumnDobsonUnits)
+    const aerosolDensity = aerosols ? aerosolNumberDensity(aerosols, altitude) : 0
 
     // Colonnes accumulees de l'observateur jusqu'au milieu du pas.
     const airHere = primaryAir + density * (ds / 2)
     const ozoneHere = primaryOzone + ozoneDensity * (ds / 2)
+    const aerosolHere = primaryAerosol + aerosolDensity * (ds / 2)
     primaryAir += density * ds
     primaryOzone += ozoneDensity * ds
+    primaryAerosol += aerosolDensity * ds
 
     // Cosinus zenithal du Soleil **au point**, pas a l'observateur.
     const cosSunAtPoint = (px * sun[0] + py * sun[1] + pz * sun[2]) / radius
     const secondary = columnLut
       ? sampleColumnLut(columnLut, altitude, cosSunAtPoint)
-      : columnsToSpace(altitude, cosSunAtPoint, secondarySteps, ozoneColumnDobsonUnits)
+      : columnsToSpace(
+          altitude,
+          cosSunAtPoint,
+          secondarySteps,
+          ozoneColumnDobsonUnits,
+          aerosols?.scaleHeightM,
+        )
     if (!Number.isFinite(secondary.air)) continue // le point est dans l'ombre de la Terre
 
+    // Colonne d'aerosols du point vers le Soleil : la table ne porte que la
+    // forme geometrique, la densite la multiplie.
+    const secondaryAerosol = aerosols ? secondary.aerosolShape * aerosols.groundNumberDensity : 0
+
     for (let b = 0; b < grid.count; b++) {
-      // Extinction : les deux especes, sur les deux trajets.
-      const tau = sigma[b] * (airHere + secondary.air) + sigmaOzone[b] * (ozoneHere + secondary.ozone)
-      // Diffusion : Rayleigh seul. L'ozone absorbe, il ne redirige rien.
-      spectrum[b] += incident[b] * sigma[b] * phase[b] * density * Math.exp(-tau) * ds
+      // --- Extinction : les trois especes, sur les deux trajets -------------
+      let tau = sigma[b] * (airHere + secondary.air) + sigmaOzone[b] * (ozoneHere + secondary.ozone)
+      if (aerosols) tau += aerosols.extinction[b] * (aerosolHere + secondaryAerosol)
+
+      // --- Diffusion : deux sources, deux fonctions de phase ----------------
+      // Chaque espece diffusante apporte son propre terme, avec sa section
+      // efficace de **diffusion** — pas d'extinction — et sa propre fonction de
+      // phase. Les melanger sous une phase moyenne effacerait precisement ce
+      // qui distingue un ciel clair d'un ciel voile : le halo serre autour du
+      // Soleil.
+      //
+      // L'ozone n'apparait pas ici : il absorbe, il ne redirige rien.
+      let source = sigma[b] * phase[b] * density
+      if (aerosols && aerosolPhaseByBand) {
+        source += aerosols.scattering[b] * aerosolPhaseByBand[b] * aerosolDensity
+      }
+
+      spectrum[b] += incident[b] * source * Math.exp(-tau) * ds
     }
   }
 

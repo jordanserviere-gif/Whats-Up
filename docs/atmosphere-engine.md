@@ -839,6 +839,84 @@ couleur. L'architecture les accueillerait sans changement.
 
 ---
 
+### `mie/mie.ts`
+
+**Rôle.** Diffusion par une sphère de taille quelconque — solution de Bohren &
+Huffman (1983), chapitre 4.
+
+**Pourquoi.** Rayleigh suppose des diffuseurs très petits devant la longueur
+d'onde : vrai d'une molécule d'air (0,3 nm contre 550), faux d'un aérosol
+(0,1 à 1 µm). Quand la particule approche λ, la diffusion cesse d'être
+symétrique et cesse de suivre λ⁻⁴ — elle devient fortement dirigée vers l'avant
+et presque achromatique.
+
+**Deux précautions numériques, non optionnelles.** La récurrence sur `Dₙ` se
+fait **vers le bas** — vers le haut elle est instable et le résultat devient
+absurde dès quelques longueurs d'onde. Le nombre de termes suit le critère de
+Wiscombe `x + 4x^⅓ + 2`.
+
+**Validation sans donnée externe.**
+
+| Contrôle | Résultat |
+| --- | --- |
+| Limite de Rayleigh (x → 0) | 9,5·10⁻⁸ à x = 0,001 |
+| Paradoxe de l'extinction (Q_ext → 2) | 2,0 ± 0,06 |
+| ω₀ = 1 exactement pour un indice réel | 2·10⁻¹⁶ |
+| Phase normalisée | < 1,4·10⁻⁵ |
+| **Mie × facteur de King = Bodhaine** | **< 4·10⁻⁴** |
+
+Le dernier est le meilleur du lot : une molécule d'air traitée comme une sphère
+minuscule doit rendre la section efficace que le module Rayleigh de la phase 3
+calcule par un tout autre chemin. L'écart résiduel **est exactement le facteur
+de King**, que Bodhaine porte et qu'un modèle de sphère isotrope ne peut pas
+avoir. Le corriger ramène l'accord à 4·10⁻⁴ — deux algorithmes indépendants,
+un seul nombre.
+
+> Le contrôle `ω₀ ≤ 1` a attrapé une **convention de signe inversée** sur la
+> partie imaginaire de l'indice : le calcul rendait des albédos de 1,5,
+> c'est-à-dire une particule diffusant plus de lumière qu'elle n'en intercepte.
+> Rien d'autre ne l'aurait signalé.
+
+---
+
+### `mie/aerosol.ts`
+
+**Rôle.** Propriétés optiques d'une population — distribution de tailles,
+profil vertical, tables prêtes pour le transport.
+
+**La séparation qu'impose le prompt.** Le calcul de Mie coûte ~125 ms pour
+40 tailles × 16 bandes. Il est fait **une fois** et rendu sous forme de tables :
+sections efficaces, asymétrie, fonction de phase sur 256 angles. Changer la
+quantité d'aérosols ne le refait pas — les propriétés ne dépendent que de la
+*nature* des particules, pas de leur nombre.
+
+**Le rayon médian est calé sur une observable, pas choisi.** L'exposant
+d'Ångström est précisément ce que la science atmosphérique utilise pour
+contraindre la taille des aérosols, et les réseaux de photomètres solaires le
+publient. `r_g = 0,05 µm` donne α = 1,29.
+
+Ce qui rend le calage crédible : **les deux autres observables suivent sans être
+touchées.**
+
+| Grandeur | Modèle | Littérature |
+| --- | --- | --- |
+| α (440/870) | **1,29** | 1,2 – 1,5 |
+| ω₀ (550 nm) | **0,954** | 0,92 – 0,96 |
+| g (550 nm) | **0,646** | 0,6 – 0,7 |
+
+Un seul paramètre calé, trois observables d'accord.
+
+> ⚠️ **L'indice de réfraction complexe reste un paramètre**, pas une mesure.
+> La référence serait **OPAC** (Hess, Koepke & Schult, 1998), qui tabule
+> indices et distributions par type d'aérosol. Les brancher ne demanderait aucun
+> changement de structure.
+
+**Le pont avec le réglage existant.** Le « trouble » de 1 à 6, asservi au PM2,5,
+se traduit en **épaisseur optique à 550 nm** — `AOD = 0,03 × trouble`, ancré sur
+l'air le plus pur (Cerro Paranal ≈ 0,03).
+
+---
+
 ### `scene/display/tonemap.ts`
 
 **Rôle.** Le transform d'affichage — l'unique endroit où une radiance devient un
@@ -933,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 405 contrôles, 17 suites, aucun échec.**
+**État : 440 contrôles, 19 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1388,5 +1466,64 @@ manque de la diffusion multiple. C'est une bien meilleure carte de ce qui reste
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4, 5, 7, tables de colonne et de
-ciel validées ; le ciel physique est à l'écran.*
+## Les aérosols — phase 6
+
+### Le bilan de journée se referme
+
+| Hauteur | Phase 5 | +ozone | **+aérosols** |
+| --- | --- | --- | --- |
+| 90° | +5 % | +2 % | **+1 %** |
+| 45° | +6 % | +2 % | **+1 %** |
+| 20° | +15 % | +6 % | **+2 %** |
+| 10° | +35 % | +18 % | **+9 %** |
+| 5° | −4 % | −23 % | −32 % |
+
+Trois modules construits séparément — Rayleigh depuis Bodhaine, ozone depuis
+l'IUP Bremen, aérosols depuis Mie — convergent à 1–2 % des paliers tabulés de
+`astro/photometry.ts`, qui n'ont participé à aucun de ces calculs.
+
+Le déficit à 5° s'aggrave, et c'est attendu : un absorbeur ne peut que retirer.
+Il isole maintenant proprement ce qui manque — la **diffusion multiple**.
+
+### La source de diffusion a deux termes
+
+```
+source(λ) = beta_R(λ)·p_R(θ)·N_air(h)  +  beta_M(λ)·p_M(θ)·N_aer(h)
+```
+
+Chaque espèce diffusante apporte son propre terme, avec sa section efficace de
+**diffusion** — pas d'extinction — et sa propre fonction de phase. Les mélanger
+sous une phase moyenne effacerait précisément ce qui distingue un ciel clair
+d'un ciel voilé : le halo serré autour du Soleil. `p(0°)/p(90°)` vaut **77 pour
+Mie contre 1,9 pour Rayleigh**.
+
+### Ce que le trouble fait, maintenant qu'il est physique
+
+Soleil à 45° :
+
+| Trouble | AOD | Zénith | Chromaticité | Horizon | Halo à 20° |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 0,03 | 1 394 cd/m² | (0,261 · 0,271) | 4 408 | 6 148 |
+| 2 | 0,06 | 1 778 | (0,272 · 0,285) | 3 647 | 8 816 |
+| 4 | 0,12 | 2 464 | (0,287 · 0,300) | 2 845 | 13 148 |
+| 6 | 0,18 | 3 048 | (0,295 · 0,310) | 2 427 | 16 350 |
+
+Le zénith s'éclaircit **et se désature** vers le blanc ; l'horizon
+**s'assombrit**, l'extinction de basse couche l'emportant sur le gain de
+diffuseurs ; le halo solaire triple. À l'écran, le dégradé vertical s'aplatit
+jusqu'à disparaître : de `142,169,202` au trouble 1 à `221,226,231` au trouble 6.
+
+Rien de tout cela n'est écrit. L'ancien modèle multipliait un coefficient et
+blanchissait l'horizon par construction.
+
+### Une régression réparée, et signalée
+
+En câblant la table de ciel deux étapes plus tôt, j'avais retiré
+`aerosolTurbidity` de `SkyBackground` **sans le signaler**. Le réglage de trouble
+— et son asservissement automatique au PM2,5 — n'affectait plus le ciel. C'est
+réparé, et physiquement cette fois.
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1 à 7 (sauf 2 partielle), tables de
+colonne et de ciel validées ; le ciel physique est à l'écran.*

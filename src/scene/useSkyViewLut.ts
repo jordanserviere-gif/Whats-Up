@@ -44,6 +44,13 @@ import { useEffect, useMemo, useRef } from 'react'
 import { ClampToEdgeWrapping, DataTexture, FloatType, LinearFilter, RGBAFormat, Vector2 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { buildColumnLut, type ColumnLut } from '@/atmosphere/lut/transmittanceLut'
+import {
+  CONTINENTAL_AEROSOL,
+  aerosolOptics,
+  aodFromTurbidity,
+  withAod,
+  type AerosolOptics,
+} from '@/atmosphere/mie/aerosol'
 import { fillSkyViewRows } from '@/atmosphere/lut/skyViewLut'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 
@@ -59,6 +66,21 @@ export const SKY_LUT_HEIGHT = 32
  * lineairement avec le nombre de bandes.
  */
 const GRID = uniformSpectralGrid(360, 830, 16)
+
+/**
+ * Proprietes optiques des aerosols, calculees une fois.
+ *
+ * Le calcul de Mie coute une centaine de millisecondes — quarante tailles de
+ * particules par bande spectrale. Il ne depend que de la **nature** des
+ * particules, pas de leur nombre : changer le trouble ne le refait donc pas,
+ * seule la densite est remise a l'echelle.
+ */
+const REFERENCE_AOD = aodFromTurbidity(1)
+let baseOptics: AerosolOptics | null = null
+const sharedAerosolOptics = (turbidity: number): AerosolOptics => {
+  if (!baseOptics) baseOptics = aerosolOptics(GRID, { ...CONTINENTAL_AEROSOL, aod550: REFERENCE_AOD })
+  return withAod(baseOptics, aodFromTurbidity(turbidity), REFERENCE_AOD)
+}
 
 /** Deplacement du Soleil au-dela duquel la table est refaite, degres. */
 const SUN_MOVEMENT_THRESHOLD_DEG = 0.25
@@ -81,7 +103,7 @@ const ROWS_PER_FRAME = 4
  */
 let columnLut: ColumnLut | null = null
 const sharedColumnLut = (): ColumnLut => {
-  if (!columnLut) columnLut = buildColumnLut()
+  if (!columnLut) columnLut = buildColumnLut({ aerosolScaleHeightM: CONTINENTAL_AEROSOL.scaleHeightM })
   return columnLut
 }
 
@@ -96,7 +118,12 @@ export interface SkyViewTexture {
  * `enabled` a faux laisse la texture a zero : c'est la vue depuis l'espace,
  * sans atmosphere.
  */
-export function useSkyViewLut(sunAltitudeDeg: number, observerElevationM: number, enabled: boolean): SkyViewTexture {
+export function useSkyViewLut(
+  sunAltitudeDeg: number,
+  observerElevationM: number,
+  aerosolTurbidity: number,
+  enabled: boolean,
+): SkyViewTexture {
   // Le tampon est garde a part : le type de `DataTexture.image.data` est
   // l'union de tous les tableaux typees possibles, et le retrouver a chaque
   // image demanderait une assertion que rien ne garantit.
@@ -121,11 +148,13 @@ export function useSkyViewLut(sunAltitudeDeg: number, observerElevationM: number
   const state = useRef({
     altitude: Number.NaN,
     elevation: Number.NaN,
+    turbidity: Number.NaN,
     cleared: false,
     /** Ligne suivante a construire, ou −1 si aucune construction n'est en cours. */
     pendingRow: -1,
     pendingAltitude: 0,
     pendingElevation: 0,
+    pendingTurbidity: 1,
   })
 
   useEffect(() => () => texture.dispose(), [texture])
@@ -139,6 +168,7 @@ export function useSkyViewLut(sunAltitudeDeg: number, observerElevationM: number
         texture.needsUpdate = true
         state.current.cleared = true
         state.current.altitude = Number.NaN
+        state.current.turbidity = Number.NaN
         state.current.pendingRow = -1
       }
       return
@@ -157,7 +187,11 @@ export function useSkyViewLut(sunAltitudeDeg: number, observerElevationM: number
         SKY_LUT_HEIGHT,
         current.pendingRow,
         to,
-        { observerElevationM: current.pendingElevation, columnLut: sharedColumnLut() },
+        {
+          observerElevationM: current.pendingElevation,
+          columnLut: sharedColumnLut(),
+          aerosols: sharedAerosolOptics(current.pendingTurbidity),
+        },
       )
       current.pendingRow = to
 
@@ -168,6 +202,7 @@ export function useSkyViewLut(sunAltitudeDeg: number, observerElevationM: number
         texture.needsUpdate = true
         current.altitude = current.pendingAltitude
         current.elevation = current.pendingElevation
+        current.turbidity = current.pendingTurbidity
         current.cleared = false
         current.pendingRow = -1
       }
@@ -177,10 +212,12 @@ export function useSkyViewLut(sunAltitudeDeg: number, observerElevationM: number
     // --- Faut-il en lancer une ? -------------------------------------------
     const moved = Math.abs(sunAltitudeDeg - current.altitude)
     const sameSite = observerElevationM === current.elevation
-    if (!current.cleared && sameSite && moved < SUN_MOVEMENT_THRESHOLD_DEG) return
+    const sameAir = aerosolTurbidity === current.turbidity
+    if (!current.cleared && sameSite && sameAir && moved < SUN_MOVEMENT_THRESHOLD_DEG) return
 
     current.pendingAltitude = sunAltitudeDeg
     current.pendingElevation = observerElevationM
+    current.pendingTurbidity = aerosolTurbidity
     current.pendingRow = 0
   })
 

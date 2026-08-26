@@ -529,6 +529,7 @@ export function SkyCanvas() {
           skyExposure={skyExposure}
           observerElevationM={location.elevation}
           atmosphereEnabled={layers.atmosphere}
+          aerosolTurbidity={aerosolTurbidity}
           sunAltitude={sky.sunAltitude}
           sunAzimuth={sky.sunAzimuth}
           moonAltitude={layers.atmosphere ? sky.moonAltitude : -90}

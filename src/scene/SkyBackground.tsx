@@ -137,6 +137,14 @@ export interface SkyBackgroundProps {
   /** Le calque « atmosphere » est-il actif ? Faux = vue depuis l'espace. */
   atmosphereEnabled: boolean
   /**
+   * Trouble atmospherique — charge en aerosols, 1 = air tres pur.
+   *
+   * Il n'est plus un multiplicateur de coefficient : il se traduit en
+   * **epaisseur optique a 550 nm**, la grandeur que mesurent les photometres
+   * solaires. Voir `atmosphere/mie/aerosol.ts`.
+   */
+  aerosolTurbidity: number
+  /**
    * Exposition d'affichage du ciel — voir `display/exposure.ts`.
    *
    * Porte la radiance physique de la table dans l'espace du transform
@@ -163,6 +171,7 @@ export function SkyBackground({
   moonGlowColor,
   observerElevationM,
   atmosphereEnabled,
+  aerosolTurbidity,
   skyExposure,
   pollutionGain = 0,
   pollutionColor = '#ffb066',
@@ -173,7 +182,7 @@ export function SkyBackground({
   // se met a jour par `useFrame`, et les rappels de react-three-fiber ne sont
   // disponibles que la. C'est aussi la bonne place du point de vue des
   // responsabilites — le materiau du ciel possede la table qu'il echantillonne.
-  const skyView = useSkyViewLut(sunAltitude, observerElevationM, atmosphereEnabled)
+  const skyView = useSkyViewLut(sunAltitude, observerElevationM, aerosolTurbidity, atmosphereEnabled)
 
   useFrame(() => {
     const u = material.uniforms
