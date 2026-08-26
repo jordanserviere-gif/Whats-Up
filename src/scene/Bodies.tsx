@@ -319,6 +319,11 @@ interface BodyProps {
   discScale: number
   /** Direction du Soleil dans le repere de la scene, unitaire. */
   sunDirection: [number, number, number]
+  /**
+   * Couleur du disque solaire transmise par l'atmosphere — sRGB lineaire,
+   * normalise sur le zenith au niveau de la mer. Voir `atmosphere/transport`.
+   */
+  sunTint: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
@@ -342,6 +347,7 @@ function Body({
   limitingMagnitude,
   discScale,
   sunDirection,
+  sunTint,
   atmosphereExposure,
   aerosolTurbidity,
   selected,
@@ -382,13 +388,21 @@ function Body({
     s.scale.setScalar(trueRadius * discScale)
 
     const extinction = extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity)
-    const tint = extinctionTint(state.horizontal.altitude)
 
     if (isSun) {
-      // Un Soleil haut est blanc et eblouissant ; c'est l'extinction qui le
-      // rougit et l'affaiblit quand il descend, comme dans le ciel.
-      ;(surface.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-      surface.uniforms.uGain.value = SUN_GAIN * Math.pow(10, -0.4 * extinction * 0.5)
+      // Teinte et eclat viennent tous deux du **spectre solaire transmis**,
+      // calcule par la loi de Beer-Lambert le long du trajet oblique reel —
+      // voir `atmosphere/transport/directSolar.ts`.
+      //
+      // Ils remplacent deux approximations photometriques : `extinctionTint()`,
+      // deux exponentielles ajustees par canal, et un affaiblissement en
+      // `10^(−0,4·k·X·0,5)` dont le facteur 0,5 n'avait aucune justification.
+      //
+      // Le disque rougit et faiblit desormais parce que la colonne d'air
+      // s'allonge et que la section efficace varie en λ⁻⁴·¹, sans qu'aucune
+      // couleur ne soit ecrite nulle part.
+      ;(surface.uniforms.uTint.value as Vector3).set(sunTint[0], sunTint[1], sunTint[2])
+      surface.uniforms.uGain.value = SUN_GAIN
     } else {
       const sd = equatorialDirectionToScene(state.sunDirectionEq, date, location, scratch.current)
       ;(surface.uniforms.uBodySunDir.value as Vector3).set(sd[0], sd[1], sd[2])
@@ -629,6 +643,7 @@ export function SolarSystemBodies({
   limitingMagnitude,
   discScale,
   sunDirection,
+  sunTint,
   atmosphereExposure,
   aerosolTurbidity,
   colors,
@@ -644,6 +659,8 @@ export function SolarSystemBodies({
   discScale: number
   /** Direction du Soleil dans le repere de la scene, unitaire. */
   sunDirection: [number, number, number]
+  /** Couleur du disque solaire transmise par l'atmosphere, sRGB lineaire. */
+  sunTint: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   atmosphereExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
@@ -670,6 +687,7 @@ export function SolarSystemBodies({
           limitingMagnitude={limitingMagnitude}
           discScale={discScale}
           sunDirection={sunDirection}
+          sunTint={sunTint}
           atmosphereExposure={atmosphereExposure}
           aerosolTurbidity={aerosolTurbidity}
           selected={selectedId === state.id}

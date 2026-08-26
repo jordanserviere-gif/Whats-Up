@@ -97,55 +97,17 @@ const PROBE_SCENARIOS = [
 const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--disable-lcd-text'],
 })
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 })
-
-const errors = []
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
-page.on('pageerror', (e) => errors.push(String(e)))
-
-try {
-  await page.goto(BASE, { waitUntil: 'networkidle', timeout: 15_000 })
-} catch {
-  console.error(
-    `Serveur injoignable sur ${BASE}.\n` +
-      `Lancer « npm run dev -- --port 5199 » dans un autre terminal, ou definir SHOOT_URL.`,
-  )
-  await browser.close()
-  process.exit(1)
-}
-await page.waitForTimeout(3000)
-
-// Le chrome de l'interface masquerait une partie du ciel et retrecirait le
-// canvas : on le retire avant toute sonde.
-await page.addStyleTag({
-  content: `.sky-hud,.timeline,.md-nav-rail,.md-side-panel,.sky-labels{display:none!important}
-            *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}`,
-})
-await page.evaluate(() => window.__skyStore.setState({ panelOpen: false }))
-await page.waitForTimeout(600)
 
 // ---------------------------------------------------------------------------
-// Environnement
+// 1. Cout GPU des noyaux — AVANT toute mise en route de l'application
 // ---------------------------------------------------------------------------
-
-const environment = await page.evaluate(() => {
-  const c = document.querySelector('canvas')
-  const gl = c && (c.getContext('webgl2') || c.getContext('webgl'))
-  const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info')
-  return {
-    renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null,
-    webgl2: !!(c && c.getContext('webgl2')),
-    colorBufferFloat: !!(gl && gl.getExtension('EXT_color_buffer_float')),
-    floatLinear: !!(gl && gl.getExtension('OES_texture_float_linear')),
-    max3DTexture: gl && gl.MAX_3D_TEXTURE_SIZE ? gl.getParameter(gl.MAX_3D_TEXTURE_SIZE) : null,
-    webgpuAvailable: 'gpu' in navigator,
-    canvas: c ? { width: c.width, height: c.height } : null,
-  }
-})
-
-// ---------------------------------------------------------------------------
-// 1. Cout GPU des noyaux
-// ---------------------------------------------------------------------------
+//
+// L'ordre n'est pas cosmetique. Mesure alors que l'onglet de la scene tournait,
+// la passe additionnait au noyau tout ce que l'application rend par ailleurs a
+// soixante images par seconde : le chiffre variait de 30 % d'une execution a
+// l'autre sans que le GLSL mesure ait change d'un caractere. Le banc s'execute
+// donc en premier, dans une page vierge, avant que l'application ne soit
+// chargee.
 
 /**
  * Page vierge, servie depuis l'origine du serveur de developpement.
@@ -166,6 +128,26 @@ await bench.route('**/__bench.html', (route) =>
   route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>bench</title>' }),
 )
 await bench.goto(`${BASE}/__bench.html`)
+
+// ---------------------------------------------------------------------------
+// Environnement
+// ---------------------------------------------------------------------------
+
+const environment = await bench.evaluate(() => {
+  // Canvas jetable : la page du banc n'en contient aucun, et les capacites du
+  // contexte ne dependent pas de qui l'a cree.
+  const c = document.createElement('canvas')
+  const gl = c.getContext('webgl2') || c.getContext('webgl')
+  const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info')
+  return {
+    renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null,
+    webgl2: !!c.getContext('webgl2'),
+    colorBufferFloat: !!(gl && gl.getExtension('EXT_color_buffer_float')),
+    floatLinear: !!(gl && gl.getExtension('OES_texture_float_linear')),
+    max3DTexture: gl && gl.MAX_3D_TEXTURE_SIZE ? gl.getParameter(gl.MAX_3D_TEXTURE_SIZE) : null,
+    webgpuAvailable: 'gpu' in navigator,
+  }
+})
 
 const kernels = {}
 for (const kernel of KERNELS) {
@@ -229,34 +211,82 @@ for (const kernel of KERNELS) {
       const seed = gl.getUniformLocation(program, 'uSeed')
 
       const pixel = new Uint8Array(4)
-      const run = (w, h, reps) => {
-        canvas.width = w
-        canvas.height = h
-        gl.viewport(0, 0, w, h)
-        for (let i = 0; i < 4; i++) {
-          gl.uniform1f(seed, i)
-          gl.drawArrays(gl.TRIANGLES, 0, 3)
-        }
-        // `readPixels` force la synchronisation : sans lui on ne mesurerait que
-        // le temps d'empilement des commandes, pas le travail du GPU.
-        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
 
-        const t0 = performance.now()
+      /**
+       * Un lot de passes, synchronise a la fin.
+       *
+       * `readPixels` force la synchronisation : sans lui on ne mesurerait que le
+       * temps d'empilement des commandes, pas le travail du GPU.
+       */
+      const drawBatch = (reps) => {
         for (let i = 0; i < reps; i++) {
           gl.uniform1f(seed, i)
           gl.drawArrays(gl.TRIANGLES, 0, 3)
         }
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
-        const elapsed = performance.now() - t0
-        return { msPerPass: elapsed / reps, nsPerPixel: (elapsed * 1e6) / (reps * w * h) }
+      }
+
+      /**
+       * Mesure d'un noyau a une resolution donnee.
+       *
+       * Trois precautions, et chacune corrige un defaut constate :
+       *
+       * 1. **Chauffe au temps, pas au nombre de passes.** Un GPU au repos tourne
+       *    a frequence reduite et met des centaines de millisecondes a monter.
+       *    Quatre passes de chauffe mesuraient donc la montee en frequence
+       *    autant que le noyau — d'ou des ecarts de 40 % entre deux executions
+       *    du meme code.
+       * 2. **Plusieurs echantillons, et la mediane.** Un echantillon unique est
+       *    a la merci d'une preemption du compositeur ou du ramasse-miettes.
+       * 3. **Nombre de passes calibre**, pour que chaque echantillon dure assez
+       *    longtemps devant la resolution de `performance.now()`.
+       *
+       * La dispersion est **rendue avec la mesure** : un chiffre de performance
+       * sans son incertitude ne permet pas de juger une regression.
+       */
+      const run = (w, h, { warmupMs = 400, samples = 9, targetSampleMs = 25 } = {}) => {
+        canvas.width = w
+        canvas.height = h
+        gl.viewport(0, 0, w, h)
+
+        let reps = 8
+        const warmStart = performance.now()
+        while (performance.now() - warmStart < warmupMs) drawBatch(reps)
+
+        // Calibrage sur une passe chaude.
+        const probeStart = performance.now()
+        drawBatch(reps)
+        const probeMs = Math.max(0.05, performance.now() - probeStart)
+        reps = Math.max(4, Math.min(4096, Math.ceil((reps * targetSampleMs) / probeMs)))
+
+        const values = []
+        for (let s = 0; s < samples; s++) {
+          const start = performance.now()
+          drawBatch(reps)
+          values.push(((performance.now() - start) * 1e6) / (reps * w * h))
+        }
+        values.sort((a, b) => a - b)
+
+        const median = values[values.length >> 1]
+        return {
+          nsPerPixel: median,
+          minNsPerPixel: values[0],
+          maxNsPerPixel: values[values.length - 1],
+          // Dispersion relative a la mediane : au-dela de quelques pour cent, la
+          // mesure ne permet pas de conclure sur une variation du meme ordre.
+          spread: (values[values.length - 1] - values[0]) / median,
+          msPerPass: (median * reps * w * h) / 1e6 / reps,
+          reps,
+          samples,
+        }
       }
 
       // Trois resolutions : si le cout par pixel reste constant, la passe est
       // limitee par le remplissage, ce qui autorise l'extrapolation.
       const measurements = {
-        '1440x900': run(1440, 900, 24),
-        '720x450': run(720, 450, 48),
-        '360x225': run(360, 225, 96),
+        '1440x900': run(1440, 900),
+        '720x450': run(720, 450),
+        '360x225': run(360, 225),
       }
       return { measurements }
     },
@@ -275,6 +305,8 @@ for (const kernel of KERNELS) {
     phase: kernel.phase,
     measurements: result.measurements,
     nsPerPixel: result.measurements['1440x900'].nsPerPixel,
+    spread: result.measurements['1440x900'].spread,
+    samples: result.measurements['1440x900'].samples,
     fillRateBound: spread < 0.5,
     // Extrapolations aux resolutions reellement rendues par l'application,
     // dont le `dpr` est plafonne a 2.
@@ -285,6 +317,37 @@ for (const kernel of KERNELS) {
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// L'application : chargee seulement une fois le banc termine.
+// ---------------------------------------------------------------------------
+
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 })
+
+const errors = []
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+page.on('pageerror', (e) => errors.push(String(e)))
+
+try {
+  await page.goto(BASE, { waitUntil: 'networkidle', timeout: 15_000 })
+} catch {
+  console.error(
+    `Serveur injoignable sur ${BASE}.\n` +
+      `Lancer « npm run dev -- --port 5199 » dans un autre terminal, ou definir SHOOT_URL.`,
+  )
+  await browser.close()
+  process.exit(1)
+}
+await page.waitForTimeout(3000)
+
+// Le chrome de l'interface masquerait une partie du ciel et retrecirait le
+// canvas : on le retire avant toute sonde.
+await page.addStyleTag({
+  content: `.sky-hud,.timeline,.md-nav-rail,.md-side-panel,.sky-labels{display:none!important}
+            *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}`,
+})
+await page.evaluate(() => window.__skyStore.setState({ panelOpen: false }))
+await page.waitForTimeout(600)
 
 // ---------------------------------------------------------------------------
 // 2. Sondes de rendu
@@ -320,12 +383,12 @@ async function readPixels(points) {
  * ecretage et son debordement en halo. Aucune sonde de ciel ne peut le dire —
  * elles echantillonnent toutes des valeurs sous le blanc.
  */
-async function probeSunDisc() {
+async function probeSunDisc(time) {
   const aim = await page.evaluate(
-    ({ location }) => {
+    ({ location, time }) => {
       const store = window.__skyStore
       store.setState({
-        time: new Date('2026-06-21T12:00:00Z').getTime(),
+        time: new Date(time).getTime(),
         live: false,
         playing: false,
         location,
@@ -333,7 +396,7 @@ async function probeSunDisc() {
       })
       return null
     },
-    { location: PARIS },
+    { location: PARIS, time },
   ).then(async () => {
     await page.waitForTimeout(500)
     return page.evaluate(() => window.__bodyStates?.find((b) => b.id === 'sun')?.horizontal ?? null)
@@ -389,8 +452,17 @@ for (const scenario of PROBE_SCENARIOS) {
   probes[scenario.name] = entry
 }
 
-const sunDisc = await probeSunDisc()
-if (sunDisc) probes['disque-solaire'] = { time: '2026-06-21T12:00:00Z', sunAltitude: null, directions: sunDisc }
+// Deux hauteurs solaires : haute, ou le disque doit rester ecrete au blanc, et
+// rasante, ou l'extinction spectrale doit le rougir et l'attenuer. La seconde
+// est la seule qui teste reellement le transport direct de la phase 4 — a midi
+// la colonne est si courte que n'importe quel modele donnerait du blanc.
+for (const [name, time] of [
+  ['disque-solaire', '2026-06-21T12:00:00Z'],
+  ['disque-solaire-rasant', '2026-06-21T19:40:00Z'],
+]) {
+  const disc = await probeSunDisc(time)
+  if (disc) probes[name] = { time, sunAltitude: null, directions: disc }
+}
 
 await browser.close()
 
@@ -416,8 +488,8 @@ console.log('\n--- Cout GPU des noyaux ---')
 for (const [name, k] of Object.entries(kernels)) {
   console.log(`\n${name}`)
   console.log(
-    `  ${k.nsPerPixel.toFixed(2)} ns/pixel` +
-      `${k.fillRateBound ? ' (limite par le remplissage : extrapolation valide)' : ' (NON lineaire en pixels — extrapolation douteuse)'}`,
+    `  ${k.nsPerPixel.toFixed(2)} ns/pixel  ±${(k.spread * 100).toFixed(1)} % sur ${k.samples} echantillons` +
+      `${k.fillRateBound ? '  (limite par le remplissage : extrapolation valide)' : '  (NON lineaire en pixels — extrapolation douteuse)'}`,
   )
   for (const [target, ms] of Object.entries(k.projectedMs)) {
     const share = (ms / 16.67) * 100
@@ -468,7 +540,14 @@ if (existsSync(BASELINE) && !WRITE) {
     const before = previous.kernels?.[name]
     if (!before) continue
     const ratio = k.nsPerPixel / before.nsPerPixel
-    console.log(`  ${name} : ${before.nsPerPixel.toFixed(2)} → ${k.nsPerPixel.toFixed(2)} ns/px (×${ratio.toFixed(2)})`)
+    // Une variation inferieure a la dispersion des deux mesures n'est pas une
+    // variation : la signaler comme telle serait du bruit presente en resultat.
+    const noise = Math.max(k.spread ?? 0, before.spread ?? 0)
+    const verdict = Math.abs(ratio - 1) <= noise ? 'dans le bruit' : `×${ratio.toFixed(2)}`
+    console.log(
+      `  ${name} : ${before.nsPerPixel.toFixed(2)} → ${k.nsPerPixel.toFixed(2)} ns/px ` +
+        `(${verdict}, dispersion ±${(noise * 100).toFixed(1)} %)`,
+    )
   }
 
   console.log(failures === 0 ? '\nAucune derive de colorimetrie.' : `\n${failures} derive(s) de colorimetrie.`)

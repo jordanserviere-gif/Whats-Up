@@ -40,9 +40,22 @@ import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
 import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
 import { AIRGLOW_LUX } from '@/astro/photometry'
+import { sunDiscTint } from '@/atmosphere/transport/directSolar'
+import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
+import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
+
+/**
+ * Grille spectrale du transport solaire direct.
+ *
+ * Trente-deux bandes sur le visible : largement assez pour une **couleur**,
+ * dont la resolution utile est fixee par la largeur des fonctions
+ * colorimetriques, pas par la finesse du spectre. Les raies de Fraunhofer sont
+ * moyennees par bande, sans perte d'energie — voir `SpectralGrid.ts`.
+ */
+const SOLAR_GRID = uniformSpectralGrid(360, 830, 32)
 
 /** Halo urbain sans teinte : il ne fait qu'eclaircir le ciel. */
 const NEUTRAL_GLOW = '#ffffff'
@@ -216,6 +229,27 @@ export function SkyCanvas() {
   const sunDirection = useMemo<[number, number, number]>(
     () => viewDirection(sky.sunAzimuth, sky.sunAltitude),
     [sky.sunAzimuth, sky.sunAltitude],
+  )
+
+  /**
+   * Couleur du disque solaire, transmise par l'atmosphere reelle.
+   *
+   * Le calcul integre la densite moleculaire le long du trajet oblique — quatre
+   * mille pas — puis applique Beer-Lambert bande par bande. C'est trop cher
+   * pour chaque image, et parfaitement inutile : la hauteur du Soleil varie de
+   * quinze degres par heure, soit un vingtieme de degre en douze secondes. On
+   * quantifie donc la visee a ce pas, ce qui borne le recalcul sans qu'aucune
+   * transition ne se voie.
+   *
+   * Sans le calque « atmosphere », l'observateur est place au sommet de
+   * l'atmosphere : le Soleil y garde son spectre hors atmosphere, plus brillant
+   * et plus bleu, ce qui est exactement ce qu'on voit depuis l'espace.
+   */
+  const sunAltitudeKey = Math.round(sky.sunAltitude * 20) / 20
+  const observerElevationM = layers.atmosphere ? location.elevation : ATMOSPHERE_TOP_M
+  const sunTint = useMemo<[number, number, number]>(
+    () => sunDiscTint(SOLAR_GRID, sunAltitudeKey, { observerElevationM }),
+    [sunAltitudeKey, observerElevationM],
   )
 
   /**
@@ -526,6 +560,7 @@ export function SkyCanvas() {
             limitingMagnitude={limitingMagnitude}
             discScale={discScale}
             sunDirection={sunDirection}
+            sunTint={sunTint}
             atmosphereExposure={atmosphereExposure}
             aerosolTurbidity={aerosolTurbidity}
             colors={bodyColors}

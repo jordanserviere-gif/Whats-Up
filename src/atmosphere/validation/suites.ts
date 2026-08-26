@@ -18,6 +18,7 @@ import {
   spectralGridSuite,
 } from '../spectral/spectral.validation'
 import { rayleighSuite } from '../rayleigh/rayleigh.validation'
+import { directSolarSuite, slantPathSuite } from '../transport/directSolar.validation'
 import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
@@ -43,5 +44,8 @@ export function allSuites(): SuiteResult[] {
     rayleighSuite(),
     // Phase 0.5 — chaine d'affichage lineaire.
     displayTransformSuite(),
+    // Phase 4 — transport direct.
+    slantPathSuite(),
+    directSolarSuite(),
   ]
 }

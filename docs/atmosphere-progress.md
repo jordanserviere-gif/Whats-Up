@@ -53,8 +53,8 @@ aucune réorganisation.
 | **0.5** | Passe d'affichage HDR linéaire | **VALIDATED** | 11 matériaux portés · nuit identique au bit près |
 | **2** | Base spectrale (`SpectralGrid`, `SolarSpectrum`, `SpectralSensor`) | **VALIDATED** | données acquises et commitées ; invariance à la résolution vérifiée |
 | **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
-| **4** | Soleil direct + extinction | **TODO** | débloquée |
-| **5** | Single scattering | **TODO** | |
+| **4** | Soleil direct + extinction | **VALIDATED** | 3 paliers de `photometry.ts` retrouvés à < 2 % |
+| **5** | Single scattering | **TODO** | cible chiffrée : combler le déficit de 44 % à 5° |
 | **6** | Aérosols + Mie | **TODO** | précalcul hors ligne |
 | **7** | Absorption atmosphérique | **TODO** | |
 | **8** | Multiple scattering | **TODO** | cible : réparer le crépuscule mort |
@@ -100,10 +100,14 @@ aucune réorganisation.
 | Cible | Voûte seule | Part d'une image à 60 Hz |
 | --- | --- | --- |
 | 1440×900 @ dpr 1 | 1,98 ms | 12 % |
-| 1440×900 @ dpr 2 | **7,93 ms** | **48 %** |
-| 1920×1080 @ dpr 2 | 12,69 ms | 76 % |
+| 1440×900 @ dpr 2 | **~4,9 ms** | **~30 %** |
+| 1920×1080 @ dpr 2 | ~7,9 ms | ~47 % |
 
-**1,53 ns/pixel**, limité par le remplissage. Bruit du banc : ~7 %.
+**0,95 ns/pixel ±7 %**, limité par le remplissage.
+
+> Chiffre corrigé le 26 août 2026. La première mesure annonçait 1,53 ns/px :
+> le banc tournait dans l'onglet de l'application et chauffait trop peu. Voir
+> la phase 4 pour la méthode.
 
 ### Défauts chiffrés par les sondes
 
@@ -156,7 +160,7 @@ au lieu de la deviner.
 | Ciel de jour | +3 à +7 niveaux, plus clair |
 | Horizon au coucher, canal bleu | 18 niveaux, tombe à 0 |
 | Disque solaire | 255,255,255 — inchangé |
-| Coût GPU du noyau | 1,53 → 1,57 ns/px (bruit) |
+| Coût GPU du noyau | inchangé (voir la note de méthode en phase 4) |
 
 **La nuit identique au bit près** est la vérification qui compte : là où la
 diffusion est nulle, la cale restitue exactement l'original. L'inverse est donc
@@ -180,7 +184,8 @@ pourra le remplacer.
 Le banc GPU tournait **dans l'onglet de l'application** et mesurait donc le
 noyau *plus* la charge de la scène. Le chiffre est monté à 2,74 ns/px alors que
 le GLSL mesuré n'avait pas changé d'un caractère. Le banc s'exécute désormais
-dans une page vierge servie par Vite : 1,57 ns/px, dans le bruit de l'original.
+dans une page vierge servie par Vite. Un second défaut — une chauffe trop
+courte — a été trouvé et corrigé en phase 4.
 
 ### Décision : pas de feature flag
 
@@ -397,6 +402,75 @@ l'observateur, ni de l'état de l'atmosphère.
 
 ---
 
+## Phase 4 — Soleil direct + extinction · VALIDATED
+
+### Livré
+
+- `transport/slantPath.ts` — colonne moléculaire en géométrie sphérique, sans
+  approximation plan-parallèle.
+- `transport/directSolar.ts` — Beer-Lambert spectral, XYZ, sRGB, éclairement.
+- `scene/Bodies.tsx` — le disque solaire prend teinte **et** éclat de la
+  physique ; `extinctionTint()` et le facteur `0,5` arbitraire disparaissent
+  pour le Soleil.
+- `scene/SkyCanvas.tsx` — calcul quantifié au vingtième de degré (le Soleil
+  parcourt 15°/h, soit 1/20° en douze secondes).
+
+### Les paliers de photometry.ts, par un chemin indépendant
+
+| Hauteur | Publié | Calculé | Écart |
+| --- | --- | --- | --- |
+| 90° | 120 000 lx | 120,9 klx | 0,7 % |
+| 45° | 82 000 lx | 82,2 klx | 0,2 % |
+| 20° | 34 000 lx | 34,5 klx | 1,5 % |
+| 10° | 15 000 lx | 13,7 klx | −9 % |
+| 5° | 8 000 lx | 4,5 klx | −44 % |
+
+**Le déficit à basse hauteur est attendu et mesure ce qui manque** : ce module
+ne calcule que le direct, et à Soleil bas le ciel diffus domine. C'est la cible
+chiffrée de la phase 5.
+
+### Masse d'air vs Pickering
+
+Écart de 2·10⁻⁷ à 90°, 4·10⁻⁴ à 20°, 3·10⁻³ à 10°. À l'horizon : 35,18 contre
+38,75 — **écart physique**, Pickering étant ajusté sur une atmosphère réfractée.
+Devrait se refermer en phase 11.
+
+### Émergence
+
+CCT de 5 353 K au zénith à 2 322 K à 2°. Transmittance à l'horizon : 0,00 % dans
+le bleu, 46,7 % dans le rouge. Aucune couleur écrite nulle part.
+
+### Limite connue
+
+Le disque rasant rend `255,255,164` : le bleu est retiré, mais R et V restent
+écrêtés faute de modèle d'adaptation à l'exposition. Le disque lit jaune-blanc
+plutôt qu'orange. À traiter avec la mise à l'échelle radiométrique commune
+Soleil/ciel de la phase 5.
+
+### Correction majeure : le banc GPU
+
+Un second défaut du banc a été trouvé — après celui de la phase 0.5. Même
+isolé, il rendait 0,95 · 0,96 · 1,37 ns/px sur trois exécutions du **même
+code**. Cause : quatre passes de chauffe seulement, quand un GPU au repos met
+des centaines de millisecondes à quitter ses fréquences d'attente.
+
+Le banc chauffe désormais 400 ms, calibre son nombre de passes, prend la
+médiane de neuf échantillons et **rend sa dispersion avec sa mesure**.
+
+**Conséquence : tous les chiffres de performance publiés jusqu'ici étaient
+surestimés d'environ 90 %.**
+
+| | Publié | Corrigé |
+| --- | --- | --- |
+| Coût du noyau | 1,53–1,83 ns/px | **0,95 ns/px ±7 %** |
+| Voûte à dpr 2 | 7,9–9,5 ms | **~4,9 ms** |
+| Part d'une image à 60 Hz | 48–57 % | **~30 %** |
+
+`docs/atmosphere-engine-audit.md` est corrigé, avec l'erreur documentée plutôt
+qu'effacée. Le raisonnement sur le budget tient ; son échelle change.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -406,3 +480,4 @@ l'observateur, ni de l'état de l'atmosphère.
 | 2026-08-25 | Phase 2 — base spectrale ; données CIE et solaires acquises ; **222 contrôles, aucun échec** |
 | 2026-08-25 | Phase 3 — Rayleigh ; cible de la phase 2 atteinte à 0,7 % ; **249 contrôles, aucun échec** |
 | 2026-08-26 | Phase 0.5 — chaîne HDR linéaire ; 11 matériaux portés ; nuit identique au bit près ; **268 contrôles** |
+| 2026-08-26 | Phase 4 — Soleil direct ; paliers de photometry.ts retrouvés à < 2 % ; banc GPU corrigé (−90 % sur les chiffres publiés) ; **305 contrôles** |

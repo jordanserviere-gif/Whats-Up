@@ -535,6 +535,90 @@ donc une seule pour tout le spectre.
 
 ---
 
+### `transport/slantPath.ts`
+
+**Rôle.** Colonne moléculaire le long d'un rayon oblique, en géométrie
+**sphérique**.
+
+**Pourquoi pas une sécante.** L'approximation plan-parallèle donne
+`masse d'air = 1/cos z`. Elle est excellente jusqu'à 60° et **diverge à
+l'horizon**. La réalité plafonne : la courbure de la Terre fait remonter le
+rayon hors de l'atmosphère dense avant qu'il n'ait traversé une colonne infinie.
+Or c'est précisément près de l'horizon que se joue tout ce que ce moteur cherche
+à rendre.
+
+```
+|p(s)|² = s² + 2·s·r₀·cos z + r₀²        altitude(s) = |p(s)| − R
+colonne = ∫ N(altitude(s)) ds
+```
+
+Intégration par point milieu, pas **proportionnel à la longueur du trajet** :
+une visée rasante parcourt 1 133 km là où une visée zénithale en parcourt 100.
+Convergence vérifiée à 5,5·10⁻⁹ entre 4 096 et 16 384 pas.
+
+**Validation croisée gratuite.** La masse d'air relative doit retrouver la
+formule empirique de Pickering (2002) que `astro/photometry.ts` applique déjà,
+par un chemin entièrement différent — ici une intégration géométrique, là-bas un
+ajustement.
+
+| Hauteur | Ce module | Pickering | Écart |
+| --- | --- | --- | --- |
+| 90° | 1,00 | 1,00 | 2·10⁻⁷ |
+| 45° | 1,41 | 1,41 | 1,6·10⁻⁴ |
+| 20° | 2,90 | 2,90 | 4,0·10⁻⁴ |
+| 10° | 5,56 | 5,58 | 2,9·10⁻³ |
+| 0° | **35,18** | **38,75** | 9 % |
+
+L'écart à l'horizon **est physique** : Pickering est ajusté sur une atmosphère
+*réfractée*, qui allonge le trajet ; ce module est purement géométrique. Il
+devrait se refermer à la phase 11.
+
+> **Le rayon est droit.** La réfraction abaisserait la position apparente du
+> Soleil d'environ 35′ à l'horizon — plus que son propre diamètre. Les hauteurs
+> manipulées ici sont **géométriques**, cohérentes avec la scène qui l'est aussi.
+
+---
+
+### `transport/directSolar.ts`
+
+**Rôle.** Le Soleil vu à travers l'atmosphère. `L(λ) = L₀(λ)·exp(−τ(λ,z))`, et
+rien d'autre.
+
+**Ce qui en sort tout seul.** Le Soleil rougit en descendant. Pas parce qu'une
+fonction le décide, mais parce que le trajet s'allonge d'un facteur 35 et que la
+section efficace varie en λ⁻⁴·¹. Il n'existe dans ce fichier ni `sunsetColor`,
+ni condition sur la hauteur, ni palier : la hauteur n'entre que dans la longueur
+du trajet.
+
+**Ce qui remplace quoi.** `extinctionTint()` — deux exponentielles ajustées par
+canal — et un affaiblissement en `10^(−0,4·k·X·0,5)` dont le facteur 0,5 n'avait
+aucune justification.
+
+**Séparation cache / runtime.** `σ(λ)` est moléculaire : tabulée une fois par
+grille. La profondeur optique n'est plus qu'une multiplication par la colonne.
+
+**Résultats.**
+
+| Grandeur | Valeur |
+| --- | --- |
+| Éclairement horizontal à 90° | 120,9 klx |
+| … à 45° | 82,2 klx |
+| … à 20° | 34,5 klx |
+| CCT au zénith | 5 353 K |
+| CCT à 2° | **2 322 K** |
+| Transmittance à l'horizon, bleu / rouge | 0,00 % / 46,7 % |
+
+**Normalisation de la teinte livrée au rendu.** `sunDiscTint()` rend un sRGB
+linéaire dont la luma vaut 1 au zénith **au niveau de la mer** — référence fixe,
+de sorte qu'un observateur au Pic du Midi voie effectivement un Soleil plus
+brillant. Normaliser plutôt que livrer la radiance absolue est un choix **de
+transition** : le ciel n'est pas encore sur la même échelle radiométrique
+(phase 5), et les mettre en rapport avant qu'ils ne la partagent produirait un
+Soleil correct sur un ciel faux. La grandeur absolue existe déjà
+(`normalIlluminanceLux`) et prendra le relais.
+
+---
+
 ### `scene/display/tonemap.ts`
 
 **Rôle.** Le transform d'affichage — l'unique endroit où une radiance devient un
@@ -629,7 +713,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 268 contrôles, 11 suites, aucun échec.**
+**État : 305 contrôles, 13 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -667,10 +751,11 @@ Diffusion simple Rayleigh + Mie, 16 pas primaires × 8 pas secondaires :
 | Cible | Coût de la seule voûte | Part d'une image à 60 Hz |
 | --- | --- | --- |
 | 1440×900 @ dpr 1 | 1,98 ms | 12 % |
-| 1440×900 @ dpr 2 | **7,93 ms** | **48 %** |
-| 1920×1080 @ dpr 2 | 12,69 ms | 76 % |
+| 1440×900 @ dpr 2 | **~4,9 ms** | **~30 %** |
+| 1920×1080 @ dpr 2 | ~7,9 ms | ~47 % |
 
-**1,53 ns/pixel**, linéaire sur trois résolutions → limité par le remplissage,
+**0,95 ns/pixel** (±7 % d'une exécution à l'autre), linéaire sur trois
+résolutions → limité par le remplissage,
 donc l'extrapolation est valide. Variation entre exécutions : ~7 % (1,53 à
 1,63 ns/px mesurés) — c'est le plancher de bruit du banc, à garder en tête
 avant de célébrer un gain.
@@ -788,7 +873,7 @@ Le refactor a été mesuré, pas jugé. Sondes comparées à la référence comm
 | Ciel de jour | **+3 à +7 niveaux**, systématiquement plus clair |
 | Horizon au coucher, canal bleu | **18 niveaux**, tombe à 0 |
 | Disque solaire | 255,255,255 — inchangé |
-| Coût GPU du noyau | 1,53 → 1,57 ns/px (dans le bruit) |
+| Coût GPU du noyau | inchangé — voir la note de méthode ci-dessous |
 
 **La nuit est identique au bit près.** C'est la vérification la plus utile : là
 où la diffusion est nulle, la cale `radianceFromDisplay` restitue exactement la
@@ -817,9 +902,77 @@ alors que **le GLSL mesuré n'avait pas changé d'un caractère**.
 
 Le banc s'exécute désormais dans une page vierge servie par le serveur de
 développement — vierge pour ne rien mesurer d'autre, servie par le serveur pour
-que l'import du module passe par Vite. Mesure isolée : **1,57 ns/px**, soit 2,6 %
-de l'ancienne, dans le bruit.
+que l'import du module passe par Vite.
+
+**Un second défaut est apparu ensuite**, et il était plus grave : même isolé, le
+banc rendait 0,95 · 0,96 · 1,37 ns/px sur trois exécutions du même code — 44 %
+d'écart. La cause était la **chauffe**, quatre passes seulement. Un GPU au repos
+tourne à fréquence réduite et met des centaines de millisecondes à monter ; le
+banc mesurait donc la montée en fréquence autant que le noyau.
+
+Il chauffe désormais pendant 400 ms, calibre son nombre de passes pour des
+échantillons d'au moins 25 ms, prend la **médiane de neuf échantillons**, et
+**rend sa dispersion avec sa mesure** : `0,95 ns/pixel ±7 %`. Un chiffre de
+performance sans incertitude ne permet pas de juger une régression — et la
+comparaison à la référence annonce maintenant « dans le bruit » plutôt qu'un
+rapport trompeur.
+
+**Conséquence : les chiffres publiés jusqu'ici étaient surestimés d'environ
+90 %.** La voûte coûte ~4,9 ms à dpr 2 et non 7,9, soit ~30 % d'une image et non
+48 %. L'audit est corrigé en conséquence ; le raisonnement sur le budget tient,
+son échelle change.
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1, 2 et 3 validées.*
+## Le Soleil couchant, sans code de coucher — phase 4
+
+Les paliers d'éclairement de `astro/photometry.ts`, tabulés depuis la
+littérature des crépuscules, sont retrouvés par une chaîne entièrement
+indépendante : spectre ASTM G173 → extinction de Rayleigh le long du trajet
+oblique → fonctions colorimétriques CIE.
+
+| Hauteur du Soleil | `photometry.ts` | Calculé | Écart |
+| --- | --- | --- | --- |
+| 90° | 120 000 lx | 120,9 klx | 0,7 % |
+| 45° | 82 000 lx | 82,2 klx | 0,2 % |
+| 20° | 34 000 lx | 34,5 klx | 1,5 % |
+| 10° | 15 000 lx | 13,7 klx | **−9 %** |
+| 5° | 8 000 lx | 4,5 klx | **−44 %** |
+
+La projection `E_horizontal = E_normal · sin(h)` est indispensable : les paliers
+publiés sont des éclairements horizontaux.
+
+**Le déficit à basse hauteur est le résultat le plus intéressant du lot.** Ce
+module ne calcule que le rayonnement **direct** ; à Soleil bas, la lumière
+diffuse du ciel devient dominante. Le déficit mesure donc exactement ce que la
+phase 5 devra apporter. **Un accord parfait à 5° aurait été suspect**, pas
+rassurant.
+
+### L'émergence
+
+| Hauteur | Température de couleur |
+| --- | --- |
+| 90° | 5 353 K |
+| 30° | 4 903 K |
+| 10° | 3 859 K |
+| 5° | 3 105 K |
+| 2° | **2 322 K** |
+
+Trois mille kelvins de rougissement, et aucune couleur n'est écrite nulle part.
+
+### Ce que le rendu montre, et ce qu'il ne montre pas encore
+
+Sonde du disque solaire à hauteur rasante : `255,255,164` au centre,
+`255,255,0` dans la couronne. **Le bleu est bien retiré** — le rougissement est
+réel et mesurable. Mais le rouge et le vert restent écrêtés à 255, parce que
+l'exposition d'affichage est fixe.
+
+Le disque lit donc jaune-blanc plutôt qu'orange. Ce n'est pas une erreur du
+transport : c'est l'absence de modèle d'adaptation. L'œil qui voit un Soleil
+couchant orange est adapté à une scène sombre ; notre exposition ne l'est pas.
+Elle deviendra une grandeur photométrique en même temps que le ciel et le Soleil
+partageront une échelle radiométrique — phase 5.
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1, 2, 3 et 4 validées.*

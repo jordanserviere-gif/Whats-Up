@@ -43,12 +43,19 @@ alors que la transmittance est une grandeur linéaire : le produit est donc une
 approximation. »*
 
 **Le budget de performance ne se déduit pas d'une marge disponible : il se
-libère.** Le noyau de diffusion actuel coûte 1,8 ns/pixel, soit ~9,5 ms par
-image à dpr 2 — 57 % d'une image à 60 Hz, pour la seule voûte, recalculé
+libère.** Le noyau de diffusion actuel coûte **0,95 ns/pixel**, soit ~4,9 ms par
+image à dpr 2 — ~30 % d'une image à 60 Hz, pour la seule voûte, recalculé
 intégralement à chaque image, puis *refait* sur chaque fragment de planète et
 d'avion. Une chaîne à LUT précalculées ramène cela à quelques accès de texture.
-Les ~9 ms ainsi libérées *sont* le budget de la diffusion multiple, de la
+Les ~5 ms ainsi libérées *sont* le budget de la diffusion multiple, de la
 perspective aérienne, de la réfraction et de la turbulence.
+
+> **Correction du 26 août 2026.** Cette section annonçait initialement
+> 1,8 ns/pixel, 9,5 ms et 57 %. Ces chiffres étaient **surestimés d'environ
+> 90 %** : le microbanc tournait dans l'onglet de l'application, dont le rendu
+> à 60 Hz s'ajoutait à la mesure, et sa phase de chauffe était trop courte pour
+> que le GPU ait quitté ses fréquences d'attente. Voir §14 pour la mesure
+> corrigée et la méthode. Le raisonnement est inchangé, son échelle non.
 
 **Verdict : GO WITH REFACTOR** (détail en §20).
 
@@ -613,23 +620,48 @@ d'appels, pour un effet dont §7 recommande de toute façon la refonte.
 Microbenchmark du **noyau de diffusion seul**, compilé depuis
 `ATMOSPHERE_GLSL`, plein écran, synchronisé par `readPixels` :
 
-| Résolution | ms / passe | ns / pixel |
-| --- | --- | --- |
-| 1440 × 900 | **2,375** | 1,83 |
-| 720 × 450 | 0,560 | 1,73 |
-| 360 × 225 | 0,093 | 1,15 |
-| 128 × 128 | 0,020 | 1,22 |
+> ⚠️ **Les chiffres de la première rédaction étaient faux.** Ils sont conservés
+> plus bas, avec l'explication : une erreur de méthode de mesure vaut d'être
+> documentée, pas effacée.
+
+**Mesure corrigée** (banc isolé, chauffe au temps, médiane de 9 échantillons) :
+
+| Grandeur | Valeur |
+| --- | --- |
+| Coût du noyau | **0,95 ns/pixel** |
+| Dispersion inter-exécutions | ±7 % |
+| Dispersion intra-exécution | 3 à 11 % |
 
 **Coût linéaire en pixels → strictement fill-rate bound.** Extrapolation aux
 conditions réelles de l'application (`dpr` plafonné à 2) :
 
-| Cible | Pixels | Voûte seule |
-| --- | --- | --- |
-| 1440×900 @ dpr 1 | 1,3 Mpx | 2,4 ms |
-| 1440×900 @ dpr 2 | 5,2 Mpx | **~9,5 ms** |
-| 1920×1080 @ dpr 2 | 8,3 Mpx | **~15,2 ms** |
+| Cible | Pixels | Voûte seule | Part d'une image à 60 Hz |
+| --- | --- | --- | --- |
+| 1440×900 @ dpr 1 | 1,3 Mpx | ~1,2 ms | 7 % |
+| 1440×900 @ dpr 2 | 5,2 Mpx | **~4,9 ms** | **~30 %** |
+| 1920×1080 @ dpr 2 | 8,3 Mpx | ~7,9 ms | ~47 % |
 
-À dpr 2 sur une RTX 3060, **la seule voûte consomme 57 % d'une image à 60 Hz** —
+#### L'erreur de mesure, et pourquoi elle est instructive
+
+La première rédaction annonçait 1,83 ns/pixel et 9,5 ms à dpr 2. Deux défauts
+cumulés, chacun gonflant le résultat :
+
+1. **Le banc tournait dans l'onglet de l'application.** Le rendu de la scène, à
+   soixante images par seconde, s'ajoutait à la mesure. Le symptôme qui l'a
+   révélé : le chiffre est passé de 1,53 à 2,74 ns/px au fil du refactor de la
+   phase 0.5, **alors que le GLSL mesuré n'avait pas changé d'un caractère**.
+2. **La chauffe était trop courte** — quatre passes, quelques millisecondes. Un
+   GPU au repos tourne à fréquence réduite et met des centaines de
+   millisecondes à monter : le banc mesurait la montée en fréquence autant que
+   le noyau. D'où des écarts de 40 % entre deux exécutions identiques.
+
+Le banc s'exécute désormais dans une page vierge servie par Vite, **avant** que
+l'application ne soit chargée, avec 400 ms de chauffe et la médiane de neuf
+échantillons — et il **rend sa dispersion avec sa mesure**. Un chiffre de
+performance sans son incertitude ne permet pas de juger une régression.
+
+À dpr 2 sur une RTX 3060, **la seule voûte consomme environ 30 % d'une image à
+60 Hz** —
 et l'intégrale est ensuite *refaite intégralement* sur chaque fragment de
 planète, d'avion et de traînée. Sur un GPU intégré ou un iPhone (cible PWA
 déclarée dans le manifest), le budget est déjà dépassé aujourd'hui.
@@ -638,7 +670,7 @@ déclarée dans le manifest), le budget est déjà dépassé aujourd'hui.
 
 **Le budget ne se décrète pas : il se libère.** Un pipeline Bruneton/Hillaire
 remplace l'intégrale par ~3 accès de texture, soit un coût plein écran de
-l'ordre de 0,1–0,3 ms. Les **~9 ms rendues** constituent le budget réel de la
+l'ordre de 0,1–0,3 ms. Les **~5 ms rendues** constituent le budget réel de la
 diffusion multiple, de la perspective aérienne en froxels, de la réfraction et
 de la turbulence — le tout **à coût inférieur à l'actuel**.
 
@@ -834,7 +866,7 @@ Chaque étape est livrable, testable, et laisse l'application fonctionnelle.
 | **1** | **Passe d'affichage HDR linéaire** — retirer le tone mapping des 13 matériaux, à rendu constant | pipeline linéaire | **tout le reste** |
 | **2** | Ancrage radiométrique : spectre solaire TOA, CIE, XYZ→sRGB ; jeter `SUN_INTENSITY_REF` et `atmosphereExposure` | échelle physique unique | validation croisée avec `photometry.ts` |
 | **3** | Rayleigh + absorption ozone dérivés (Bodhaine, Chappuis) ; altitude de l'observateur ; albédo du sol | vrai Rayleigh spectral | fin de L-5, L-7 |
-| **4** | **LUT de transmittance + LUT de ciel** — infrastructure de render targets | **~9 ms libérées** | tout le budget |
+| **4** | **LUT de transmittance + LUT de ciel** — infrastructure de render targets | **~5 ms libérées** | tout le budget |
 | **5** | Diffusion multiple (LUT Hillaire) | arche bleue, ceinture de Vénus | crépuscule correct |
 | **6** | Perspective aérienne en froxels (indexés par `rangeM`) | avions, sol, satellites cohérents | fin de L-10 |
 | **7** | Mie physique : précalcul Bohren-Huffman, distributions, ω₀ | aérosols absorbants, halo solaire réel | **retrait de `glowMaterial()`** |

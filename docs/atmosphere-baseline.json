@@ -1,40 +1,53 @@
 {
-  "recordedAt": "2026-08-25T22:21:18.673Z",
+  "recordedAt": "2026-08-26T16:40:48.151Z",
   "environment": {
     "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl2": true,
     "colorBufferFloat": true,
     "floatLinear": true,
     "max3DTexture": 2048,
-    "webgpuAvailable": true,
-    "canvas": {
-      "width": 1432,
-      "height": 884
-    }
+    "webgpuAvailable": true
   },
   "kernels": {
     "diffusion simple Rayleigh+Mie (16×8, moteur actuel)": {
       "phase": "baseline",
       "measurements": {
         "1440x900": {
-          "msPerPass": 2.5208333333333335,
-          "nsPerPixel": 1.9450874485596708
+          "nsPerPixel": 0.8838383838367506,
+          "minNsPerPixel": 0.8698092031400867,
+          "maxNsPerPixel": 0.918911335580452,
+          "spread": 0.05555555556120171,
+          "msPerPass": 1.1454545454524288,
+          "reps": 22,
+          "samples": 9
         },
         "720x450": {
-          "msPerPass": 0.725000000015522,
-          "nsPerPixel": 2.2376543210355617
+          "nsPerPixel": 0.9104938271595956,
+          "minNsPerPixel": 0.8757716049364751,
+          "maxNsPerPixel": 0.929783950620877,
+          "spread": 0.05932203390428303,
+          "msPerPass": 0.29499999999970894,
+          "reps": 80,
+          "samples": 9
         },
         "360x225": {
-          "msPerPass": 0.14375000000776103,
-          "nsPerPixel": 1.7746913581205064
+          "nsPerPixel": 0.9755676422333038,
+          "minNsPerPixel": 0.9583009583039734,
+          "maxNsPerPixel": 1.0316843650136782,
+          "spread": 0.07522123893091913,
+          "msPerPass": 0.07902097902089761,
+          "reps": 286,
+          "samples": 9
         }
       },
-      "nsPerPixel": 1.9450874485596708,
+      "nsPerPixel": 0.8838383838367506,
+      "spread": 0.05555555556120171,
+      "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 2.5208333333333335,
-        "1440x900@dpr2": 10.083333333333334,
-        "1920x1080@dpr2": 16.133333333333333
+        "1440x900@dpr1": 1.1454545454524288,
+        "1440x900@dpr2": 4.581818181809715,
+        "1920x1080@dpr2": 7.3309090908955445
       }
     }
   },
@@ -44,7 +57,7 @@
       "sunAltitude": 64.5361320534411,
       "directions": {
         "zenith": [
-          67,
+          68,
           106,
           137
         ],
@@ -309,6 +322,27 @@
           255,
           255,
           255
+        ]
+      }
+    },
+    "disque-solaire-rasant": {
+      "time": "2026-06-21T19:40:00Z",
+      "sunAltitude": null,
+      "directions": {
+        "centre-disque": [
+          255,
+          255,
+          164
+        ],
+        "limbe": [
+          255,
+          255,
+          156
+        ],
+        "couronne": [
+          255,
+          255,
+          0
         ]
       }
     }
