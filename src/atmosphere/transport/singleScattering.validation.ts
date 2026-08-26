@@ -21,7 +21,8 @@ import { solarIlluminance } from '@/astro/photometry'
 import { suite, type SuiteResult } from '../validation/harness'
 import { uniformSpectralGrid } from '../spectral/SpectralGrid'
 import { directSolar } from './directSolar'
-import { columnToSpace, diffuseHorizontalIlluminance, skyRadiance } from './singleScattering'
+import { columnToSpace } from './slantPath'
+import { diffuseHorizontalIlluminance, skyRadiance } from './singleScattering'
 
 /** Seize bandes suffisent a une couleur, et gardent la suite executable. */
 const grid = uniformSpectralGrid(360, 830, 16)

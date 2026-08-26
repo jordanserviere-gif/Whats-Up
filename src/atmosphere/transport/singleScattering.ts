@@ -64,7 +64,8 @@ import {
 } from '../spectral/SpectralSensor'
 import { standardProfile } from '../thermodynamics/standardAtmosphere'
 import { EARTH_MEAN_RADIUS_M, degToRad, directionFromHorizontal } from '../core/units'
-import { ATMOSPHERE_TOP_M } from './slantPath'
+import { ATMOSPHERE_TOP_M, columnToSpace } from './slantPath'
+import { sampleColumnLut, type ColumnLut } from '../lut/transmittanceLut'
 
 export interface SingleScatteringOptions {
   observerElevationM?: number
@@ -74,45 +75,19 @@ export interface SingleScatteringOptions {
   primarySteps?: number
   /** Pas d'integration le long du rayon secondaire, vers le Soleil. */
   secondarySteps?: number
+  /**
+   * Table de colonne moleculaire — voir `lut/transmittanceLut.ts`.
+   *
+   * Fournie, elle remplace l'integration du rayon secondaire par un acces
+   * interpole. C'est le poste dominant du solveur : cent vingt-huit evaluations
+   * de profil **par pas** du rayon primaire. Omise, le calcul reste exact et
+   * sert de reference a la table.
+   */
+  columnLut?: ColumnLut
 }
 
 const RADIUS = EARTH_MEAN_RADIUS_M
 const TOP_RADIUS = RADIUS + ATMOSPHERE_TOP_M
-
-/**
- * Colonne moleculaire d'un point vers l'espace, dans une direction donnee.
- *
- * `altitudeM` est l'altitude du point, `cosZenith` le cosinus de l'angle entre
- * la direction visee et la verticale **locale a ce point** — et non celle de
- * l'observateur. Par symetrie spherique, ces deux nombres suffisent.
- *
- * Rend `Infinity` si le rayon rencontre la Terre. Ce n'est pas un cas d'erreur
- * mais le fondement du crepuscule : c'est ainsi que l'ombre de la planete entre
- * dans le calcul, sans qu'aucune geometrie d'ombre ne soit ecrite ailleurs.
- */
-export function columnToSpace(altitudeM: number, cosZenith: number, steps = 128): number {
-  const r = RADIUS + altitudeM
-  const mu = Math.max(-1, Math.min(1, cosZenith))
-
-  // Rayon descendant : il n'echappe que si son perigee reste au-dessus du sol.
-  if (mu < 0 && r * Math.sqrt(1 - mu * mu) < RADIUS) return Number.POSITIVE_INFINITY
-
-  // Sortie par le sommet de l'atmosphere : racine positive de
-  // t² + 2·t·r·µ + r² − r_top² = 0.
-  const discriminant = r * r * mu * mu + (TOP_RADIUS * TOP_RADIUS - r * r)
-  if (!(discriminant > 0)) return 0
-  const total = -r * mu + Math.sqrt(discriminant)
-  if (!(total > 0)) return 0
-
-  const step = total / steps
-  let column = 0
-  for (let i = 0; i < steps; i++) {
-    const t = (i + 0.5) * step
-    const radius = Math.sqrt(t * t + 2 * t * r * mu + r * r)
-    column += standardProfile(radius - RADIUS).numberDensityPerM3 * step
-  }
-  return column
-}
 
 /** Sections efficaces tabulees par grille — propriete moleculaire, calculee une fois. */
 const crossSectionCache = new Map<string, SpectralArray>()
@@ -170,6 +145,7 @@ export function skyRadiance(
     co2MoleFraction,
     primarySteps = 48,
     secondarySteps = 128,
+    columnLut,
   } = options
 
   const sun = directionFromHorizontal(0, degToRad(sunAltitudeDeg))
@@ -228,7 +204,9 @@ export function skyRadiance(
 
     // Cosinus zenithal du Soleil **au point**, pas a l'observateur.
     const cosSunAtPoint = (px * sun[0] + py * sun[1] + pz * sun[2]) / radius
-    const secondary = columnToSpace(altitude, cosSunAtPoint, secondarySteps)
+    const secondary = columnLut
+      ? sampleColumnLut(columnLut, altitude, cosSunAtPoint)
+      : columnToSpace(altitude, cosSunAtPoint, secondarySteps)
     if (!Number.isFinite(secondary)) continue // le point est dans l'ombre de la Terre
 
     for (let b = 0; b < grid.count; b++) {

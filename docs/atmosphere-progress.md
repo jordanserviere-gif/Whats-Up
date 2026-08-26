@@ -527,14 +527,83 @@ réfraction. Seuls l'ordre de grandeur et le signe sont exploitables.
 
 ### Non fait, et pourquoi
 
-**Le solveur n'est pas branché au rendu.** À 5,5 ms par direction, une LUT de
-ciel 32×64 coûterait onze secondes. Le chemin est celui de l'audit : une LUT de
+**Le solveur n'est pas branché au rendu.** Le chemin passe par une LUT de
 transmittance 2D (altitude, cosinus zénithal) remplaçant l'intégration du rayon
-secondaire par un accès de texture — après quoi la diffusion simple devient
-moins chère que le noyau brute-force actuel.
+secondaire.
 
-C'est une étape d'infrastructure (render targets, formats flottants), pas un
-branchement. Le rendu continue d'afficher `glsl-atmosphere` en attendant.
+> ⚠️ **Chiffres corrigés.** Cette section annonçait 5,5 ms par direction et une
+> LUT de ciel à onze secondes. Les deux étaient faux — la mesure avait été
+> prise sur le premier appel, donc dominée par la compilation JIT. Les valeurs
+> réelles sont 0,25 ms par direction, et 34 ms pour une LUT de ciel 64×32. Voir
+> l'étape « table de colonne ».
+
+Le rendu continue d'afficher `glsl-atmosphere` en attendant.
+
+---
+
+## Infrastructure — table de colonne moléculaire · VALIDATED
+
+Première LUT du moteur. Elle remplace le poste dominant du solveur de
+diffusion simple : l'intégration du rayon secondaire vers le Soleil, refaite à
+chaque pas du rayon primaire.
+
+### Un seul canal suffit, et c'est une propriété du modèle
+
+Bruneton stocke une transmittance à trois composantes. Ce n'est pas nécessaire
+ici :
+
+```
+T(λ) = exp(−σ(λ)·C)
+```
+
+Tant que **Rayleigh est la seule espèce**, la colonne `C` ne compte que des
+molécules : elle ne dépend pas de λ et se factorise hors du spectre. Un seul
+canal porte donc toute l'information, et **le nombre de bandes reste libre** au
+lieu d'être figé à trois par le format de la texture.
+
+> Cette factorisation **cessera** avec l'ozone et les aérosols, dont les profils
+> verticaux diffèrent. Il faudra alors un canal par espèce — ce que le format
+> permet sans toucher à la paramétrisation.
+
+### Mesures
+
+| Grandeur | Valeur |
+| --- | --- |
+| Table | 256 × 64, un canal, **64 ko** |
+| Construction | **85 ms**, une seule fois |
+| Erreur max sur la transmittance | **0,082 %** |
+| Écart sur la radiance de ciel | ≤ 2,9·10⁻⁴ |
+| Coût par direction | 0,25 → **0,067 ms** (×4) |
+| Hémisphère 16×32 | 110 → **15 ms** |
+| **LUT de ciel 64×32** | **34 ms** |
+
+**L'erreur est dominée par l'interpolation, pas par l'intégration.** Passer de
+128 à 512 pas par entrée laisse l'erreur inchangée à 0,086 % pour trois fois le
+temps de construction ; doubler la résolution de la table la divise par trois.
+Le choix — 128 pas — sort de cette mesure, pas de l'habitude.
+
+### Le test d'ombre reste hors de la table
+
+Les rayons qui rencontrent la Terre ont une colonne infinie, et la table n'en
+dit rien. C'est délibéré : ce test produit **l'ombre de la Terre**, et
+l'interpoler la rendrait floue.
+
+### Une non-injectivité, et pourquoi elle est inoffensive
+
+Au sommet exact de l'atmosphère, toute visée montante donne `d = 0` — le rayon
+est déjà dehors — et tous les `µ` positifs s'y projettent sur `u = 0`. La
+direction n'y est pas récupérable. Le test d'aller-retour l'a signalé, et
+l'examen a montré que c'est une propriété de la paramétrisation, pas un défaut :
+la colonne y vaut zéro pour chacune de ces directions. Le contrôle le vérifie
+explicitement plutôt que d'élargir une tolérance.
+
+### Correction de chiffres
+
+Les « 5,5 ms par direction » et les « onze secondes pour une LUT de ciel »
+publiés en phase 5 étaient faux : mesurés sur le **premier appel**, donc dominés
+par la compilation JIT. Les valeurs réelles sont 0,25 ms et 34 ms — deux ordres
+de grandeur plus bas. Le chemin vers un ciel physique à l'écran est par
+conséquent bien plus court que je ne l'avais écrit.
 
 ---
 
@@ -549,3 +618,4 @@ branchement. Le rendu continue d'afficher `glsl-atmosphere` en attendant.
 | 2026-08-26 | Phase 0.5 — chaîne HDR linéaire ; 11 matériaux portés ; nuit identique au bit près ; **268 contrôles** |
 | 2026-08-26 | Phase 4 — Soleil direct ; paliers de photometry.ts retrouvés à < 2 % ; banc GPU corrigé (−90 % sur les chiffres publiés) ; **305 contrôles** |
 | 2026-08-26 | Phase 5 — diffusion simple ; déficit de 44 % comblé ; ciel bleu, arche crépusculaire et ombre terrestre émergents ; **329 contrôles** |
+| 2026-08-26 | Table de colonne moléculaire ; solveur ×4 ; LUT de ciel ramenée à 34 ms ; chiffres de la phase 5 corrigés ; **359 contrôles** |

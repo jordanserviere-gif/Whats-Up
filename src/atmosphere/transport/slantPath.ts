@@ -117,3 +117,41 @@ export function slantColumnFromAltitude(altitudeDeg: number, observerElevationM 
   }
   return slantColumn((Math.PI / 2 - (altitudeDeg * Math.PI) / 180), observerElevationM, steps)
 }
+
+/** Rayon du sommet de l'atmosphere, m. */
+const TOP_RADIUS = EARTH_MEAN_RADIUS_M + ATMOSPHERE_TOP_M
+
+/**
+ * Colonne moleculaire d'un point vers l'espace, dans une direction donnee.
+ *
+ * `altitudeM` est l'altitude du point, `cosZenith` le cosinus de l'angle entre
+ * la direction visee et la verticale **locale a ce point** — et non celle de
+ * l'observateur. Par symetrie spherique, ces deux nombres suffisent.
+ *
+ * Rend `Infinity` si le rayon rencontre la Terre. Ce n'est pas un cas d'erreur
+ * mais le fondement du crepuscule : c'est ainsi que l'ombre de la planete entre
+ * dans le calcul, sans qu'aucune geometrie d'ombre ne soit ecrite ailleurs.
+ */
+export function columnToSpace(altitudeM: number, cosZenith: number, steps = 128): number {
+  const r = EARTH_MEAN_RADIUS_M + altitudeM
+  const mu = Math.max(-1, Math.min(1, cosZenith))
+
+  // Rayon descendant : il n'echappe que si son perigee reste au-dessus du sol.
+  if (mu < 0 && r * Math.sqrt(1 - mu * mu) < EARTH_MEAN_RADIUS_M) return Number.POSITIVE_INFINITY
+
+  // Sortie par le sommet de l'atmosphere : racine positive de
+  // t² + 2·t·r·µ + r² − r_top² = 0.
+  const discriminant = r * r * mu * mu + (TOP_RADIUS * TOP_RADIUS - r * r)
+  if (!(discriminant > 0)) return 0
+  const total = -r * mu + Math.sqrt(discriminant)
+  if (!(total > 0)) return 0
+
+  const step = total / steps
+  let column = 0
+  for (let i = 0; i < steps; i++) {
+    const t = (i + 0.5) * step
+    const radius = Math.sqrt(t * t + 2 * t * r * mu + r * r)
+    column += standardProfile(radius - EARTH_MEAN_RADIUS_M).numberDensityPerM3 * step
+  }
+  return column
+}

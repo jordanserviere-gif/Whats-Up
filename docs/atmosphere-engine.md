@@ -647,12 +647,65 @@ l'observateur : une visée rasante parcourt 1 133 km mais l'essentiel de la
 densité tient dans les premières dizaines. Convergence vérifiée à 4,4·10⁻⁴ entre
 48×128 et 192×512 pas.
 
-**Coût.** ~5,5 ms par direction (16 bandes, 48×128 pas). C'est un solveur de
-**référence**, pas un moteur de rendu — voir la note d'intégration plus bas.
+**Coût.** **0,25 ms** par direction en régime établi (16 bandes, 48×128 pas),
+et **0,067 ms** avec la table de colonne. Le poste dominant était le rayon
+secondaire : 128 évaluations de profil par pas du rayon primaire.
 
 **Ce qui manque, et le signe que ça donne.** Diffusion multiple (phase 8),
 réflexion du sol (`groundAlbedo`, déclaré et pas encore lu), aérosols (phase 6),
 ozone (phase 7).
+
+---
+
+### `lut/transmittanceLut.ts`
+
+**Rôle.** Table de colonne moléculaire — la première LUT du moteur. Remplace
+l'intégration du rayon secondaire par un accès interpolé.
+
+**Un seul canal suffit.** `T(λ) = exp(−σ(λ)·C)` : tant que Rayleigh est la seule
+espèce, la colonne `C` ne dépend pas de λ. Elle se factorise hors du spectre, et
+**le nombre de bandes reste libre** au lieu d'être figé à trois par le format de
+la texture. Cette factorisation cessera avec l'ozone et les aérosols, dont les
+profils verticaux diffèrent : un canal par espèce, sans changer la
+paramétrisation.
+
+**Paramétrisation** de Bruneton (2008, révisée 2017), qui répartit les texels
+selon la géométrie plutôt que selon les angles :
+
+```
+ρ = √(r²−R²)    H = √(r_top²−R²)    d = −rµ + √(r²µ² + r_top²−r²)
+u = (d − d_min)/(d_max − d_min)     v = ρ/H
+```
+
+`u = 0` est la visée zénithale, `u = 1` la rasante. Un maillage uniforme en
+cosinus zénithal gaspillerait ses lignes au zénith, où la colonne est plate, et
+manquerait l'horizon, où elle varie de plusieurs ordres de grandeur en une
+fraction de degré.
+
+**Le test d'intersection avec le sol reste hors de la table.** C'est lui qui
+produit l'ombre de la Terre, et l'interpoler la rendrait floue.
+
+**Statique.** Elle ne dépend ni de l'heure, ni du lieu, ni du Soleil — seulement
+du profil de densité. Un calcul unique contre une intégration à chaque pas de
+chaque rayon. Elle deviendra dépendante de l'état aux phases 13 et 14, et devra
+alors être reconstruite quand cet état change, pas à chaque image.
+
+| Grandeur | Valeur |
+| --- | --- |
+| Table | 256 × 64, un canal, 64 ko |
+| Construction | 85 ms, une fois |
+| Erreur max sur la transmittance | **0,082 %** |
+| Écart sur la radiance de ciel | ≤ 2,9·10⁻⁴ |
+| Gain sur le solveur | **×4** (0,25 → 0,067 ms/direction) |
+
+> **L'erreur est dominée par l'interpolation, pas par l'intégration.** 128 pas
+> par entrée donnent la même précision que 512, pour trois fois moins de temps.
+> Doubler la résolution de la table, en revanche, divise l'erreur par trois.
+
+**Tests.** `lut/transmittanceLut.validation.ts` — aller-retour de la
+paramétrisation, erreur d'interpolation mesurée sur la **transmittance** (la
+colonne varie sur des dizaines d'ordres de grandeur et son erreur relative n'a
+pas de sens près de zéro), cohérence avec le solveur de référence, monotonies.
 
 ---
 
@@ -750,7 +803,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 329 contrôles, 14 suites, aucun échec.**
+**État : 359 contrôles, 15 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1087,19 +1140,24 @@ pour la phase 7.
 
 ### Ce qui reste pour le voir à l'écran
 
-Le solveur coûte **~5,5 ms par direction**. Une LUT de ciel 32×64 en coûterait
-onze secondes : inutilisable tel quel.
+> ⚠️ **Cette section annonçait 5,5 ms par direction, et une LUT de ciel à onze
+> secondes.** Les deux étaient faux : la mesure avait été prise sur le **premier
+> appel**, donc dominée par la compilation JIT plutôt que par le solveur. Voir
+> ci-dessous les chiffres réels, inférieurs de deux ordres de grandeur.
 
-Le chemin est celui que l'audit décrivait : une **LUT de transmittance 2D**
-indexée par (altitude, cosinus zénithal), qui remplace l'intégration du rayon
-secondaire par un accès de texture. La diffusion simple devient alors moins
-chère que le noyau brute-force actuel (0,95 ns/px). C'est une étape
-d'infrastructure à part entière — render targets, formats flottants — et non un
-branchement.
+Le solveur coûte **0,25 ms par direction** en régime établi, et **0,067 ms** une
+fois la table de colonne en place. Une LUT de ciel 64×32 — 2 048 directions —
+coûte donc **34 ms**, pas onze secondes.
 
-Tant qu'elle n'est pas faite, le rendu continue d'afficher l'ancien noyau
+Le chemin vers le rendu est par conséquent bien plus court que je ne l'avais
+écrit : une table de ciel calculée sur le processeur, téléversée en
+`DataTexture` et échantillonnée par direction, suffirait — sans aucune
+infrastructure de render target. Elle ne serait reconstruite que lorsque le
+Soleil bouge sensiblement.
+
+Tant que ce n'est pas fait, le rendu continue d'afficher l'ancien noyau
 `glsl-atmosphere`, et le solveur physique reste une référence numérique.
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4 et 5 validées.*
+*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4, 5 et table de colonne validées.*
