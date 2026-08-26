@@ -38,16 +38,13 @@
  * nocturne — et c'est pourquoi ses sondes rendent la meme couleur dans toutes
  * les directions a −6° de hauteur solaire.
  *
- * ## Ce qui manque encore
+ * ## Diffusion simple ou complete, au choix de l'appelant
  *
- * **La diffusion multiple**, qui est loin d'etre negligeable : un photon bleu a
- * de bonnes chances d'etre diffuse plusieurs fois avant d'atteindre l'oeil.
- * Elle domine pres de l'horizon et au crepuscule, ou la profondeur optique
- * depasse l'unite. La diffusion simple sous-estime donc ces regimes, et l'ecart
- * mesure est le budget de la phase 8.
- *
- * **La reflexion du sol**, condition aux limites que `AtmosphereState` declare
- * deja (`groundAlbedo`) et que personne ne lit encore.
+ * Ce module calcule le **premier ordre** de diffusion. Les ordres suivants
+ * arrivent par `multipleScattering`, sous forme d'un terme source isotrope lu
+ * dans une table — voir `multipleScattering.ts`. Omettre cette option laisse
+ * une diffusion simple pure, ce qui sert de reference pour mesurer l'apport des
+ * ordres superieurs.
  *
  *
  * ## Extinction et diffusion ne sont plus la meme chose
@@ -76,6 +73,7 @@ import {
 import { standardProfile } from '../thermodynamics/standardAtmosphere'
 import { ozoneCrossSectionOn, ozoneNumberDensity } from '../absorption/ozone'
 import { aerosolNumberDensity, aerosolPhase, type AerosolOptics } from '../mie/aerosol'
+import { sampleMultipleScattering, type MultipleScatteringLut } from './multipleScattering'
 import { EARTH_MEAN_RADIUS_M, degToRad, directionFromHorizontal } from '../core/units'
 import { ATMOSPHERE_TOP_M, columnsToSpace } from './slantPath'
 import { sampleColumnLut, type ColumnLut } from '../lut/transmittanceLut'
@@ -90,6 +88,15 @@ export interface SingleScatteringOptions {
   secondarySteps?: number
   /** Colonne totale d'ozone, unites Dobson. */
   ozoneColumnDobsonUnits?: number
+  /**
+   * Table de diffusion multiple — voir `multipleScattering.ts`.
+   *
+   * Fournie, elle ajoute un terme source **isotrope** representant tous les
+   * ordres de diffusion au-dela du premier. Omise, le calcul reste une
+   * diffusion simple pure, et sert de reference pour mesurer ce que la
+   * diffusion multiple apporte.
+   */
+  multipleScattering?: MultipleScatteringLut
   /**
    * Proprietes optiques des aerosols — voir `mie/aerosol.ts`.
    *
@@ -180,6 +187,7 @@ export function skyRadiance(
     secondarySteps = 128,
     ozoneColumnDobsonUnits,
     aerosols,
+    multipleScattering,
     columnLut,
   } = options
 
@@ -190,6 +198,10 @@ export function skyRadiance(
   const sigma = crossSectionsOn(grid, co2MoleFraction)
   const sigmaOzone = ozoneOn(grid)
   const phase = phaseOn(grid, cosTheta, co2MoleFraction)
+
+  // Tampon de lecture de la table de diffusion multiple, alloue une fois par
+  // direction plutot qu'a chaque pas de la marche.
+  const msBuffer = multipleScattering ? new Float64Array(grid.count) : null
 
   // Fonction de phase des aerosols, tabulee une fois par direction. Elle est
   // tres differente de celle de Rayleigh : fortement dirigee vers l'avant, avec
@@ -271,6 +283,11 @@ export function skyRadiance(
     // forme geometrique, la densite la multiplie.
     const secondaryAerosol = aerosols ? secondary.aerosolShape * aerosols.groundNumberDensity : 0
 
+    // Radiance isotrope de tous les ordres au-dela du premier, lue au point.
+    if (multipleScattering && msBuffer) {
+      sampleMultipleScattering(multipleScattering, altitude, cosSunAtPoint, msBuffer)
+    }
+
     for (let b = 0; b < grid.count; b++) {
       // --- Extinction : les trois especes, sur les deux trajets -------------
       let tau = sigma[b] * (airHere + secondary.air) + sigmaOzone[b] * (ozoneHere + secondary.ozone)
@@ -289,7 +306,19 @@ export function skyRadiance(
         source += aerosols.scattering[b] * aerosolPhaseByBand[b] * aerosolDensity
       }
 
-      spectrum[b] += incident[b] * source * Math.exp(-tau) * ds
+      let radiance = incident[b] * source
+
+      // --- Diffusion multiple : une source isotrope de plus ------------------
+      // Elle ne porte **pas** de fonction de phase : c'est l'hypothese meme de
+      // l'approximation, la lumiere ayant perdu la memoire de sa direction
+      // d'origine apres le second ordre. Elle est en revanche proportionnelle
+      // au coefficient de **diffusion** local, comme toute source diffusee.
+      if (multipleScattering && msBuffer) {
+        const scattering = sigma[b] * density + (aerosols ? aerosols.scattering[b] * aerosolDensity : 0)
+        radiance += scattering * msBuffer[b]
+      }
+
+      spectrum[b] += radiance * Math.exp(-tau) * ds
     }
   }
 

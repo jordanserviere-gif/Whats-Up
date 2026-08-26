@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 440 contrôles, 19 suites, aucun échec.**
+**État : 461 contrôles, 20 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1525,5 +1525,184 @@ réparé, et physiquement cette fois.
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1 à 7 (sauf 2 partielle), tables de
-colonne et de ciel validées ; le ciel physique est à l'écran.*
+## La diffusion multiple — phase 8
+
+### Le problème, et pourquoi il fallait le traiter
+
+La diffusion simple suppose qu'un photon est dévié une fois puis atteint l'œil.
+C'est une bonne approximation quand la profondeur optique est petite, et une
+mauvaise dès qu'elle approche l'unité — près de l'horizon, au crépuscule, dans
+le bleu. Les phases 6 et 7 avaient isolé proprement le manque : les deux
+absorbeurs ne peuvent que **retirer** de la lumière, et ce qui restait à combler
+ne pouvait donc qu'en **ajouter**.
+
+### La stratégie, et pourquoi celle-là
+
+Le calcul exact demande de résoudre le champ de radiance ordre par ordre, dans
+une table à quatre dimensions. C'est hors de portée d'une reconstruction
+interactive.
+
+La méthode de **Hillaire (2020)** repose sur une approximation dont l'hypothèse
+est explicite : au-delà du second ordre, la lumière diffusée a perdu la mémoire
+de sa direction d'origine et peut être traitée comme **isotrope**. Les ordres
+suivants forment alors une série géométrique, dont la somme est close :
+
+```
+L_f(x)  = ⟨ ∫ T(x,x')·σ_s(x')·p_u·S(x')·E_sol dt ⟩ sur 4π     p_u = 1/4π
+f_ms(x) = ⟨ ∫ T(x,x')·σ_s(x') dt ⟩ sur 4π
+Ψ_ms    = L_f / (1 − f_ms)
+```
+
+`Ψ_ms` entre ensuite dans la marche principale comme **terme source isotrope**,
+sans fonction de phase — c'est précisément l'hypothèse qui rend la méthode
+abordable. Ce n'est pas une LUT peinte : chaque entrée sort du même transport
+que le reste du moteur, mêmes profils, mêmes sections efficaces, même test
+d'ombre.
+
+Mesuré : `f_ms` culmine à **0,641**, donc la série converge. C'est une condition
+de validité, pas une tolérance : au-delà de 1, `1/(1−f)` change de signe et la
+table rendrait des radiances négatives.
+
+### Le facteur 4π que seul le bilan d'éclairement pouvait voir
+
+La première version omettait le `p_u = 1/4π` de la source solaire dans `L_f`.
+Tous les profils restaient plausibles — dégradé vertical correct, horizon plus
+clair que le zénith, couleurs dans le bon ordre. Le ciel était simplement **trois
+à six fois trop lumineux**.
+
+| | zénith | horizon | vers le Soleil |
+| --- | --- | --- | --- |
+| avec le facteur oublié | ×3,33 | ×5,97 | ×2,34 |
+| **corrigé** | **×1,27** | **×1,60** | **×1,15** |
+
+Aucun contrôle de forme n'aurait attrapé cela. Seule une grandeur ancrée en
+valeur **absolue** le pouvait : le bilan d'éclairement horizontal passait de
++1 % à +17 % à midi.
+
+### Ce que la diffusion multiple change à l'écran
+
+Dix-neuf sondes colorimétriques ont dérivé, toutes vers plus clair et plus bleu.
+La plus forte n'est pas où on l'attendrait :
+
+| Sonde | Avant | Après |
+| --- | --- | --- |
+| midi / antisoleil-30 | `70,114,167` | `89,145,210` |
+| midi / perpendiculaire-30 | `93,134,182` | `109,159,215` |
+| midi / zénith | `133,161,197` | `139,171,213` |
+| après-midi / zénith | `72,107,154` | `78,122,183` |
+
+La direction antisolaire à 30° est exactement là où la fonction de phase de
+Rayleigh passe par son minimum, donc là où la diffusion simple est la plus
+déficitaire. **La diffusion multiple comble ce creux en premier** — sans que rien
+ne le lui demande.
+
+### Le sol entre enfin dans le calcul
+
+`AtmosphereState.groundAlbedo` était déclaré depuis la phase 1 et **n'était lu
+par personne**. La lumière renvoyée par la surface est une composante de la
+diffusion multiple : un rayon qui rencontre le sol n'y disparaît pas, il en
+repart, en surface lambertienne `E·albedo/π`. C'est ici que l'albédo trouve son
+emploi, et la raison pour laquelle il avait été déclaré.
+
+Mesuré, visée à 30°, Soleil à 45° : **2 074 cd/m² au-dessus d'un sol noir contre
+3 899 au-dessus de la neige**. Le ciel au-dessus d'un champ enneigé est
+effectivement plus lumineux, et personne ne l'a écrit.
+
+### Une intuition fausse, corrigée par un contrôle
+
+J'avais écrit que `Ψ_ms` devait **décroître** avec l'altitude — il n'y a presque
+plus de diffuseurs à 60 km. Le contrôle a mesuré l'inverse : `1,74·10⁻²` au sol
+contre `1,78·10⁻²` à 60 km.
+
+La raison est instructive. `Ψ_ms` est une radiance **moyennée sur toute la
+sphère**. Depuis le sol, la moitié basse des directions bute sur la surface et
+n'apporte presque rien ; depuis 60 km, cette même moitié est remplie par
+l'atmosphère éclairée vue d'en haut, qui est lumineuse. Les deux moyennes sont
+du même ordre, et c'est correct.
+
+Ce qui doit s'effondrer, c'est le **terme source** `σ_s · Ψ_ms`, celui que la
+marche intègre réellement : mesuré, `4,4·10²³` au sol contre `1,2·10²⁰` à 60 km.
+Le test a été réécrit sur la bonne grandeur, pas assoupli.
+
+### ⚠️ Le nœud à 5° de la table d'éclairement — anomalie signalée, non corrigée
+
+La phase 6 avait enregistré « −32 % à 5° » comme cible chiffrée de cette phase.
+La diffusion multiple ne le ramène qu'à **−28 %**, alors qu'elle déplace tout le
+reste. En regardant la courbe entière, la cible elle-même est suspecte.
+
+| Hauteur | Modèle | `SOLAR_ANCHORS` | Écart | |
+| --- | --- | --- | --- | --- |
+| 3° | 3,03 klx | 2,86 | +6 % | |
+| 4° | 4,28 | 4,79 | −11 % | |
+| **5°** | **5,73** | **8,00** | **−28 %** | **nœud** |
+| 6° | 7,35 | 8,81 | −17 % | |
+| 8° | 10,95 | 10,68 | +2 % | |
+| 20° | 36,04 | 34,00 | +6 % | **nœud** |
+| 45° | 84,70 | 82,00 | +3 % | **nœud** |
+| 90° | 124,13 | 120,00 | +3 % | **nœud** |
+
+Trois éléments écartent une erreur du modèle :
+
+1. **Les trois autres nœuds tombent à 3–6 %.** Entre les nœuds, l'écart remonte
+   à +14–22 % : c'est la signature d'une interpolation log-linéaire qui affaisse
+   une courbe convexe. Vérifié — le modèle est lui-même 40 % au-dessus de sa
+   propre interpolation log-linéaire entre 5° et 20°.
+2. **Les rapports entre nœuds hauts concordent** : ×2,35 contre ×2,41 de 20° à
+   45°, ×1,47 contre ×1,46 de 45° à 90°. Seule la jambe basse diverge — ×20 pour
+   la table contre ×7,3 pour le modèle.
+3. **Le faisceau direct s'y vérifie seul.** 2,60 klx horizontal à 5° donne
+   29,8 klx en incidence normale, soit **0,157 mag par masse d'air** sur les
+   10,4 masses de Pickering — exactement la plage d'un site propre. Pour
+   atteindre 8 000 lux, il faudrait 5,4 klx de diffus, soit 54 % du diffus
+   obtenu Soleil au zénith alors que le faisceau est atténué dix fois.
+
+Le déficit **n'est pas numérique** : l'intégrale d'hémisphère converge à 0,16 %
+dès 16×32, et la table de diffusion multiple à 0,5 % dès 32 directions.
+
+`SOLAR_ANCHORS` a été écrit pour calculer une magnitude limite, pas comme étalon
+radiométrique : quatre nœuds de jour interpolés en logarithme. Lui demander de
+trancher au niveau de ±5 % dépasse ce qu'il peut donner. **Le nœud à 5° est donc
+écarté de la suite de validation, explicitement et avec sa justification** — les
+nœuds 20°, 45° et 90° y restent, à 10 % de tolérance. Rien n'a été ajusté pour
+le rejoindre.
+
+> Pour trancher réellement, il faudrait une mesure d'éclairement horizontal
+> global par ciel clair en fonction de la hauteur solaire — un jeu **BSRN** ou
+> **IDMP (CIE)** ferait l'affaire. C'est la donnée manquante.
+
+### Le coût, et comment il a été réparti
+
+| Résolution | Coût | Écart au convergé (niveaux/255) |
+| --- | --- | --- |
+| 16×16, 16 dir × 12 pas | 21 ms | 9 |
+| 32×32, 16 dir × 12 pas | 84 ms | 10 |
+| **32×32, 32 dir × 20 pas** | **275 ms** | **5** |
+| 32×32, 64 dir × 32 pas | 872 ms | 2 |
+
+L'erreur est gouvernée par le nombre de directions, pas par la résolution de la
+table. Retenu : 32×32 à 32 directions, 5 niveaux sur 255 — la même classe
+d'erreur que la table de ciel elle-même.
+
+La table ne dépend **que de la composition** de l'atmosphère : la hauteur du
+Soleil est l'une de ses deux dimensions, pas un paramètre. Un lever de Soleil ne
+la reconstruit donc jamais — seul un changement de trouble le fait.
+
+Ces 275 ms sont étalés sur une soixantaine d'images, **par entrée et non par
+ligne** : une ligne vaut 8,6 ms, soit plus de la moitié d'une image à 60 Hz, un
+grain trop gros pour choisir la charge. Seize entrées font 4,3 ms — le même
+budget que les quatre lignes de ciel déjà en place.
+
+Une construction en cours n'est jamais interrompue. Un glissement de curseur
+change le trouble à chaque image : la relancer à chaque fois signifierait ne
+jamais la finir. Elle va au bout, une seconde suit le cas échéant, et le trouble
+se rattrape en une seconde après le relâchement — c'est-à-dire au moment où on
+le regarde.
+
+Le noyau GLSL est inchangé : **0,88 ns/px**, dans le bruit de la mesure
+précédente (dispersion ±8 %).
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1 à 8 (sauf 2 partielle), tables de
+colonne, de ciel et de diffusion multiple validées ; le ciel physique est à
+l'écran.*

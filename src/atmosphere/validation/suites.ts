@@ -20,6 +20,7 @@ import {
 import { rayleighSuite } from '../rayleigh/rayleigh.validation'
 import { directSolarSuite, slantPathSuite } from '../transport/directSolar.validation'
 import { singleScatteringSuite } from '../transport/singleScattering.validation'
+import { multipleScatteringSuite } from '../transport/multipleScattering.validation'
 import { ozoneSuite } from '../absorption/ozone.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
@@ -59,6 +60,8 @@ export function allSuites(): SuiteResult[] {
     aerosolSuite(),
     // Phase 7 — absorption.
     ozoneSuite(),
+    // Phase 8 — diffusion multiple.
+    multipleScatteringSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),

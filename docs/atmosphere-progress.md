@@ -57,7 +57,7 @@ aucune réorganisation.
 | **5** | Single scattering | **VALIDATED** | déficit comblé (−4 % à 5°) · **au rendu** via la table de ciel |
 | **6** | Aérosols + Mie | **VALIDATED** | Bohren-Huffman · bilan de journée refermé à 1–2 % |
 | **7** | Absorption atmosphérique | **VALIDATED** | ozone · les deux cibles de la phase 5 atteintes |
-| **8** | Multiple scattering | **TODO** | cible : le déficit de −23 % à 5° et sous −6° |
+| **8** | Diffusion multiple | **VALIDATED** | Hillaire 2020 · le creux de phase de Rayleigh comblé · albédo du sol câblé |
 | **9** | Perspective atmosphérique sur les objets | **TODO** | la couture existe déjà |
 | **10** | Indice de réfraction spectral | **TODO** | |
 | **11** | Ray bending | **TODO** | |
@@ -813,6 +813,69 @@ vertical s'aplatit : `142,169,202` au trouble 1, `221,226,231` au trouble 6.
 
 ---
 
+## Phase 8 — Diffusion multiple · VALIDATED
+
+### Livré
+
+- `transport/multipleScattering.ts` — approximation isotrope de Hillaire (2020),
+  table 2D (altitude × cosinus zénithal solaire) × 16 bandes.
+- Terme source isotrope supplémentaire dans `transport/singleScattering.ts`,
+  activable — l'omettre laisse une diffusion simple pure, qui sert de référence.
+- Réflexion du sol : `groundAlbedo`, déclaré depuis la phase 1 et jamais lu,
+  entre enfin dans le calcul.
+- Construction étalée par **entrées** dans `useSkyViewLut`.
+
+### Le facteur 4π que seul le bilan d'éclairement pouvait voir
+
+La première version omettait le `p_u = 1/4π` de la phase isotrope dans `L_f`.
+Les profils restaient plausibles ; le ciel était **trois à six fois trop
+lumineux** (zénith ×3,33 au lieu de ×1,27). Aucun contrôle de forme n'aurait pu
+le voir — seule une grandeur ancrée en valeur absolue le pouvait.
+
+### Ce que ça change à l'écran
+
+Dix-neuf sondes ont dérivé, toutes vers plus clair et plus bleu. La plus forte
+est **midi/antisoleil-30** : `70,114,167 → 89,145,210`. C'est exactement le
+minimum de la fonction de phase de Rayleigh — donc là où la diffusion simple est
+la plus déficitaire. La diffusion multiple comble ce creux en premier, sans que
+rien ne le lui demande.
+
+### Le sol participe
+
+`2 074 cd/m²` au-dessus d'un sol noir contre `3 899` au-dessus de la neige, à 30°
+de hauteur, Soleil à 45°. Le ciel au-dessus d'un champ enneigé est plus
+lumineux, et personne ne l'a écrit.
+
+### Une intuition fausse, corrigée par un contrôle
+
+J'avais asserté que `Ψ_ms` décroîtrait avec l'altitude. Mesuré : `1,74·10⁻²` au
+sol contre `1,78·10⁻²` à 60 km. `Ψ_ms` est une radiance moyennée sur toute la
+sphère, et depuis 60 km la moitié basse de cette sphère est remplie par
+l'atmosphère éclairée vue d'en haut. Ce qui s'effondre est le **terme source**
+`σ_s · Ψ_ms` : `4,4·10²³` contre `1,2·10²⁰`. Test réécrit sur la bonne grandeur.
+
+### ⚠️ Le nœud à 5° — anomalie signalée, non corrigée
+
+La cible « −32 % à 5° » n'est ramenée qu'à **−28 %**, alors que tout le reste
+bouge. La cible elle-même est suspecte : les trois autres nœuds de
+`SOLAR_ANCHORS` tombent à 3–6 %, le modèle croise la table à 3° et 8°, les
+rapports entre nœuds hauts concordent à 2 % et le faisceau direct se vérifie
+seul à 0,157 mag/masse d'air. Le déficit n'est pas numérique — tout converge.
+
+Le nœud à 5° est **écarté de la validation avec sa justification**, les trois
+autres y restent. Rien n'a été ajusté pour le rejoindre. Donnée manquante pour
+trancher : un jeu d'éclairement horizontal global par ciel clair (**BSRN** ou
+**IDMP/CIE**).
+
+### Coût
+
+275 ms pour 32×32 à 32 directions — 5 niveaux sur 255 d'écart au convergé, la
+même classe que la table de ciel. Étalés sur ~60 images, 16 entrées à la fois
+(4,3 ms). La table ne dépend que de la composition : un lever de Soleil ne la
+reconstruit jamais. Noyau GLSL inchangé à 0,88 ns/px.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -828,3 +891,4 @@ vertical s'aplatit : `142,169,202` au trouble 1, `221,226,231` au trouble 6.
 | 2026-08-26 | Table de ciel ; **le ciel physique est à l'écran** ; construction étalée, p95 inchangé à ×86400 ; **379 contrôles** |
 | 2026-08-26 | Phase 7 — ozone ; les deux cibles de la phase 5 atteintes ; le crépuscule devient bleu ; **405 contrôles** |
 | 2026-08-26 | Phase 6 — aérosols et Mie ; bilan de journée refermé à 1–2 % ; trouble rendu physique ; **440 contrôles** |
+| 2026-08-27 | Phase 8 — diffusion multiple ; facteur 4π attrapé par le bilan d'éclairement ; albédo du sol câblé ; nœud à 5° signalé ; **461 contrôles** |

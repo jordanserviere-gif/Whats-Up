@@ -52,6 +52,11 @@ import {
   type AerosolOptics,
 } from '@/atmosphere/mie/aerosol'
 import { fillSkyViewRows } from '@/atmosphere/lut/skyViewLut'
+import {
+  createMultipleScatteringLut,
+  fillMultipleScatteringEntries,
+  type MultipleScatteringLut,
+} from '@/atmosphere/transport/multipleScattering'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 
 /** Dimensions de la table. Mesure : 1 a 3 niveaux d'ecart avec le solveur direct. */
@@ -81,6 +86,26 @@ const sharedAerosolOptics = (turbidity: number): AerosolOptics => {
   if (!baseOptics) baseOptics = aerosolOptics(GRID, { ...CONTINENTAL_AEROSOL, aod550: REFERENCE_AOD })
   return withAod(baseOptics, aodFromTurbidity(turbidity), REFERENCE_AOD)
 }
+
+/**
+ * Table de diffusion multiple, gardee entre deux reconstructions du ciel.
+ *
+ * Elle ne depend que de la **composition** de l'atmosphere : la hauteur du
+ * Soleil est l'une de ses deux dimensions, pas un parametre. Un lever de Soleil
+ * ne la refait donc jamais — seul un changement de trouble le fait.
+ */
+let multipleScattering: MultipleScatteringLut | null = null
+let multipleScatteringTurbidity = Number.NaN
+
+/**
+ * Entrees de diffusion multiple construites par image.
+ *
+ * Une entree coute 0,27 ms — trente-deux directions de marche, contre une seule
+ * pour une direction de ciel. Seize entrees font 4,3 ms, soit le meme budget
+ * que les quatre lignes de ciel, et la table entiere en une seconde. Pendant ce
+ * temps le ciel affiche la precedente.
+ */
+const MS_ENTRIES_PER_FRAME = 16
 
 /** Deplacement du Soleil au-dela duquel la table est refaite, degres. */
 const SUN_MOVEMENT_THRESHOLD_DEG = 0.25
@@ -155,6 +180,8 @@ export function useSkyViewLut(
     pendingAltitude: 0,
     pendingElevation: 0,
     pendingTurbidity: 1,
+    /** Entree suivante de diffusion multiple, ou −1 si cette table est a jour. */
+    pendingMsEntry: -1,
   })
 
   useEffect(() => () => texture.dispose(), [texture])
@@ -170,11 +197,33 @@ export function useSkyViewLut(
         state.current.altitude = Number.NaN
         state.current.turbidity = Number.NaN
         state.current.pendingRow = -1
+        state.current.pendingMsEntry = -1
       }
       return
     }
 
     const current = state.current
+
+    // --- La table de diffusion multiple d'abord ----------------------------
+    // Elle est en amont : la table de ciel la lit. La reconstruire pendant
+    // qu'une table de ciel s'appuie dessus donnerait un degrade mi-ancien
+    // mi-nouveau, visible comme une bande horizontale.
+    // Une construction en cours n'est **jamais interrompue**, meme si le trouble
+    // rebouge. Un glissement de curseur change la valeur a chaque image :
+    // relancer a chaque fois signifierait ne jamais finir, et le ciel resterait
+    // fige sur la table initiale. Elle va donc au bout, et une seconde suit le
+    // cas echeant — le trouble se rattrape en une seconde apres le relachement,
+    // c'est-a-dire au moment ou on le regarde.
+    if (current.pendingMsEntry >= 0 && multipleScattering) {
+      const total = multipleScattering.width * multipleScattering.height
+      const to = Math.min(total, current.pendingMsEntry + MS_ENTRIES_PER_FRAME)
+      fillMultipleScatteringEntries(multipleScattering, GRID, current.pendingMsEntry, to, {
+        columnLut: sharedColumnLut(),
+        aerosols: sharedAerosolOptics(multipleScatteringTurbidity),
+      })
+      current.pendingMsEntry = to >= total ? -1 : to
+      return
+    }
 
     // --- Une construction est-elle en cours ? ------------------------------
     if (current.pendingRow >= 0) {
@@ -191,6 +240,7 @@ export function useSkyViewLut(
           observerElevationM: current.pendingElevation,
           columnLut: sharedColumnLut(),
           aerosols: sharedAerosolOptics(current.pendingTurbidity),
+          multipleScattering: multipleScattering ?? undefined,
         },
       )
       current.pendingRow = to
@@ -214,6 +264,15 @@ export function useSkyViewLut(
     const sameSite = observerElevationM === current.elevation
     const sameAir = aerosolTurbidity === current.turbidity
     if (!current.cleared && sameSite && sameAir && moved < SUN_MOVEMENT_THRESHOLD_DEG) return
+
+    // Le trouble a bouge : la diffusion multiple doit etre refaite avant le
+    // ciel qui s'en sert.
+    if (aerosolTurbidity !== multipleScatteringTurbidity) {
+      multipleScattering = createMultipleScatteringLut(GRID)
+      multipleScatteringTurbidity = aerosolTurbidity
+      current.pendingMsEntry = 0
+      return
+    }
 
     current.pendingAltitude = sunAltitudeDeg
     current.pendingElevation = observerElevationM
