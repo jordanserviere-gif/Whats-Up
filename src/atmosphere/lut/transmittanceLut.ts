@@ -1,5 +1,5 @@
 /**
- * Table de colonne moleculaire — la premiere LUT du moteur.
+ * Table de colonnes atmospheriques — la premiere LUT du moteur.
  *
  * ## Ce qu'elle remplace
  *
@@ -8,23 +8,30 @@
  * coute : cent vingt-huit evaluations de profil par pas, soit six mille par
  * direction de visee. Cette table le remplace par un acces interpole.
  *
- * ## Pourquoi un seul canal suffit
+ * ## Un canal par espece
  *
- * Bruneton stocke une transmittance a trois composantes. Ce n'est pas
- * necessaire ici, et la raison merite d'etre notee :
+ * Bruneton stocke une transmittance a trois composantes. Ce n'est pas ce qui
+ * est fait ici, et la raison merite d'etre notee :
  *
- *     T(λ) = exp(−σ(λ) · C)
+ *     T(λ) = exp[−σ_air(λ)·C_air − σ_O₃(λ)·C_ozone]
  *
- * Tant que **Rayleigh est la seule espece**, la colonne `C` ne depend pas de la
- * longueur d'onde — elle ne compte que des molecules. Elle se factorise donc
- * hors du spectre, et les exponentielles se font par bande a l'usage. Un seul
- * canal porte toute l'information, et **le nombre de bandes reste libre** au
- * lieu d'etre fige a trois par le format de la texture.
+ * Les **colonnes** ne dependent pas de la longueur d'onde : elles ne comptent
+ * que des molecules. Elles se factorisent donc hors du spectre, et les
+ * exponentielles se font par bande a l'usage. Le nombre de bandes reste ainsi
+ * libre, au lieu d'etre fige a trois par le format de la texture.
  *
- * > Cette factorisation **cessera** avec l'ozone (phase 7) et les aerosols
- * > (phase 6) : leurs profils verticaux different de celui de l'air, donc leurs
- * > colonnes aussi. Il faudra alors un canal par espece — ce que le format
- * > choisi ici permet d'etendre sans rien changer a la parametrisation.
+ * Il faut en revanche **une colonne par espece**. La table n'en portait qu'une
+ * tant que Rayleigh etait seul ; l'ozone a un autre profil vertical, donc un
+ * autre rapport entre colonne oblique et colonne verticale.
+ *
+ * Mesure a visee rasante depuis le sol : l'air s'allonge d'un facteur 24,
+ * l'ozone de 11 seulement. La geometrie l'explique — un rayon rasant traverse
+ * l'air bas tangentiellement, mais quand il atteint les 25 km ou vit l'ozone il
+ * a deja grimpe, et son angle zenithal local n'est plus que 85°. C'est
+ * l'inverse de ce que l'intuition suggere, et c'est exactement pourquoi une
+ * seule colonne ne peut plus servir les deux especes.
+ *
+ * > Les aerosols (phase 6) ajouteront un troisieme canal, dans le meme format.
  *
  * ## Parametrisation
  *
@@ -63,7 +70,8 @@
  * Models*.
  */
 import { EARTH_MEAN_RADIUS_M } from '../core/units'
-import { ATMOSPHERE_TOP_M, columnToSpace } from '../transport/slantPath'
+import { ATMOSPHERE_TOP_M, columnsToSpace, type SpeciesColumns } from '../transport/slantPath'
+import { DEFAULT_OZONE_COLUMN_DU } from '../absorption/ozone'
 
 const RADIUS = EARTH_MEAN_RADIUS_M
 const TOP_RADIUS = RADIUS + ATMOSPHERE_TOP_M
@@ -73,8 +81,12 @@ const H = Math.sqrt(TOP_RADIUS * TOP_RADIUS - RADIUS * RADIUS)
 export interface ColumnLut {
   readonly width: number
   readonly height: number
-  /** Colonne moleculaire, m⁻². Rangee par `y * width + x`. */
+  /** Colonne moleculaire de l'air, m⁻². Rangee par `y * width + x`. */
   readonly column: Float32Array
+  /** Colonne d'ozone, m⁻². Meme rangement. */
+  readonly ozone: Float32Array
+  /** Colonne totale d'ozone pour laquelle la table a ete calculee, unites Dobson. */
+  readonly ozoneColumnDobsonUnits: number
 }
 
 /**
@@ -128,6 +140,8 @@ export function columnLutParams(u: number, v: number, width: number, height: num
 export interface ColumnLutOptions {
   width?: number
   height?: number
+  /** Colonne totale d'ozone, unites Dobson. */
+  ozoneColumnDobsonUnits?: number
   /**
    * Pas d'integration par entree.
    *
@@ -153,19 +167,22 @@ export interface ColumnLutOptions {
  * etat change — pas a chaque image.
  */
 export function buildColumnLut(options: ColumnLutOptions = {}): ColumnLut {
-  const { width = 256, height = 64, steps = 128 } = options
+  const { width = 256, height = 64, steps = 128, ozoneColumnDobsonUnits = DEFAULT_OZONE_COLUMN_DU } = options
   const column = new Float32Array(width * height)
+  const ozone = new Float32Array(width * height)
 
   for (let y = 0; y < height; y++) {
     const v = (y + 0.5) / height
     for (let x = 0; x < width; x++) {
       const u = (x + 0.5) / width
       const { altitudeM, cosZenith } = columnLutParams(u, v, width, height)
-      column[y * width + x] = columnToSpace(altitudeM, cosZenith, steps)
+      const columns = columnsToSpace(altitudeM, cosZenith, steps, ozoneColumnDobsonUnits)
+      column[y * width + x] = columns.air
+      ozone[y * width + x] = columns.ozone
     }
   }
 
-  return { width, height, column }
+  return { width, height, column, ozone, ozoneColumnDobsonUnits }
 }
 
 /**
@@ -175,10 +192,12 @@ export function buildColumnLut(options: ColumnLutOptions = {}): ColumnLut {
  * Rend `Infinity` si le rayon rencontre la Terre : le test est fait ici, pas
  * dans la table. Voir l'en-tete du module.
  */
-export function sampleColumnLut(lut: ColumnLut, altitudeM: number, cosZenith: number): number {
+export function sampleColumnLut(lut: ColumnLut, altitudeM: number, cosZenith: number): SpeciesColumns {
   const r = RADIUS + altitudeM
   const mu = Math.max(-1, Math.min(1, cosZenith))
-  if (mu < 0 && r * Math.sqrt(1 - mu * mu) < RADIUS) return Number.POSITIVE_INFINITY
+  if (mu < 0 && r * Math.sqrt(1 - mu * mu) < RADIUS) {
+    return { air: Number.POSITIVE_INFINITY, ozone: Number.POSITIVE_INFINITY }
+  }
 
   const [u, v] = columnLutUv(altitudeM, mu, lut.width, lut.height)
 
@@ -191,12 +210,11 @@ export function sampleColumnLut(lut: ColumnLut, altitudeM: number, cosZenith: nu
   const tx = fx - x0
   const ty = fy - y0
 
-  const c00 = lut.column[y0 * lut.width + x0]
-  const c10 = lut.column[y0 * lut.width + x1]
-  const c01 = lut.column[y1 * lut.width + x0]
-  const c11 = lut.column[y1 * lut.width + x1]
+  const bilinear = (source: Float32Array) =>
+    (source[y0 * lut.width + x0] * (1 - tx) + source[y0 * lut.width + x1] * tx) * (1 - ty) +
+    (source[y1 * lut.width + x0] * (1 - tx) + source[y1 * lut.width + x1] * tx) * ty
 
-  return (c00 * (1 - tx) + c10 * tx) * (1 - ty) + (c01 * (1 - tx) + c11 * tx) * ty
+  return { air: bilinear(lut.column), ozone: bilinear(lut.ozone) }
 }
 
 /**

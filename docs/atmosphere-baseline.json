@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-26T17:30:33.940Z",
+  "recordedAt": "2026-08-26T17:55:29.713Z",
   "environment": {
     "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl2": true,
@@ -13,41 +13,41 @@
       "phase": "baseline",
       "measurements": {
         "1440x900": {
-          "nsPerPixel": 0.9137426900584795,
-          "minNsPerPixel": 0.8731319038336582,
-          "maxNsPerPixel": 0.9584145549095652,
-          "spread": 0.09333333333747255,
-          "msPerPass": 1.1842105263157894,
-          "reps": 19,
+          "nsPerPixel": 0.9224186307454313,
+          "minNsPerPixel": 0.8663019079751075,
+          "maxNsPerPixel": 0.946969696969697,
+          "spread": 0.08745247147642679,
+          "msPerPass": 1.195454545446079,
+          "reps": 22,
           "samples": 9
         },
         "720x450": {
-          "nsPerPixel": 0.9259259259259259,
-          "minNsPerPixel": 0.8719135802505067,
+          "nsPerPixel": 0.9374999999928139,
+          "minNsPerPixel": 0.8719135802325413,
           "maxNsPerPixel": 0.9452160493827161,
-          "spread": 0.07916666666278614,
-          "msPerPass": 0.3,
+          "spread": 0.07818930042745245,
+          "msPerPass": 0.3037499999976717,
           "reps": 80,
           "samples": 9
         },
         "360x225": {
-          "nsPerPixel": 0.9367176033722094,
-          "minNsPerPixel": 0.8762842096095025,
-          "maxNsPerPixel": 0.9626176292762555,
-          "spread": 0.0921658986186982,
-          "msPerPass": 0.07587412587314896,
+          "nsPerPixel": 0.9539842873417419,
+          "minNsPerPixel": 0.8806008806169614,
+          "maxNsPerPixel": 0.9712509712509713,
+          "spread": 0.09502262441513007,
+          "msPerPass": 0.0772727272746811,
           "reps": 286,
           "samples": 9
         }
       },
-      "nsPerPixel": 0.9137426900584795,
-      "spread": 0.09333333333747255,
+      "nsPerPixel": 0.9224186307454313,
+      "spread": 0.08745247147642679,
       "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 1.1842105263157894,
-        "1440x900@dpr2": 4.7368421052631575,
-        "1920x1080@dpr2": 7.578947368421052
+        "1440x900@dpr1": 1.195454545446079,
+        "1440x900@dpr2": 4.781818181784316,
+        "1920x1080@dpr2": 7.650909090854905
       }
     }
   },
@@ -57,33 +57,33 @@
       "sunAltitude": 64.5361320534411,
       "directions": {
         "zenith": [
-          57,
-          109,
+          54,
+          107,
           171
         ],
         "vers-soleil-30": [
-          91,
-          147,
+          87,
+          145,
           200
         ],
         "vers-soleil-horizon": [
-          209,
-          217,
+          206,
+          216,
           216
         ],
         "perpendiculaire-30": [
-          71,
-          124,
+          66,
+          122,
           180
         ],
         "antisoleil-30": [
-          61,
-          112,
-          168
+          58,
+          110,
+          169
         ],
         "antisoleil-horizon": [
-          207,
-          215,
+          204,
+          214,
           214
         ]
       }
@@ -93,34 +93,34 @@
       "sunAltitude": 35.727907095350375,
       "directions": {
         "zenith": [
-          46,
-          91,
+          42,
+          89,
           147
         ],
         "vers-soleil-30": [
-          107,
-          158,
-          205
+          100,
+          156,
+          206
         ],
         "vers-soleil-horizon": [
-          221,
-          227,
-          222
+          218,
+          225,
+          223
         ],
         "perpendiculaire-30": [
-          66,
-          116,
+          60,
+          113,
           168
         ],
         "antisoleil-30": [
-          70,
-          121,
-          173
+          64,
+          118,
+          174
         ],
         "antisoleil-horizon": [
-          220,
-          225,
-          221
+          217,
+          224,
+          222
         ]
       }
     },
@@ -129,34 +129,34 @@
       "sunAltitude": 9.34211536110358,
       "directions": {
         "zenith": [
-          39,
-          66,
-          96
+          29,
+          61,
+          97
         ],
         "vers-soleil-30": [
-          99,
-          140,
-          169
+          79,
+          131,
+          171
         ],
         "vers-soleil-horizon": [
-          226,
-          223,
-          187
+          217,
+          218,
+          191
         ],
         "perpendiculaire-30": [
-          64,
-          99,
-          127
+          48,
+          91,
+          129
         ],
         "antisoleil-30": [
-          88,
-          128,
-          158
+          69,
+          119,
+          160
         ],
         "antisoleil-horizon": [
-          225,
-          221,
-          181
+          214,
+          215,
+          185
         ]
       }
     },
@@ -165,33 +165,33 @@
       "sunAltitude": -0.07186923330731076,
       "directions": {
         "zenith": [
-          31,
-          32,
-          34
+          18,
+          25,
+          36
         ],
         "vers-soleil-30": [
-          77,
-          74,
-          62
+          47,
+          58,
+          69
         ],
         "vers-soleil-horizon": [
-          212,
-          156,
+          185,
+          134,
           0
         ],
         "perpendiculaire-30": [
-          51,
-          49,
-          42
+          30,
+          38,
+          47
         ],
         "antisoleil-30": [
-          75,
-          70,
-          54
+          45,
+          53,
+          62
         ],
         "antisoleil-horizon": [
-          180,
-          78,
+          144,
+          58,
           0
         ]
       }
@@ -206,14 +206,14 @@
           13
         ],
         "vers-soleil-30": [
-          5,
+          4,
           6,
           14
         ],
         "vers-soleil-horizon": [
-          46,
-          21,
-          8
+          25,
+          15,
+          16
         ],
         "perpendiculaire-30": [
           4,
@@ -332,16 +332,16 @@
         "centre-disque": [
           255,
           255,
-          164
+          0
         ],
         "limbe": [
           255,
           255,
-          156
+          0
         ],
         "couronne": [
           255,
-          255,
+          254,
           0
         ]
       }

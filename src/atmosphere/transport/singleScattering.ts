@@ -49,7 +49,19 @@
  * **La reflexion du sol**, condition aux limites que `AtmosphereState` declare
  * deja (`groundAlbedo`) et que personne ne lit encore.
  *
- * **Les aerosols** (phase 6) et **l'ozone** (phase 7).
+ * **Les aerosols** (phase 6).
+ *
+ * ## Extinction et diffusion ne sont plus la meme chose
+ *
+ * Tant que Rayleigh etait seul, tout ce qui quittait le faisceau reapparaissait
+ * ailleurs : le coefficient d'extinction **etait** le coefficient de diffusion.
+ * L'ozone absorbe, et ce qu'il retire disparait. Les deux grandeurs se separent
+ * donc :
+ *
+ *     extinction   τ(λ) = σ_R(λ)·C_air + σ_O₃(λ)·C_ozone     attenue les trajets
+ *     diffusion    β(λ) = σ_R(λ)·N(h)                        seule source diffusee
+ *
+ * Les confondre ferait briller le ciel de la lumiere que l'ozone a absorbee.
  */
 import { rayleighCrossSection, rayleighPhaseFunction } from '../rayleigh/rayleigh'
 import { sampleFunctionToGrid, type SpectralArray, type SpectralGrid } from '../spectral/SpectralGrid'
@@ -63,8 +75,9 @@ import {
   type Xyz,
 } from '../spectral/SpectralSensor'
 import { standardProfile } from '../thermodynamics/standardAtmosphere'
+import { ozoneCrossSectionOn, ozoneNumberDensity } from '../absorption/ozone'
 import { EARTH_MEAN_RADIUS_M, degToRad, directionFromHorizontal } from '../core/units'
-import { ATMOSPHERE_TOP_M, columnToSpace } from './slantPath'
+import { ATMOSPHERE_TOP_M, columnsToSpace } from './slantPath'
 import { sampleColumnLut, type ColumnLut } from '../lut/transmittanceLut'
 
 export interface SingleScatteringOptions {
@@ -75,8 +88,10 @@ export interface SingleScatteringOptions {
   primarySteps?: number
   /** Pas d'integration le long du rayon secondaire, vers le Soleil. */
   secondarySteps?: number
+  /** Colonne totale d'ozone, unites Dobson. */
+  ozoneColumnDobsonUnits?: number
   /**
-   * Table de colonne moleculaire — voir `lut/transmittanceLut.ts`.
+   * Table de colonnes atmospheriques — voir `lut/transmittanceLut.ts`.
    *
    * Fournie, elle remplace l'integration du rayon secondaire par un acces
    * interpole. C'est le poste dominant du solveur : cent vingt-huit evaluations
@@ -97,6 +112,17 @@ function crossSectionsOn(grid: SpectralGrid, co2MoleFraction?: number): Spectral
   if (cached) return cached
   const values = sampleFunctionToGrid(grid, (lambdaNm) => rayleighCrossSection(lambdaNm, co2MoleFraction))
   crossSectionCache.set(key, values)
+  return values
+}
+
+/** Sections efficaces d'absorption de l'ozone, tabulees par grille. */
+const ozoneCache = new Map<string, SpectralArray>()
+function ozoneOn(grid: SpectralGrid): SpectralArray {
+  const key = `${grid.count}:${grid.edgesNm[0]}:${grid.edgesNm[grid.count]}`
+  const cached = ozoneCache.get(key)
+  if (cached) return cached
+  const values = ozoneCrossSectionOn(grid)
+  ozoneCache.set(key, values)
   return values
 }
 
@@ -145,6 +171,7 @@ export function skyRadiance(
     co2MoleFraction,
     primarySteps = 48,
     secondarySteps = 128,
+    ozoneColumnDobsonUnits,
     columnLut,
   } = options
 
@@ -153,6 +180,7 @@ export function skyRadiance(
   const cosTheta = Math.max(-1, Math.min(1, sun[0] * view[0] + sun[1] * view[1] + sun[2] * view[2]))
 
   const sigma = crossSectionsOn(grid, co2MoleFraction)
+  const sigmaOzone = ozoneOn(grid)
   const phase = phaseOn(grid, cosTheta, co2MoleFraction)
   const incident = distanceAu === 1 ? solarIrradianceOn(grid) : scaleToDistance(solarIrradianceOn(grid), distanceAu)
 
@@ -179,8 +207,9 @@ export function skyRadiance(
   const totalPath = -r0 * muView + Math.sqrt(Math.max(0, discriminant))
 
   const spectrum = new Float64Array(grid.count)
-  // Colonne accumulee sur le rayon primaire, depuis l'observateur.
-  let primaryColumn = 0
+  // Colonnes accumulees sur le rayon primaire, depuis l'observateur.
+  let primaryAir = 0
+  let primaryOzone = 0
 
   let previousT = 0
   for (let i = 0; i < primarySteps; i++) {
@@ -197,20 +226,25 @@ export function skyRadiance(
     const radius = Math.hypot(px, py, pz)
     const altitude = radius - RADIUS
     const density = standardProfile(altitude).numberDensityPerM3
+    const ozoneDensity = ozoneNumberDensity(altitude, ozoneColumnDobsonUnits)
 
-    // Colonne accumulee de l'observateur jusqu'au milieu du pas.
-    const columnHere = primaryColumn + density * (ds / 2)
-    primaryColumn += density * ds
+    // Colonnes accumulees de l'observateur jusqu'au milieu du pas.
+    const airHere = primaryAir + density * (ds / 2)
+    const ozoneHere = primaryOzone + ozoneDensity * (ds / 2)
+    primaryAir += density * ds
+    primaryOzone += ozoneDensity * ds
 
     // Cosinus zenithal du Soleil **au point**, pas a l'observateur.
     const cosSunAtPoint = (px * sun[0] + py * sun[1] + pz * sun[2]) / radius
     const secondary = columnLut
       ? sampleColumnLut(columnLut, altitude, cosSunAtPoint)
-      : columnToSpace(altitude, cosSunAtPoint, secondarySteps)
-    if (!Number.isFinite(secondary)) continue // le point est dans l'ombre de la Terre
+      : columnsToSpace(altitude, cosSunAtPoint, secondarySteps, ozoneColumnDobsonUnits)
+    if (!Number.isFinite(secondary.air)) continue // le point est dans l'ombre de la Terre
 
     for (let b = 0; b < grid.count; b++) {
-      const tau = sigma[b] * (columnHere + secondary)
+      // Extinction : les deux especes, sur les deux trajets.
+      const tau = sigma[b] * (airHere + secondary.air) + sigmaOzone[b] * (ozoneHere + secondary.ozone)
+      // Diffusion : Rayleigh seul. L'ozone absorbe, il ne redirige rien.
       spectrum[b] += incident[b] * sigma[b] * phase[b] * density * Math.exp(-tau) * ds
     }
   }

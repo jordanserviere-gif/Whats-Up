@@ -19,7 +19,8 @@ import { suite, type SuiteResult } from '../validation/harness'
 import { EARTH_MEAN_RADIUS_M } from '../core/units'
 import { rayleighCrossSection } from '../rayleigh/rayleigh'
 import { uniformSpectralGrid } from '../spectral/SpectralGrid'
-import { ATMOSPHERE_TOP_M, columnToSpace } from '../transport/slantPath'
+import { ATMOSPHERE_TOP_M, columnToSpace, columnsToSpace } from '../transport/slantPath'
+import { DEFAULT_OZONE_COLUMN_DU, DOBSON_UNIT, ozoneCrossSection } from '../absorption/ozone'
 import { skyRadiance } from '../transport/singleScattering'
 import {
   buildColumnLut,
@@ -109,7 +110,7 @@ export function columnLutSuite(): SuiteResult {
           // la Terre et la table n'a rien a en dire.
           const mu = 1 - (j / 40) * (1 - muHorizon) * 0.999
           const reference = columnToSpace(altitude, mu, 2048)
-          const sampled = sampleColumnLut(lut, altitude, mu)
+          const sampled = sampleColumnLut(lut, altitude, mu).air
           if (!Number.isFinite(reference) || !Number.isFinite(sampled)) continue
           for (const sigma of sigmas) {
             const gap = Math.abs(Math.exp(-sigma * sampled) - Math.exp(-sigma * reference))
@@ -147,30 +148,79 @@ export function columnLutSuite(): SuiteResult {
 
       // --- Monotonies ---------------------------------------------------------
       const withAltitude: number[] = []
-      for (let z = 0; z <= 90_000; z += 5000) withAltitude.push(sampleColumnLut(lut, z, 1))
+      for (let z = 0; z <= 90_000; z += 5000) withAltitude.push(sampleColumnLut(lut, z, 1).air)
       t.checkMonotonic('la colonne zenithale decroit avec l’altitude', withAltitude, 'decroissant')
 
       const withAngle: number[] = []
-      for (let k = 0; k <= 20; k++) withAngle.push(sampleColumnLut(lut, 0, 1 - (k / 20) * (1 - horizonCosine(0)) * 0.99))
+      for (let k = 0; k <= 20; k++) withAngle.push(sampleColumnLut(lut, 0, 1 - (k / 20) * (1 - horizonCosine(0)) * 0.99).air)
       t.checkMonotonic('la colonne croit quand la visee s’abaisse', withAngle, 'croissant')
 
       // --- Le test d'ombre reste hors de la table ------------------------------
       t.checkTrue(
         'un rayon qui rencontre la Terre rend une colonne infinie',
-        sampleColumnLut(lut, 0, -0.5) === Number.POSITIVE_INFINITY,
+        sampleColumnLut(lut, 0, -0.5).air === Number.POSITIVE_INFINITY,
         'le test d’intersection reste hors de la table : c’est lui qui produit l’ombre de la Terre, ' +
           'et il ne doit pas etre interpole',
       )
       t.checkTrue(
         'un rayon rasant depuis 50 km reste fini',
-        Number.isFinite(sampleColumnLut(lut, 50_000, -0.05)),
+        Number.isFinite(sampleColumnLut(lut, 50_000, -0.05).air),
+      )
+
+      // --- Le second canal : l'ozone -------------------------------------------
+      // La table porte desormais une colonne par espece. Le canal d'ozone doit
+      // retrouver la colonne totale annoncee, et son rapport oblique/vertical
+      // doit differer de celui de l'air — c'est toute la raison d'etre du
+      // second canal.
+      t.checkRelative(
+        'colonne verticale d’ozone = 300 unites Dobson',
+        sampleColumnLut(lut, 0, 1).ozone,
+        DEFAULT_OZONE_COLUMN_DU * DOBSON_UNIT,
+        5e-3,
+        ' m⁻²',
+      )
+
+      const grazing = sampleColumnLut(lut, 0, 0.02)
+      const vertical = sampleColumnLut(lut, 0, 1)
+      const airRatio = grazing.air / vertical.air
+      const ozoneRatio = grazing.ozone / vertical.ozone
+      t.checkTrue(
+        'l’ozone et l’air n’ont pas le meme rapport oblique/vertical',
+        Math.abs(ozoneRatio / airRatio - 1) > 0.15,
+        `a visee rasante : air x${airRatio.toFixed(1)}, ozone x${ozoneRatio.toFixed(1)} — ` +
+          `l’ozone culmine vers 25 km, ou l’air est deja rarefie, d’ou un allongement different. ` +
+          `C’est pourquoi une seule colonne ne peut plus suffire.`,
+      )
+
+      t.check(
+        'aucun ozone au-dessus de 40 km',
+        columnsToSpace(45_000, 1, 256).ozone,
+        0,
+        0,
+        ' m⁻²',
+      )
+      // Sous 10 km il n'y a pas d'ozone non plus : monter de 0 a 9 km ne change
+      // donc pas la colonne au-dessus. L'egalite n'est toutefois pas exacte au
+      // bit pres — les deux integrations echantillonnent la tente en des points
+      // differents, puisque leurs trajets n'ont pas la meme longueur.
+      t.checkRelative(
+        'aucun ozone sous 10 km : meme colonne depuis le sol et depuis 9 km',
+        columnsToSpace(9_000, 1, 2048).ozone,
+        columnsToSpace(0, 1, 2048).ozone,
+        2e-3,
+        ' m⁻²',
+      )
+
+      t.note(
+        `epaisseur optique verticale de l’ozone : ` +
+          `${[450, 550, 600, 700].map((nm) => `${nm} nm → ${(ozoneCrossSection(nm) * DEFAULT_OZONE_COLUMN_DU * DOBSON_UNIT).toFixed(4)}`).join(' · ')}`,
       )
 
       // --- Bornes -------------------------------------------------------------
-      t.check('colonne nulle au sommet, visee zenithale', sampleColumnLut(lut, ATMOSPHERE_TOP_M, 1), 0, 1e-3, ' m⁻²')
+      t.check('colonne nulle au sommet, visee zenithale', sampleColumnLut(lut, ATMOSPHERE_TOP_M, 1).air, 0, 1e-3, ' m⁻²')
       t.checkRelative(
         'colonne zenithale au sol vs integration directe',
-        sampleColumnLut(lut, 0, 1),
+        sampleColumnLut(lut, 0, 1).air,
         columnToSpace(0, 1, 2048),
         2e-3,
         ' m⁻²',

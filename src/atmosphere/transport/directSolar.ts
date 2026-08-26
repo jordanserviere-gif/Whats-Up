@@ -21,10 +21,10 @@
  *
  * ## Ce qui manque encore, et se voit dans les chiffres
  *
- * Seule la diffusion **moleculaire** est prise en compte : ni ozone (phase 7),
- * ni aerosols (phase 6). Le Soleil calcule ici est donc un peu trop brillant et
- * un peu trop bleu par rapport a la realite — un ecart qui doit diminuer a
- * mesure que les absorbeurs arrivent, et qui sert de mesure de ce qui manque.
+ * L'extinction compte desormais la diffusion moleculaire **et** l'absorption par
+ * l'ozone. Il manque encore les aerosols (phase 6), qui retirent surtout aux
+ * faibles hauteurs, ainsi que les bandes de O₂ et H₂O — etroites, situees dans
+ * le proche infrarouge, et sans effet notable sur la couleur.
  *
  * Le ciel diffus n'est pas la non plus : ce module ne rend que le **rayonnement
  * direct**, pas l'eclairement global. La difference est negligeable Soleil
@@ -46,7 +46,8 @@ import {
   type LinearRgb,
   type Xyz,
 } from '../spectral/SpectralSensor'
-import { slantColumnFromAltitude } from './slantPath'
+import { columnsToSpace } from './slantPath'
+import { ozoneCrossSectionOn } from '../absorption/ozone'
 
 export interface DirectSolarResult {
   /** Irradiance spectrale transmise, W/m²/nm, **normale au faisceau**. */
@@ -99,6 +100,8 @@ export interface DirectSolarOptions {
   /** Distance Terre-Soleil, UA. L'orbite etant excentrique, l'ecart annuel atteint 6,9 %. */
   distanceAu?: number
   co2MoleFraction?: number
+  /** Colonne totale d'ozone, unites Dobson. */
+  ozoneColumnDobsonUnits?: number
 }
 
 /**
@@ -112,10 +115,18 @@ export function directSolar(
   altitudeDeg: number,
   options: DirectSolarOptions = {},
 ): DirectSolarResult {
-  const { observerElevationM = 0, distanceAu = 1, co2MoleFraction } = options
+  const { observerElevationM = 0, distanceAu = 1, co2MoleFraction, ozoneColumnDobsonUnits } = options
 
-  const column = slantColumnFromAltitude(altitudeDeg, observerElevationM)
+  // La visee du Soleil part de l'observateur : son cosinus zenithal est le
+  // sinus de la hauteur solaire.
+  const columns = columnsToSpace(
+    observerElevationM,
+    Math.sin((altitudeDeg * Math.PI) / 180),
+    1024,
+    ozoneColumnDobsonUnits,
+  )
   const sigma = crossSectionsOn(grid, co2MoleFraction)
+  const sigmaOzone = ozoneCrossSectionOn(grid)
   const incident = distanceAu === 1 ? solarIrradianceOn(grid) : scaleToDistance(solarIrradianceOn(grid), distanceAu)
 
   const transmittance = new Float64Array(grid.count)
@@ -123,7 +134,7 @@ export function directSolar(
   for (let i = 0; i < grid.count; i++) {
     // Colonne infinie sous l'horizon geometrique : `exp(−∞)` vaut zero, et
     // `Math.exp` le rend correctement sans cas particulier.
-    transmittance[i] = Math.exp(-sigma[i] * column)
+    transmittance[i] = Math.exp(-sigma[i] * columns.air - sigmaOzone[i] * columns.ozone)
     spectrum[i] = incident[i] * transmittance[i]
   }
 
@@ -140,7 +151,7 @@ export function directSolar(
     normalIlluminanceLux,
     horizontalIlluminanceLux: normalIlluminanceLux * sinAltitude,
     irradianceWPerM2: integrateOverGrid(grid, spectrum),
-    columnPerM2: column,
+    columnPerM2: columns.air,
   }
 }
 

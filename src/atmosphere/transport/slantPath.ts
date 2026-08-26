@@ -34,6 +34,7 @@
  */
 import { EARTH_MEAN_RADIUS_M } from '../core/units'
 import { standardProfile } from '../thermodynamics/standardAtmosphere'
+import { ozoneNumberDensity } from '../absorption/ozone'
 
 /**
  * Sommet de l'atmosphere retenu pour l'integration, m.
@@ -132,6 +133,57 @@ const TOP_RADIUS = EARTH_MEAN_RADIUS_M + ATMOSPHERE_TOP_M
  * mais le fondement du crepuscule : c'est ainsi que l'ombre de la planete entre
  * dans le calcul, sans qu'aucune geometrie d'ombre ne soit ecrite ailleurs.
  */
+export interface SpeciesColumns {
+  /** Colonne moleculaire de l'air, m⁻² — la diffusion Rayleigh en depend. */
+  air: number
+  /** Colonne d'ozone, m⁻² — l'absorption de Chappuis en depend. */
+  ozone: number
+}
+
+/**
+ * Colonnes de **chaque espece** d'un point vers l'espace, m⁻².
+ *
+ * Les deux sont integrees dans la meme marche : elles partagent la geometrie,
+ * et seule la densite change. Les separer en deux parcours doublerait le cout
+ * pour rien.
+ *
+ * **Il faut bien deux nombres.** Tant que Rayleigh etait seul, la profondeur
+ * optique se factorisait en `σ(λ) × colonne` et une seule colonne suffisait a
+ * tout le spectre. L'ozone a un autre profil vertical — il culmine vers 25 km,
+ * la ou l'air est deja rarefie — donc un autre rapport entre colonne oblique et
+ * colonne verticale. La factorisation ne tient plus.
+ */
+export function columnsToSpace(
+  altitudeM: number,
+  cosZenith: number,
+  steps = 128,
+  ozoneColumnDobsonUnits?: number,
+): SpeciesColumns {
+  const r = EARTH_MEAN_RADIUS_M + altitudeM
+  const mu = Math.max(-1, Math.min(1, cosZenith))
+
+  if (mu < 0 && r * Math.sqrt(1 - mu * mu) < EARTH_MEAN_RADIUS_M) {
+    return { air: Number.POSITIVE_INFINITY, ozone: Number.POSITIVE_INFINITY }
+  }
+
+  const discriminant = r * r * mu * mu + (TOP_RADIUS * TOP_RADIUS - r * r)
+  if (!(discriminant > 0)) return { air: 0, ozone: 0 }
+  const total = -r * mu + Math.sqrt(discriminant)
+  if (!(total > 0)) return { air: 0, ozone: 0 }
+
+  const step = total / steps
+  let air = 0
+  let ozone = 0
+  for (let i = 0; i < steps; i++) {
+    const t = (i + 0.5) * step
+    const radius = Math.sqrt(t * t + 2 * t * r * mu + r * r)
+    const altitude = radius - EARTH_MEAN_RADIUS_M
+    air += standardProfile(altitude).numberDensityPerM3 * step
+    ozone += ozoneNumberDensity(altitude, ozoneColumnDobsonUnits) * step
+  }
+  return { air, ozone }
+}
+
 export function columnToSpace(altitudeM: number, cosZenith: number, steps = 128): number {
   const r = EARTH_MEAN_RADIUS_M + altitudeM
   const mu = Math.max(-1, Math.min(1, cosZenith))

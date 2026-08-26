@@ -787,6 +787,58 @@ convention photographique.
 
 ---
 
+### `absorption/ozone.ts`
+
+**Rôle.** L'absorbeur qui fait le bleu du crépuscule.
+
+**Le point structurel.** Jusqu'ici *extinction = diffusion* : Rayleigh est
+conservatif, tout ce qu'il retire au faisceau reparaît ailleurs. L'ozone absorbe,
+et ce qu'il retire disparaît. Les deux grandeurs se séparent :
+
+```
+extinction   tau(lambda) = sigma_R.C_air + sigma_O3.C_ozone   attenue les trajets
+diffusion    beta(lambda) = sigma_R.N(h)                      seule source diffusee
+```
+
+Les confondre ferait briller le ciel de la lumière que l'ozone a absorbée.
+
+**La bande de Chappuis** culmine à 5,019·10⁻²⁵ m² vers 600 nm — **dans
+l'orange**. Elle retire au ciel précisément ce que Rayleigh lui laisse. Son
+épaisseur optique verticale n'est que de 0,039 : négligeable au zénith, décisive
+au crépuscule.
+
+| lambda | tau vertical (300 DU) |
+| --- | --- |
+| 450 nm | 0,0016 |
+| 550 nm | 0,0266 |
+| **600 nm** | **0,0392** |
+| 700 nm | 0,0068 |
+
+**Données.** IUP Bremen, *o3spectra2011* à 233 K — la température de la
+stratosphère, où vit l'ozone. La bande de Chappuis dépend peu de la température,
+contrairement aux bandes ultraviolettes.
+
+**Profil vertical.** Une « tente » : nulle sous 10 km, maximale à 25 km, nulle à
+40 km, d'intégrale 15 km — ce qui permet de la normaliser exactement sur une
+colonne totale mesurable (300 DU par défaut, valeur des latitudes moyennes).
+
+> **Le profil est le maillon faible du module.** Un profil tabulé serait plus
+> rigoureux. La tente suffit tant que seules comptent la colonne totale et son
+> altitude moyenne.
+
+**Une géométrie contre-intuitive, mesurée.** En visée rasante depuis le sol,
+l'air s'allonge d'un facteur **24**, l'ozone de **11** seulement. On attendrait
+l'inverse. La raison : un rayon rasant traverse l'air bas tangentiellement, mais
+quand il atteint les 25 km où vit l'ozone il a déjà grimpé, et son angle zénithal
+local n'est plus que 85°. C'est exactement pourquoi une seule colonne ne peut
+plus servir les deux espèces.
+
+**Ce qui n'est pas fait.** O2 (bandes A à 762 nm, B à 688 nm) et H2O
+(720, 820 nm) : étroites, dans le proche infrarouge, sans effet notable sur la
+couleur. L'architecture les accueillerait sans changement.
+
+---
+
 ### `scene/display/tonemap.ts`
 
 **Rôle.** Le transform d'affichage — l'unique endroit où une radiance devient un
@@ -881,7 +933,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 379 contrôles, 16 suites, aucun échec.**
+**État : 405 contrôles, 17 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1287,5 +1339,54 @@ de corps et d'avions. Le ciel, lui, ne coûte plus qu'un accès de texture.
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4, 5, tables de colonne et de
+## Le bleu du crépuscule — phase 7
+
+La phase 5 avait laissé deux cibles chiffrées. Les deux sont atteintes, et par
+la même cause.
+
+### Cible 1 — le dépassement de journée
+
+| Hauteur | Sans ozone | Avec ozone |
+| --- | --- | --- |
+| 90° | +5 % | **+2 %** |
+| 45° | +6 % | **+2 %** |
+| 20° | +15 % | **+6 %** |
+| 10° | +35 % | +18 % |
+
+Divisé par deux partout. Le résidu croît toujours avec la longueur du trajet :
+c'est la signature des **aérosols**, qui restent absents (phase 6).
+
+### Cible 2 — le zénith crépusculaire devient bleu
+
+| | Chromaticité |
+| --- | --- |
+| Sans ozone | (0,339 · 0,346) — quasi blanc |
+| **Avec ozone** | **(0,270 · 0,267)** — franchement bleu |
+| Blanc D65, pour référence | (0,313 · 0,329) |
+
+C'est le résultat de Hulburt (1953) reproduit : **le bleu du ciel crépusculaire
+ne vient pas de Rayleigh mais de la bande de Chappuis.** La lumière qui éclaire
+le ciel après le coucher a traversé une colonne horizontale énorme et en ressort
+rougie ; diffusée ensuite en Rayleigh, elle donnerait du neutre. C'est l'ozone,
+en retirant l'orange, qui rend le bleu.
+
+Les sondes le confirment à l'écran : `coucher/zénith` passe de `31,32,34` — un
+gris neutre — à `18,25,36`, où le bleu domine enfin. Et l'olive du ciel moyen,
+`77,74,62`, devient le bleu-gris `47,58,69`.
+
+### Le signe des résidus a changé, et c'est ce qui compte
+
+À 5°, le bilan est passé de −4 % à **−23 %**. Un absorbeur ne peut que retirer :
+c'était attendu. Le trajet y est assez long pour que la **diffusion multiple**
+manquante domine — elle, ajouterait de la lumière.
+
+Au crépuscule, les rapports calculé/publié tombent de 2,1 · 3,0 · 2,8 à
+1,3 · 1,7 · 1,3, et passent sous 1 au-delà de −6°. Le modèle est désormais
+**entouré** : il dépasse là où il manque de l'absorption, il manque là où il
+manque de la diffusion multiple. C'est une bien meilleure carte de ce qui reste
+à faire qu'un écart de signe constant.
+
+---
+
+*Dernière mise à jour : phases 0, 0.5, 1, 2, 3, 4, 5, 7, tables de colonne et de
 ciel validées ; le ciel physique est à l'écran.*

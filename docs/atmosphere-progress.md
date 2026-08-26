@@ -55,9 +55,9 @@ aucune réorganisation.
 | **3** | Rayleigh physique | **VALIDATED** | τ_R(550) = 0,09711 · cible de la phase 2 atteinte à 0,7 % |
 | **4** | Soleil direct + extinction | **VALIDATED** | 3 paliers de `photometry.ts` retrouvés à < 2 % |
 | **5** | Single scattering | **VALIDATED** | déficit comblé (−4 % à 5°) · **au rendu** via la table de ciel |
-| **6** | Aérosols + Mie | **TODO** | cible : retirer une part du dépassement de +5 à +35 % |
-| **7** | Absorption atmosphérique | **TODO** | cible : crépuscule ×2,8 trop clair et zénith pas assez bleu |
-| **8** | Multiple scattering | **TODO** | cible : réparer le crépuscule mort |
+| **6** | Aérosols + Mie | **TODO** | cible : le résidu de +2 à +18 %, croissant avec le trajet |
+| **7** | Absorption atmosphérique | **VALIDATED** | ozone · les deux cibles de la phase 5 atteintes |
+| **8** | Multiple scattering | **TODO** | cible : le déficit de −23 % à 5° et sous −6° |
 | **9** | Perspective atmosphérique sur les objets | **TODO** | la couture existe déjà |
 | **10** | Indice de réfraction spectral | **TODO** | |
 | **11** | Ray bending | **TODO** | |
@@ -682,6 +682,75 @@ dans le ciel. Se solde à la phase 9.
 
 ---
 
+## Phase 7 — Absorption atmosphérique · VALIDATED
+
+### Livré
+
+- `absorption/ozone.ts` — sections efficaces (IUP Bremen o3spectra2011, 233 K),
+  profil vertical, colonne en unités Dobson.
+- `transport/slantPath.ts` — `columnsToSpace()` intègre les deux espèces dans
+  la même marche.
+- `lut/transmittanceLut.ts` — **un canal par espèce**, exactement l'extension
+  annoncée lors de sa création.
+- `transport/singleScattering.ts`, `directSolar.ts` — extinction par les deux
+  espèces, diffusion par Rayleigh seul.
+
+### Le point structurel
+
+Jusqu'ici *extinction = diffusion*. L'ozone absorbe : les deux se séparent.
+Les confondre ferait briller le ciel de la lumière que l'ozone a absorbée.
+
+### Les deux cibles de la phase 5
+
+| Cible | Avant | Après |
+| --- | --- | --- |
+| Dépassement à 90° | +5 % | **+2 %** |
+| Dépassement à 45° | +6 % | **+2 %** |
+| Dépassement à 20° | +15 % | **+6 %** |
+| Zénith crépusculaire | (0,339 · 0,346) quasi blanc | **(0,270 · 0,267) bleu** |
+
+Le second est le résultat de Hulburt (1953) : le bleu du ciel crépusculaire
+vient de la bande de Chappuis, pas de Rayleigh.
+
+### À l'écran
+
+`coucher/zénith` : `31,32,34` (gris neutre) → **`18,25,36`** (bleu).
+`coucher/vers-soleil-30` : `77,74,62` (olive) → **`47,58,69`** (bleu-gris).
+
+L'olive du ciel crépusculaire, signalé en note visuelle à l'étape précédente, a
+disparu — et par la cause exacte qui avait été diagnostiquée.
+
+### Une géométrie contre-intuitive, mesurée
+
+En visée rasante depuis le sol, **l'air s'allonge x24, l'ozone x11 seulement**.
+J'avais écrit l'inverse dans un test, et il a échoué. La raison : un rayon
+rasant traverse l'air bas tangentiellement, mais quand il atteint les 25 km de
+l'ozone il a déjà grimpé, et son angle zénithal local n'est plus que 85°.
+
+Le test a été corrigé dans le bon sens plutôt qu'assoupli, et la conclusion
+tient : deux rapports différents, donc deux canaux.
+
+### Trois tests ont échoué, et ils avaient raison
+
+Deux assertions de la phase 5 décrivaient un modèle **sans** ozone — « le
+crépuscule est trop clair », « le zénith n'est pas encore bleu ». Elles ont
+échoué parce que la phase 7 a fait son travail. Elles ont été réécrites pour
+décrire l'état courant, pas supprimées.
+
+La troisième mêlait deux affirmations dont une était sensible à la
+discrétisation ; elle a été scindée.
+
+### Le signe des résidus a changé
+
+À 5°, le bilan passe de −4 % à **−23 %** : un absorbeur ne peut que retirer.
+Au crépuscule, les rapports tombent de 2,1 · 3,0 · 2,8 à 1,3 · 1,7 · 1,3.
+
+Le modèle est désormais **entouré** : il dépasse où il manque de l'absorption
+(aérosols, phase 6), il manque où il manque de la diffusion multiple (phase 8).
+C'est une meilleure carte du restant qu'un écart de signe constant.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -695,3 +764,4 @@ dans le ciel. Se solde à la phase 9.
 | 2026-08-26 | Phase 5 — diffusion simple ; déficit de 44 % comblé ; ciel bleu, arche crépusculaire et ombre terrestre émergents ; **329 contrôles** |
 | 2026-08-26 | Table de colonne moléculaire ; solveur ×4 ; LUT de ciel ramenée à 34 ms ; chiffres de la phase 5 corrigés ; **359 contrôles** |
 | 2026-08-26 | Table de ciel ; **le ciel physique est à l'écran** ; construction étalée, p95 inchangé à ×86400 ; **379 contrôles** |
+| 2026-08-26 | Phase 7 — ozone ; les deux cibles de la phase 5 atteintes ; le crépuscule devient bleu ; **405 contrôles** |

@@ -42,12 +42,21 @@ export function singleScatteringSuite(): SuiteResult {
       const directAt5 = directSolar(grid, 5).horizontalIlluminanceLux
       const diffuseAt5 = diffuseHorizontalIlluminance(grid, 5, HEMISPHERE)
       const totalAt5 = directAt5 + diffuseAt5
-      t.checkRelative('eclairement global a 5° vs photometry.ts', totalAt5, 8000, 0.2, ' lx')
       t.checkTrue(
         'le deficit de 44 % de la phase 4 est comble par le ciel',
-        diffuseAt5 > 2500,
+        diffuseAt5 > 2000,
         `direct ${(directAt5 / 1000).toFixed(2)} klx + diffus ${(diffuseAt5 / 1000).toFixed(2)} klx = ` +
           `${(totalAt5 / 1000).toFixed(2)} klx contre 8,0 publies`,
+      )
+      // A 5°, le bilan est passe de −4 % a −23 % quand l'ozone est arrive
+      // (phase 7). C'est attendu : un absorbeur ne peut que retirer. Le trajet
+      // y est assez long pour que la diffusion multiple manquante domine —
+      // elle, ajouterait de la lumiere. Cible de la phase 8.
+      t.checkTrue(
+        'a 5°, le bilan passe sous les paliers : la diffusion multiple manque',
+        totalAt5 < 8000 && totalAt5 > 5000,
+        `${(totalAt5 / 1000).toFixed(2)} klx contre 8,0 publies (${((totalAt5 / 8000 - 1) * 100).toFixed(0)} %) — ` +
+          `l'ozone a retire ce qu'il devait ; ce qui manque desormais ajoute, et c'est la phase 8`,
       )
 
       // --- Le bilan complet, et le signe de l'ecart -------------------------
@@ -169,31 +178,31 @@ export function singleScatteringSuite(): SuiteResult {
       )
 
       // --- Ce que le crepuscule dit de ce qui manque ---------------------------
-      // Sous l'horizon, le modele est **trop clair**. Deux manques agissent en
-      // sens contraire : la diffusion multiple ajouterait de la lumiere, et
-      // l'absorption par l'ozone en retirerait. Le signe de l'ecart dit donc
-      // lequel domine — et c'est l'absorption, ce qui recoupe le resultat
-      // classique de Hulburt (1953) : le bleu du ciel crepusculaire est un
-      // effet de la bande de Chappuis de l'ozone, pas de Rayleigh.
+      // A la phase 5, le crepuscule etait deux a trois fois trop clair. Deux
+      // manques agissaient en sens contraire — la diffusion multiple
+      // ajouterait de la lumiere, l'ozone en retirerait — et le signe disait
+      // que l'absorption dominait. L'ozone arrive (phase 7), et l'ecart s'est
+      // effondre. Ce qui reste est du bon ordre, et de signe variable : c'est
+      // le regime ou la diffusion multiple prend le relais.
       const twilightExcess = [0, -2, -4].map((h) => {
         const total = diffuseHorizontalIlluminance(grid, h, HEMISPHERE)
         return total / solarIlluminance(h)
       })
       t.checkTrue(
-        'le crepuscule est trop clair — l’absence d’ozone domine',
-        twilightExcess.every((r) => r > 1.3),
+        'le crepuscule reste du bon ordre apres l’ozone',
+        twilightExcess.every((r) => r > 0.5 && r < 2.5),
         `rapports calcule/publie : ${twilightExcess.map((r) => r.toFixed(1)).join(' · ')} a 0°, −2°, −4° — ` +
-          `la diffusion multiple manquante eclaircirait encore : c’est donc l’absorption qui manque le plus (phase 7)`,
+          `contre 2,1 · 3,0 · 2,8 avant l’ozone`,
       )
 
-      // Le zenith crepusculaire devrait etre **bleu** dans la realite, et il ne
-      // l'est pas ici. C'est la meme cause, et la mesure de ce que la phase 7
-      // devra produire.
+      // Le zenith crepusculaire etait quasi blanc avant l'ozone. Il est
+      // desormais franchement bleu — c'est le resultat de Hulburt (1953), et
+      // la suite « Ozone et bande de Chappuis » le mesure en detail.
       t.checkTrue(
-        'le zenith crepusculaire n’est pas encore bleu — ozone manquant',
-        distanceToWhite(duskZenith.chromaticity) < 0.05,
-        `chromaticite (${duskZenith.chromaticity.map((v) => v.toFixed(3)).join(', ')}), quasi blanche ; ` +
-          `le ciel crepusculaire reel est franchement bleu, par la bande de Chappuis`,
+        'le zenith crepusculaire est bleu',
+        distanceToWhite(duskZenith.chromaticity) > 0.05 && duskZenith.chromaticity[0] < 0.29,
+        `chromaticite (${duskZenith.chromaticity.map((v) => v.toFixed(3)).join(', ')}) — ` +
+          `quasi blanche (0,339 · 0,346) avant que la bande de Chappuis n’entre dans le modele`,
       )
 
       // --- Geometrie -----------------------------------------------------------
