@@ -32,8 +32,12 @@ import {
   verticalCompression,
 } from './rayBending'
 import {
+  REFRACTION_LUT_WIDTH,
   apparentFromTable,
   buildRefractionTable,
+  fillRefractionLut,
+  refractSceneDirection,
+  refractionLutU,
   tabulatedIndexProfile,
   verticalScaleFromTable,
 } from './refractionTable'
@@ -279,6 +283,74 @@ export function rayBendingSuite(): SuiteResult {
         verticalScaleFromTable(table, 0),
         verticalCompression(0, 0.266),
         0.01,
+      )
+
+      // --- L'application au rendu (phase 12) --------------------------------------
+      // Un astre est place sur le processeur, une etoile dans un nuanceur. Les
+      // deux doivent atterrir au meme endroit, sinon une planete se detache de
+      // son champ d'etoiles. C'est la table unique qui le garantit, et ces
+      // controles verifient les deux chemins qui la lisent.
+      let worstAzimuth = 0
+      let worstNorm = 0
+      for (const altitudeDeg of [-0.4, 0, 0.5, 5, 30, 88]) {
+        for (const azimuthDeg of [0, 17, 90, 180, 250]) {
+          const a = (altitudeDeg * Math.PI) / 180
+          const z = (azimuthDeg * Math.PI) / 180
+          const dir: [number, number, number] = [
+            Math.cos(a) * Math.sin(z),
+            Math.sin(a),
+            -Math.cos(a) * Math.cos(z),
+          ]
+          const bent = refractSceneDirection(table, dir)
+          const bentAzimuth = ((Math.atan2(bent[0], -bent[2]) * 180) / Math.PI + 360) % 360
+          worstAzimuth = Math.max(worstAzimuth, Math.abs(bentAzimuth - azimuthDeg) * DEG_TO_ARCSEC)
+          worstNorm = Math.max(worstNorm, Math.abs(Math.hypot(bent[0], bent[1], bent[2]) - 1))
+        }
+      }
+      t.checkTrue(
+        'le redressement conserve l’azimut',
+        worstAzimuth < 1e-6,
+        `derive maximale ${worstAzimuth.toExponential(2)}″ — la refraction ne depend que de la hauteur`,
+      )
+      t.check('le redressement conserve la norme', worstNorm, 0, 1e-12)
+
+      // La texture lue par les nuanceurs porte la refraction, interpolee
+      // lineairement. Elle doit rendre ce que rend la table.
+      const lut = new Float32Array(REFRACTION_LUT_WIDTH * 4)
+      fillRefractionLut(lut, table)
+      const sampleLut = (altitudeDeg: number) => {
+        const x = refractionLutU(altitudeDeg) * (REFRACTION_LUT_WIDTH - 1)
+        const i = Math.min(REFRACTION_LUT_WIDTH - 2, Math.floor(x))
+        const f = x - i
+        return lut[i * 4] * (1 - f) + lut[(i + 1) * 4] * f
+      }
+      let worstLut = 0
+      for (let altitudeDeg = -1.2; altitudeDeg <= 89; altitudeDeg += 0.017) {
+        worstLut = Math.max(
+          worstLut,
+          Math.abs(altitudeDeg + sampleLut(altitudeDeg) - apparentFromTable(table, altitudeDeg)) * DEG_TO_ARCSEC,
+        )
+      }
+      t.checkTrue(
+        'la texture rend ce que rend la table',
+        worstLut < 5,
+        `ecart maximal ${worstLut.toFixed(2)}″ — mesure aussi contre le nuanceur reel : 2,6″`,
+      )
+
+      // Sous l'horizon apparent il n'y a plus d'image. Rendre la hauteur vraie
+      // telle quelle ferait sauter la fonction de trente-trois minutes d'arc a
+      // la frontiere — et la texture avec elle.
+      const belowSteps = [-1.2, -1.0, -0.8, -0.6, table.horizonTrueDeg, -0.3, 0, 0.5]
+      t.checkMonotonic(
+        'la hauteur apparente reste croissante sous l’horizon',
+        belowSteps.map((a) => apparentFromTable(table, a)),
+        'croissant',
+      )
+      t.checkTrue(
+        'et un astre couche le reste',
+        apparentFromTable(table, table.horizonTrueDeg - 0.1) < 0,
+        `${apparentFromTable(table, table.horizonTrueDeg - 0.1).toFixed(4)}° pour une hauteur vraie ` +
+          'un dixieme de degre sous la limite de visibilite',
       )
 
       // --- L'inversion de surface retourne bien le gradient ---------------------------

@@ -10,6 +10,8 @@ import {
   POINT_VISIBILITY_FADE_START,
 } from '@/astro/photometry'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
+import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
+import { applyRefractionUniforms, refractionUniforms } from './refractionTexture'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 import type { GeoLocation } from '@/astro/types'
 
@@ -62,12 +64,14 @@ export function Starfield({
         depthTest: true,
         blending: AdditiveBlending,
         uniforms: {
+          ...refractionUniforms(),
           uLimitMag: { value: limitingMagnitude },
           uPixelRatio: { value: Math.min(2, typeof window === 'undefined' ? 1 : window.devicePixelRatio) },
           uBaseSize: { value: POINT_BASE_SIZE_PX },
           uExtinctionK: { value: EXTINCTION_COEFFICIENT },
         },
         vertexShader: /* glsl */ `
+          ${REFRACTION_LUT_GLSL}
           attribute vec3 starColor;
           attribute float starMag;
           varying vec3 vColor;
@@ -88,7 +92,12 @@ export function Starfield({
           }
 
           void main() {
+            // La direction equatorielle tournee, **puis** redressee par la
+            // refraction — la meme table que les corps du systeme solaire et les
+            // constellations. Sans cela une planete se detacherait de son champ
+            // d'etoiles de plus d'un diametre lunaire pres de l'horizon.
             vec4 world = modelMatrix * vec4(position, 1.0);
+            world.xyz = refractSceneDirection(world.xyz);
             vec3 dir = normalize(world.xyz);
             float altDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
 
@@ -150,6 +159,8 @@ export function Starfield({
     // le meme phenomene qui blanchit l'horizon -- meme trouble que la
     // diffusion Mie du fond de ciel, voir `atmosphere/mie/aerosol.ts`.
     material.uniforms.uExtinctionK.value = EXTINCTION_COEFFICIENT * aerosolTurbidity
+    // La meme table que les corps du systeme solaire et les constellations.
+    applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])
   })
 
   return <points ref={pointsRef} geometry={geometry} material={material} frustumCulled={false} renderOrder={4} />

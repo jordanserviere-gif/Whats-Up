@@ -3,6 +3,8 @@ import { BackSide, Color, ShaderMaterial, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { aerialUniforms, applyAerialUniforms, useAerialLut } from './useAerialLut'
+import { setRefractionEnabled } from '@/atmosphere/refraction/refractionTable'
+import { refractionSite } from './refractionTexture'
 import { DOME_RADIUS } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 
@@ -184,6 +186,13 @@ export function SkyBackground({
   // disponibles que la. C'est aussi la bonne place du point de vue des
   // responsabilites — le materiau du ciel possede la table qu'il echantillonne.
   useAerialLut(sunAltitude, observerElevationM, aerosolTurbidity, atmosphereEnabled)
+
+  // Le fond de ciel publie l'etat de l'atmosphere pour toutes les couches : les
+  // corps, les etoiles, le ciel profond et les constellations lisent la meme
+  // table de refraction, et le meme interrupteur. C'est cette unicite qui
+  // garantit qu'une planete ne se detache pas de son champ d'etoiles.
+  refractionSite.observerElevationM = observerElevationM
+  setRefractionEnabled(atmosphereEnabled)
 
   useFrame(() => {
     const u = material.uniforms

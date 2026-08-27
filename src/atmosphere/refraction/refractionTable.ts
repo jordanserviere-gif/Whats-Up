@@ -139,14 +139,27 @@ export function buildRefractionTable(options: RefractionTableOptions = {}): Refr
 /**
  * Hauteur apparente d'un astre de hauteur vraie connue.
  *
- * Sous `horizonTrueDeg`, l'astre est sous l'horizon apparent : la fonction rend
- * la valeur vraie telle quelle, faute de rayon qui parvienne a l'observateur.
- * C'est au rendu de decider qu'il n'y a rien a montrer.
+ * ## Sous l'horizon apparent
+ *
+ * Il n'y a la, au sens strict, **aucune image** : plus aucun rayon ne parvient a
+ * l'observateur, et la hauteur apparente n'est pas definie. Rendre la hauteur
+ * vraie telle quelle serait pourtant un mauvais choix — la fonction ferait alors
+ * un saut de trente-trois minutes d'arc a la frontiere, et tout ce qui en
+ * derive avec elle : la texture lue par les nuanceurs, et le mouvement d'un
+ * astre qui se couche.
+ *
+ * Le prolongement retenu conserve la refraction horizontale : l'astre continue
+ * de descendre au meme rythme, en restant sous l'horizon. La fonction reste
+ * **continue et croissante**, ce dont dependent l'interpolation de la texture et
+ * la lecture par dichotomie.
+ *
+ * La visibilite ne se decide donc pas au signe du resultat mais par
+ * `isVisible`, qui compare a `horizonTrueDeg`.
  */
 export function apparentFromTable(table: RefractionTable, trueAltitudeDeg: number): number {
   const { trueDeg, apparentDeg } = table
   const last = trueDeg.length - 1
-  if (trueAltitudeDeg <= trueDeg[0]) return trueAltitudeDeg
+  if (trueAltitudeDeg <= trueDeg[0]) return trueAltitudeDeg - trueDeg[0]
   if (trueAltitudeDeg >= trueDeg[last]) return trueAltitudeDeg
 
   // Dichotomie : la suite des hauteurs vraies est croissante par construction,
@@ -186,3 +199,147 @@ export function verticalScaleFromTable(table: RefractionTable, trueAltitudeDeg: 
 export function isVisible(table: RefractionTable, trueAltitudeDeg: number): boolean {
   return trueAltitudeDeg > table.horizonTrueDeg
 }
+
+// ---------------------------------------------------------------------------
+// Application au rendu — phase 12
+// ---------------------------------------------------------------------------
+
+/**
+ * Table partagee, memoisee par altitude d'observateur.
+ *
+ * Elle ne depend ni de l'heure, ni de la direction, ni du Soleil : une seule
+ * construction pour toute la duree de vie de l'application, tant que
+ * l'observateur ne change pas de site. Seize millisecondes, une fois.
+ */
+/**
+ * Y a-t-il une atmosphere ?
+ *
+ * Le calque « atmosphere » de l'application peut etre eteint : la vue est alors
+ * celle qu'on aurait depuis l'espace, ou les rayons redeviennent droits. Ce
+ * n'est pas une option de rendu mais un **etat du modele**, et c'est pourquoi le
+ * drapeau vit ici plutot que dans la scene : la couche astronomique doit le lire
+ * elle aussi, sans quoi une etiquette resterait a la position apparente d'un
+ * astre dessine a sa position geometrique.
+ */
+let refractionEnabled = true
+export const setRefractionEnabled = (value: boolean): void => {
+  refractionEnabled = value
+}
+export const isRefractionEnabled = (): boolean => refractionEnabled
+
+const sharedTables = new Map<number, RefractionTable>()
+export function sharedRefractionTable(observerElevationM = 0): RefractionTable {
+  const key = Math.round(observerElevationM)
+  const cached = sharedTables.get(key)
+  if (cached) return cached
+  const table = buildRefractionTable({ observerElevationM: key })
+  sharedTables.set(key, table)
+  return table
+}
+
+/**
+ * Redresse une direction du repere de la scene (+Y zenith).
+ *
+ * L'azimut est **conserve** : la refraction ne depend que de la hauteur, dans
+ * une atmosphere a stratification spherique. C'est ce qui fait qu'un disque
+ * s'aplatit sans se retrecir lateralement.
+ */
+export function refractSceneDirection(
+  table: RefractionTable,
+  dir: readonly [number, number, number],
+): [number, number, number] {
+  const length = Math.hypot(dir[0], dir[1], dir[2]) || 1
+  const y = Math.max(-1, Math.min(1, dir[1] / length))
+  const trueAltitudeDeg = (Math.asin(y) * 180) / Math.PI
+  const apparentDeg = apparentFromTable(table, trueAltitudeDeg)
+  if (apparentDeg === trueAltitudeDeg) return [dir[0], dir[1], dir[2]]
+
+  const horizontal = Math.hypot(dir[0], dir[2])
+  const rad = (apparentDeg * Math.PI) / 180
+  const cos = Math.cos(rad)
+  if (horizontal < 1e-12) return [0, length * Math.sin(rad), 0]
+  const scale = (length * cos) / horizontal
+  return [dir[0] * scale, length * Math.sin(rad), dir[2] * scale]
+}
+
+/** Largeur de la texture de refraction lue par les nuanceurs. */
+export const REFRACTION_LUT_WIDTH = 512
+
+/**
+ * Parametrisation de la texture : `u = √((h + 1,2)/91,2)`.
+ *
+ * Le carre concentre les texels pres de l'horizon, ou la refraction varie de dix
+ * minutes d'arc par degre, et les espace vers le zenith ou elle ne bouge plus.
+ * Le decalage de 1,2° couvre les astres encore visibles alors qu'ils sont
+ * geometriquement couches.
+ */
+export const refractionLutU = (trueAltitudeDeg: number): number =>
+  Math.sqrt(Math.max(0, Math.min(1, (trueAltitudeDeg + 1.2) / 91.2)))
+
+/** Hauteur vraie portee par une coordonnee de texture. */
+export const refractionLutAltitude = (u: number): number => u * u * 91.2 - 1.2
+
+/**
+ * Remplit la texture : **la refraction**, en degres, et non la hauteur apparente.
+ *
+ * Stocker l'ecart plutot que la valeur garde le contenu petit et lisse — de zero
+ * au zenith a un demi-degre a l'horizon — la ou la hauteur apparente couvrirait
+ * quatre-vingt-dix degres. L'erreur d'interpolation porte alors sur la petite
+ * quantite, pas sur la grande.
+ */
+export function fillRefractionLut(target: Float32Array, table: RefractionTable): void {
+  const width = target.length / 4
+  for (let i = 0; i < width; i++) {
+    const trueAltitudeDeg = refractionLutAltitude(i / (width - 1))
+    const refraction = apparentFromTable(table, trueAltitudeDeg) - trueAltitudeDeg
+    target[i * 4] = refraction
+    target[i * 4 + 1] = 0
+    target[i * 4 + 2] = 0
+    target[i * 4 + 3] = 0
+  }
+}
+
+/**
+ * Echantillonneur GPU.
+ *
+ * Il redresse une direction du repere de la scene. Les etoiles, le ciel profond
+ * et les constellations sont places par rotation d'une direction equatoriale :
+ * c'est donc **la** ou la refraction doit entrer pour elles, et le meme calcul
+ * est fait sur le processeur pour les corps du systeme solaire — memes valeurs,
+ * meme table.
+ */
+export const REFRACTION_LUT_GLSL = /* glsl */ `
+  uniform sampler2D uRefractionLut;
+  uniform float uRefractionWidth;
+  uniform float uRefractionActive;
+
+  /** Refraction en degres pour une hauteur vraie donnee. */
+  float refractionDeg(float trueAltDeg) {
+    float u = sqrt(clamp((trueAltDeg + 1.2) / 91.2, 0.0, 1.0));
+    float x = 0.5 / uRefractionWidth + u * (1.0 - 1.0 / uRefractionWidth);
+    return texture2D(uRefractionLut, vec2(x, 0.5)).r;
+  }
+
+  /**
+   * Direction redressee. L'azimut est conserve : la refraction ne depend que de
+   * la hauteur.
+   */
+  vec3 refractSceneDirection(vec3 dir) {
+    if (uRefractionActive < 0.5) return dir;
+    float len = length(dir);
+    if (len < 1e-9) return dir;
+    vec3 unit = dir / len;
+    float trueAlt = degrees(asin(clamp(unit.y, -1.0, 1.0)));
+    float apparent = radians(trueAlt + refractionDeg(trueAlt));
+
+    // \`flat\` est un mot reserve du langage — qualificateur d'interpolation.
+    // Le nommer ainsi fait echouer la compilation des trois nuanceurs qui
+    // incluent ce fragment, et seule une verification a l'execution le revele :
+    // le chemin processeur, lui, fonctionne.
+    vec2 ground = vec2(unit.x, unit.z);
+    float groundLen = length(ground);
+    if (groundLen < 1e-9) return vec3(0.0, len * sign(unit.y), 0.0);
+    ground /= groundLen;
+    return vec3(ground.x * cos(apparent), sin(apparent), ground.y * cos(apparent)) * len;
+  }
+`

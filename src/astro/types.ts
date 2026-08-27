@@ -45,6 +45,18 @@ export interface BodyState {
   equatorial: Equatorial
   horizontal: Horizontal
   /**
+   * Hauteur **geometrique**, sans refraction, degres.
+   *
+   * `horizontal.altitude` porte la hauteur **apparente** — celle a laquelle
+   * l'astre est vu. Les deux different de trente-trois minutes d'arc a
+   * l'horizon, et l'ecart est ce que la refraction ajoute.
+   *
+   * La vraie est conservee parce qu'elle reste la grandeur pertinente pour tout
+   * ce qui est geometrique : lever et coucher calcules par l'ephemeride,
+   * comparaison a une autre source, ou simple curiosite.
+   */
+  trueAltitude: number
+  /**
    * Position topocentrique en km, dans le repere equatorial de la date.
    * C'est elle qui porte la geometrie 3D reelle : distances, occultations,
    * direction d'eclairement.

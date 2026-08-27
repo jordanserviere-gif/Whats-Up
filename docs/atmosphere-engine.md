@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 536 contrôles, 23 suites, aucun échec.**
+**État : 541 contrôles, 23 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2079,7 +2079,127 @@ toutes les couches, et c'est un travail distinct.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 11 (sauf 2 partielle), tables de
-colonne, de diffusion multiple, de perspective atmospherique et de refraction
-validees ; le ciel physique et les objets qui s'y trouvent suivent le meme
-transport ; la refraction attend son cablage.*
+## Les phenomenes emergents de refraction — phase 12
+
+### Ce que la phase 11 avait laisse en suspens
+
+La physique etait validee et ne produisait rien a l'ecran. La raison etait
+explicite : le ciel est peuple par **cinq mecanismes de placement differents**,
+et une refraction a moitie cablee aurait ete pire que pas de refraction du tout.
+
+| Couche | Placement | Ou la refraction entre |
+| --- | --- | --- |
+| Corps du systeme solaire | direction équatoriale tournée, sur le processeur | `refractSceneDirection` |
+| Étoiles | même direction, tournée dans un nuanceur | `REFRACTION_LUT_GLSL` |
+| Ciel profond | idem, par instance | idem |
+| Constellations | matrice appliquée à l'objet entier | **matériau réécrit** |
+| Étiquettes | coordonnées horizontales | suivent les corps |
+
+Les constellations meritent un mot : la refraction **n'est pas une transformation
+lineaire**, et aucune matrice ne peut la porter. Leur `lineBasicMaterial` a donc
+ete remplace par un materiau propre, qui redresse chaque sommet comme les etoiles
+qu'il relie. Sans cela, une figure basse se serait decrochee de ses propres
+etoiles d'un demi-degre.
+
+### Une seule table, deux lecteurs
+
+`RefractionTable` est construite une fois par site — seize millisecondes — et lue
+des deux cotes : par `refractSceneDirection` sur le processeur, par une texture
+de 512 texels sur le GPU. Les deux portent les memes valeurs par construction.
+
+Mesure de l'accord, nuanceur compile hors application et compare a
+`refractSceneDirection` sur 45 directions : **2,6 secondes d'arc**, pour un pixel
+qui en vaut une centaine au champ courant. Un astre et une etoile dans la meme
+direction atterrissent au meme endroit.
+
+### Ce qui se voit maintenant
+
+**Le Soleil se couche apres s'etre couche.** A Paris le 21 juin, il est encore vu
+a 1,22° de hauteur apparente alors qu'il n'est plus qu'a 0,85° de hauteur
+geometrique — et il reste visible jusqu'a −33,0′, soit plusieurs minutes de jour
+supplementaires a chaque extremite.
+
+| Hauteur vraie | Relevé | |
+| --- | --- | --- |
+| 7,13° | 7,01′ | |
+| 3,57° | 11,96′ | |
+| 1,52° | 18,54′ | |
+| 0,85° | **21,99′** | |
+
+**Le disque solaire est un ovale.** Le limbe inferieur etant releve davantage que
+le superieur, le disque s'ecrase :
+
+| Hauteur vraie | Échelle verticale | Diamètre |
+| --- | --- | --- |
+| 0° | **0,8637** | **27,6′ × 32,0′** |
+| 1° | 0,9080 | 29,1′ × 32,0′ |
+| 5° | 0,9758 | 31,2′ × 32,0′ |
+
+Le facteur est la **derivee** de la fonction qui a servi a placer l'astre, pas un
+parametre. Le groupe qui porte le corps n'ayant ni rotation ni echelle, ses axes
+sont ceux de la scene : une echelle verticale y comprime exactement selon la
+verticale locale, et le diametre horizontal reste intact.
+
+### Sous l'horizon apparent, une discontinuite qu'il fallait supprimer
+
+Il n'y a la, au sens strict, **aucune image** : plus aucun rayon ne parvient a
+l'observateur. Rendre la hauteur vraie telle quelle etait pourtant le mauvais
+choix — la fonction faisait alors un saut de trente-trois minutes d'arc a la
+frontiere, **et la texture avec elle** : 1377 secondes d'arc d'erreur
+d'interpolation juste sous l'horizon.
+
+Le prolongement retenu conserve la refraction horizontale : l'astre continue de
+descendre au meme rythme, en restant cache. La fonction reste continue et
+croissante, ce dont dependent l'interpolation de la texture et le mouvement d'un
+astre qui se couche. L'erreur retombe a **2,0 secondes d'arc**.
+
+La visibilite ne se decide donc pas au signe du resultat, mais par `isVisible`.
+
+### ⚠️ Un mot reserve, et ce qu'il enseigne
+
+`flat` est un **qualificateur d'interpolation** du langage GLSL. En avoir fait un
+nom de variable locale a fait echouer la compilation des trois nuanceurs qui
+incluent le fragment partage.
+
+Ce qui compte ici n'est pas la faute mais sa signature : le chemin **processeur**
+fonctionnait parfaitement — les corps se relevaient, le disque s'aplatissait — et
+seules les etoiles restaient en place. C'est exactement le mode de defaillance
+que cette phase visait a eviter, et il n'a ete vu que parce que l'application est
+chargee et sa console lue a chaque etape. Ni la compilation TypeScript, ni la
+suite de validation, ni le banc colorimetrique ne pouvaient l'attraper.
+
+### La vue depuis l'espace reste un cas du modele
+
+Le calque « atmosphere » eteint remet les rayons droits. Le drapeau vit dans la
+couche atmospherique, non dans la scene : la couche **astronomique** doit le lire
+elle aussi, faute de quoi une etiquette resterait a la position apparente d'un
+astre dessine a sa position geometrique.
+
+### ⚠️ Ce qui n'est pas refracte, et pourquoi
+
+**Le fond de ciel.** Sa table est construite le long de rayons **droits** : en
+courber la direction d'echantillonnage serait incoherent avec la facon dont elle
+a ete calculee. Le traitement juste est d'integrer le transport le long du rayon
+courbe, ce qui est un changement de fond. La consequence visible est nulle sur un
+degrade lisse, mais le bord de l'ombre de la Terre est decale d'un demi-degre.
+
+**Les avions et les satellites.** Ils sont **dans** l'atmosphere, a distance
+finie : leur refraction est une autre integrale, de l'observateur a l'objet et
+non a l'espace. Leur appliquer la refraction astronomique serait faux. La
+physique dit qu'ils different, et ils different.
+
+**Le rayon vert.** La refraction est chromatique — 53,9 secondes d'arc entre 400
+et 700 nm, soit 2,8 % du diametre solaire. Le rendre demanderait trois tables et
+un disque rendu spectralement, ce qui appartient a l'optique ondulatoire. Le
+decalage est ici plus fin que le disque n'est pixellise.
+
+### Cout
+
+Aucun. La table est memoisee par site, la texture fait 512 texels, et le banc ne
+mesure aucune derive colorimetrique ni aucun changement de cout GPU — la
+refraction deplace des objets, pas des pixels de ciel.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 12 (sauf 2 partielle) ; le ciel
+physique, les objets qui s'y trouvent et la courbure des rayons sont a l'ecran.*

@@ -21,6 +21,8 @@ import {
 } from '@/astro/photometry'
 import type { GeoLocation } from '@/astro/types'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
+import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
+import { applyRefractionUniforms, refractionUniforms } from './refractionTexture'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
 
 const DEG = Math.PI / 180
@@ -141,6 +143,7 @@ export function DeepSky({
       depthWrite: false,
       blending: AdditiveBlending,
       uniforms: {
+        ...refractionUniforms(),
         uLimitMag: { value: limitingMagnitude },
         uSkySb: { value: 21.8 },
         /** Pixels par radian : convertit une taille angulaire en taille ecran. */
@@ -148,6 +151,7 @@ export function DeepSky({
         uMinPixelRadius: { value: 1.4 },
       },
       vertexShader: /* glsl */ `
+        ${REFRACTION_LUT_GLSL}
         attribute float aSemiMajor;
         attribute float aSemiMinor;
         attribute float aQuadSemi;
@@ -174,7 +178,11 @@ export function DeepSky({
           vMag = aMag;
           vSb = aSb;
           vExtended = aExtended;
-          gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0);
+          // Meme redressement que les etoiles : un amas doit rester au milieu
+          // des etoiles qui le composent, y compris pres de l'horizon.
+          vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          world.xyz = refractSceneDirection(world.xyz);
+          gl_Position = projectionMatrix * viewMatrix * world;
         }
       `,
       fragmentShader: /* glsl */ `
@@ -302,6 +310,9 @@ export function DeepSky({
     material.uniforms.uPixelsPerRadian.value = size.height / (2 * Math.tan(fov / 2))
     material.uniforms.uLimitMag.value = limitingMagnitude
     material.uniforms.uSkySb.value = skySurfaceBrightness(illuminance)
+    // La meme table que les etoiles : un amas doit rester au milieu des etoiles
+    // qui le composent.
+    applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])
   })
 
   return (

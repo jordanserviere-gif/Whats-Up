@@ -20,9 +20,28 @@ import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL, RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
+import {
+  isRefractionEnabled,
+  refractSceneDirection,
+  verticalScaleFromTable,
+} from '@/atmosphere/refraction/refractionTable'
+import { refractionFor } from './refractionTexture'
 import { aerialUniforms, applyAerialUniforms } from './useAerialLut'
 
 const DEG = Math.PI / 180
+
+/**
+ * Redresse une direction, si l'atmosphere existe.
+ *
+ * Le calque eteint donne la vue depuis l'espace : les rayons y sont droits, et
+ * la direction geometrique est la bonne.
+ */
+function maybeRefract(
+  elevationM: number,
+  dir: [number, number, number],
+): [number, number, number] {
+  return isRefractionEnabled() ? refractSceneDirection(refractionFor(elevationM).table, dir) : dir
+}
 
 /**
  * Sur-eclat du disque solaire, en multiples de la radiance qui s'affiche en
@@ -365,17 +384,36 @@ function Body({
     if (!g || !s) return
 
     const depth = sceneDepth(state.distanceKm)
-    const dir = equatorialDirectionToScene(
-      [
-        state.positionEq[0] / state.distanceKm,
-        state.positionEq[1] / state.distanceKm,
-        state.positionEq[2] / state.distanceKm,
-      ],
-      date,
-      location,
-      scratch.current,
+    // La direction geometrique, puis la **meme** refraction que les etoiles et
+    // les constellations. C'est le point ou un astre bas se releve d'un demi-
+    // degre — et l'unicite de la table est ce qui l'empeche de se detacher du
+    // champ d'etoiles qui l'entoure.
+    const dir = maybeRefract(
+      location.elevation,
+      equatorialDirectionToScene(
+        [
+          state.positionEq[0] / state.distanceKm,
+          state.positionEq[1] / state.distanceKm,
+          state.positionEq[2] / state.distanceKm,
+        ],
+        date,
+        location,
+        scratch.current,
+      ),
     )
     g.position.set(dir[0] * depth, dir[1] * depth, dir[2] * depth)
+
+    // --- Le Soleil aplati ---------------------------------------------------
+    // La refraction decroit quand la hauteur augmente : le limbe inferieur d'un
+    // disque est donc releve davantage que le superieur, et le disque s'ecrase.
+    // Le facteur est la **derivee** de la fonction qui a servi a le placer, pas
+    // un parametre.
+    //
+    // Le groupe ne porte ni rotation ni echelle : ses axes sont ceux de la
+    // scene, et une echelle verticale y comprime exactement selon la verticale
+    // locale. Le diametre horizontal reste intact — d'ou un ovale, et non un
+    // disque plus petit.
+    g.scale.set(1, isRefractionEnabled() ? verticalScaleFromTable(refractionFor(location.elevation).table, state.trueAltitude) : 1, 1)
 
     const trueRadius = sceneRadiusForBody(state.radiusKm, state.distanceKm)
     s.scale.setScalar(trueRadius * discScale)
@@ -588,15 +626,22 @@ function SaturnRings({
     if (!m) return
 
     const depth = sceneDepth(state.distanceKm)
-    const dir = equatorialDirectionToScene(
-      [
-        state.positionEq[0] / state.distanceKm,
-        state.positionEq[1] / state.distanceKm,
-        state.positionEq[2] / state.distanceKm,
-      ],
-      date,
-      location,
-      scratch.current,
+    // La direction geometrique, puis la **meme** refraction que les etoiles et
+    // les constellations. C'est le point ou un astre bas se releve d'un demi-
+    // degre — et l'unicite de la table est ce qui l'empeche de se detacher du
+    // champ d'etoiles qui l'entoure.
+    const dir = maybeRefract(
+      location.elevation,
+      equatorialDirectionToScene(
+        [
+          state.positionEq[0] / state.distanceKm,
+          state.positionEq[1] / state.distanceKm,
+          state.positionEq[2] / state.distanceKm,
+        ],
+        date,
+        location,
+        scratch.current,
+      ),
     )
     m.position.set(dir[0] * depth, dir[1] * depth, dir[2] * depth)
     m.scale.setScalar(sceneRadiusForBody(state.radiusKm, state.distanceKm) * discScale)

@@ -61,7 +61,7 @@ aucune réorganisation.
 | **9** | Perspective atmosphérique sur les objets | **VALIDATED** | une seule table pour le ciel et les objets · ancien noyau hors du rendu · ×22 |
 | **10** | Indice de réfraction spectral | **VALIDATED** | Ciddor 1996 · recoupé à 3,5·10⁻⁵ avec Peck & Reeder · rien à l'écran, c'est l'infrastructure de la 11 |
 | **11** | Courbure des rayons | **VALIDATED** | 57,99″ à 45° contre 58,23″ de l'Almanach · Soleil couchant 27,6′ × 32,0′ · **non câblée** |
-| **12** | Phénomènes émergents de réfraction | **TODO** | |
+| **12** | Phénomènes émergents de réfraction | **VALIDATED** | cinq couches câblées d'un coup · GPU/CPU à 2,6″ · Soleil ovale 27,6′ × 32,0′ |
 | **13** | Atmosphère 3D | **TODO** | |
 | **14** | Inversions thermiques et mirages | **TODO** | |
 | **15** | Turbulence | **TODO** | |
@@ -1052,6 +1052,55 @@ garde contre cela. Le câblage doit se faire d'un seul tenant.
 
 ---
 
+## Phase 12 — Phénomènes émergents de réfraction · VALIDATED
+
+### Livré
+
+- `scene/refractionTexture.ts` — table et texture partagées, mémoïsées par site.
+- Câblage **simultané** des cinq mécanismes de placement du ciel : corps,
+  étoiles, ciel profond, constellations, étiquettes.
+- `ConstellationLines` passe d'un `lineBasicMaterial` à un matériau propre : la
+  réfraction n'est pas linéaire, aucune matrice ne peut la porter.
+- Aplatissement du disque, par une échelle verticale sur le groupe porteur.
+
+### Une seule table, deux lecteurs
+
+Processeur et nuanceur lisent les mêmes valeurs. Mesuré, nuanceur compilé hors
+application contre `refractSceneDirection` sur 45 directions : **2,6 secondes
+d'arc**, pour un pixel qui en vaut une centaine. Un astre et une étoile dans la
+même direction atterrissent au même endroit.
+
+### Ce qui se voit
+
+Le Soleil reste visible jusqu'à **−33,0′** de hauteur vraie — plusieurs minutes
+de jour de plus à chaque extrémité. Et son disque devient un ovale de
+**27,6′ × 32,0′** à l'horizon, par la **dérivée** de la fonction qui l'a placé.
+
+### La discontinuité qu'il fallait supprimer
+
+Sous l'horizon apparent il n'y a aucune image. Rendre la hauteur vraie telle
+quelle faisait sauter la fonction de 33′ à la frontière — **1377″ d'erreur
+d'interpolation** dans la texture. Le prolongement à réfraction horizontale
+constante la ramène à **2,0″**, en gardant l'astre caché.
+
+### ⚠️ Un mot réservé, et sa leçon
+
+`flat` est un qualificateur d'interpolation GLSL. En faire un nom de variable a
+fait échouer les trois nuanceurs — pendant que le chemin **processeur**
+fonctionnait parfaitement. Exactement le mode de défaillance que la phase visait
+à éviter, et invisible pour TypeScript, pour la suite de validation et pour le
+banc colorimétrique. Seule la console de l'application chargée l'a montré.
+
+### ⚠️ Ce qui n'est pas réfracté, et pourquoi
+
+**Le fond de ciel** : sa table est construite le long de rayons droits ; en
+courber l'échantillonnage serait incohérent. **Les avions et satellites** : ils
+sont *dans* l'atmosphère, leur réfraction est une autre intégrale. **Le rayon
+vert** : 53,9″ de dispersion, plus fin que la pixellisation du disque, et il
+demande trois tables et un disque spectral.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1071,3 +1120,4 @@ garde contre cela. Le câblage doit se faire d'un seul tenant.
 | 2026-08-27 | Phase 9 — perspective atmosphérique ; une seule table pour le ciel et les objets ; ancien noyau analytique hors du rendu ; GPU ×22 ; **480 contrôles** |
 | 2026-08-27 | Phase 10 — indice de Ciddor ; recoupé avec Peck & Reeder à 3,5·10⁻⁵ et avec les éphémérides à 0,2 % ; dette de phase 1 soldée ; **507 contrôles** |
 | 2026-08-27 | Phase 11 — courbure des rayons ; 57,99″ à 45° contre 58,23″ de l'Almanach ; Soleil couchant à 27,6′ × 32,0′ ; non câblée, et pourquoi ; **536 contrôles** |
+| 2026-08-27 | Phase 12 — réfraction câblée aux cinq couches ; GPU/CPU à 2,6″ ; le Soleil se couche après s'être couché ; **541 contrôles** |
