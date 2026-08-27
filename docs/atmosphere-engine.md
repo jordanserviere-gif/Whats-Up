@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 480 contrôles, 21 suites, aucun échec.**
+**État : 507 contrôles, 22 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1833,6 +1833,114 @@ Le nuanceur a donc ete compile hors de l'application et compare a
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 9 (sauf 2 partielle), tables de
+## L'indice de refraction de l'air — phase 10
+
+### Pourquoi un second indice, alors qu'il en existe deja un
+
+`rayleigh/standardAir.ts` porte l'indice de **Peck & Reeder**, et il n'est pas
+remplace : il est juste la ou il est. La section efficace de Rayleigh s'ecrit
+`(n²−1)²/N²`, et ce rapport n'a de sens que si `n` et `N` decrivent le **meme**
+gaz, aux memes conditions de reference. Y mettre un indice local serait une
+erreur, pas un raffinement.
+
+Ciddor repond a l'autre question, celle que Peck & Reeder ne peut pas traiter :
+**quel est l'indice ici**, a cette temperature, sous cette pression, avec cette
+humidite ? C'est la grandeur dont depend la courbure d'un rayon.
+
+### La structure de la formulation
+
+Ciddor ne calcule pas `n` directement. Il calcule deux refractivites **aux
+conditions ou elles ont ete mesurees**, puis les ramene aux conditions reelles
+par le rapport des masses volumiques :
+
+```
+n − 1 = (ρ_a/ρ_axs)·(n_axs − 1) + (ρ_w/ρ_ws)·(n_ws − 1)
+```
+
+L'air sec et la vapeur d'eau sont traites separement — leurs dispersions n'ont
+rien a voir — et les densites viennent d'une equation d'etat de gaz **reel**, non
+de la loi des gaz parfaits.
+
+### Le probleme de validation particulier a ce module
+
+Il est presque entierement fait de **constantes publiees** : quatre pour la
+dispersion de l'air sec, quatre pour la vapeur, neuf pour l'equation d'etat,
+quatre pour la pression saturante. Une coquille dans l'une d'elles decalerait le
+resultat de quelques pour cent au plus — c'est-a-dire de rien du tout a l'oeil.
+L'indice de l'air vaut 1,0003, et il vaudrait encore 1,0003.
+
+Les controles de forme sont donc sans valeur ici. Seuls comptent les
+**recoupements independants**, et ils sont tous passes :
+
+| Recoupement | Resultat |
+| --- | --- |
+| Ciddor **contre Peck & Reeder**, 380 à 780 nm | **3,5·10⁻⁵** en relatif |
+| `n` à 633 nm, 20 °C — valeur de l'article | **1,000271800**, écart 1,7·10⁻¹⁰ |
+| Densité CIPM **contre US1976** | 0,0375 % mesuré, 0,0408 % prédit par `1/Z` |
+| svp Ciddor **contre Buck** (−20 à +40 °C) | **0,039 %** |
+| Facteur d'accroissement, les deux formes | **0,018 %** |
+| **Réfraction astronomique à 45°** | **58,3″** contre 58,2″ des éphémérides |
+
+Le premier est le garde-fou : deux formulations publiees a vingt-quatre ans
+d'intervalle, par des chemins sans rapport, decrivent le meme air standard. Le
+dernier est le plus parlant — une formule de metrologie retombe a 0,2 % sur une
+constante d'ephemeride.
+
+### L'humidite abaisse l'indice
+
+Contre-intuitif, et vrai : dans le visible, remplacer des molecules d'air par des
+molecules d'eau **diminue** l'indice. La vapeur est moins refringente par
+molecule que l'air a ces longueurs d'onde, et l'air humide est de surcroit moins
+dense (18 g/mol contre 29).
+
+Mesure : de l'air sec a l'air sature a 20 °C, `n−1` passe de 2,7308·10⁻⁴ a
+2,7224·10⁻⁴, soit **−0,31 %**.
+
+C'est un invariant de **signe**, et c'est pour cela qu'il est teste : une
+inversion y serait totalement invisible sur les ordres de grandeur.
+
+### Deux conventions de CO₂ qui different, et ce n'est pas une coquille
+
+La formule de dispersion de l'air sec est etablie pour **450 ppm** ; la formule
+de masse molaire du CIPM est referencee a **400 ppm**. Les deux chiffres
+coexistent donc dans le module, avec des roles differents. C'est ainsi que
+l'article est ecrit, et les aligner serait une erreur.
+
+### Deux formules pour la meme grandeur, volontairement
+
+Le moteur porte desormais **deux** pressions saturantes et **deux** facteurs
+d'accroissement : ceux de Buck (1981) dans `thermodynamics/waterVapour.ts`, que
+suit la meteorologie, et ceux de Ciddor dans `refraction/airIndex.ts`.
+
+Ce n'est pas une duplication a resorber. Une formulation doit etre employee avec
+les relations auxiliaires sur lesquelles ses coefficients ont ete ajustes ;
+melanger les deux introduirait un desaccord sans le dire. L'ecart est mesure et
+documente — 0,039 % et 0,018 % — plutot que masque.
+
+> **Dette de phase 1 soldee.** Le commentaire de `enhancementFactor` portait
+> « coefficient a confronter a la publication avant la phase 10 ». Buck (1981)
+> donne `f_w = 1,0007 + 3,46·10⁻⁶ P` avec `P` en millibars : c'est exactement la
+> forme qui etait ecrite. Confirmee.
+
+### Ce que la phase 10 ne fait pas
+
+**Rien n'arrive a l'ecran.** Aucun materiau ne lit ce module, et le banc le
+confirme — aucune derive colorimetrique, noyaux GPU dans le bruit. C'est de
+l'infrastructure : le profil vertical `n(z)` et son gradient sont ce dont la
+phase 11 a besoin pour courber les rayons.
+
+Le gradient au sol vaut **−2,67·10⁻⁸ m⁻¹**. C'est cette pente qui fixe l'echelle
+de tout ce qui suivra, et c'est son **inversion locale** au ras d'une surface
+chaude qui produira les mirages — d'ou le pont `sampleRefractiveIndex`, qui lit
+un point d'etat de l'atmosphere plutot que l'atmosphere standard, laquelle n'a
+jamais d'inversion.
+
+Deja mesurable, et deja au bon ordre de grandeur : a 85° de distance zenithale,
+la refraction vaut **661″ dans le bleu contre 651″ dans le rouge**. Ces dix
+secondes d'arc sont le germe du rayon vert.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 10 (sauf 2 partielle), tables de
 colonne, de diffusion multiple et de perspective atmospherique validees ; le
 ciel physique et les objets qui s'y trouvent suivent le meme transport.*

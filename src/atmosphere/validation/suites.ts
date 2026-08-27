@@ -22,6 +22,7 @@ import { directSolarSuite, slantPathSuite } from '../transport/directSolar.valid
 import { singleScatteringSuite } from '../transport/singleScattering.validation'
 import { multipleScatteringSuite } from '../transport/multipleScattering.validation'
 import { ozoneSuite } from '../absorption/ozone.validation'
+import { airIndexSuite } from '../refraction/airIndex.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
@@ -63,6 +64,8 @@ export function allSuites(): SuiteResult[] {
     ozoneSuite(),
     // Phase 8 — diffusion multiple.
     multipleScatteringSuite(),
+    // Phase 10 — indice de refraction de l'air.
+    airIndexSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),

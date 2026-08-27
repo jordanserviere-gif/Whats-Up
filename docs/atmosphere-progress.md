@@ -59,7 +59,7 @@ aucune réorganisation.
 | **7** | Absorption atmosphérique | **VALIDATED** | ozone · les deux cibles de la phase 5 atteintes |
 | **8** | Diffusion multiple | **VALIDATED** | Hillaire 2020 · le creux de phase de Rayleigh comblé · albédo du sol câblé |
 | **9** | Perspective atmosphérique sur les objets | **VALIDATED** | une seule table pour le ciel et les objets · ancien noyau hors du rendu · ×22 |
-| **10** | Indice de réfraction spectral | **TODO** | |
+| **10** | Indice de réfraction spectral | **VALIDATED** | Ciddor 1996 · recoupé à 3,5·10⁻⁵ avec Peck & Reeder · rien à l'écran, c'est l'infrastructure de la 11 |
 | **11** | Ray bending | **TODO** | |
 | **12** | Phénomènes émergents de réfraction | **TODO** | |
 | **13** | Atmosphère 3D | **TODO** | |
@@ -937,6 +937,62 @@ ete reecrits sur la grandeur ou l'invariant est vrai.
 
 ---
 
+## Phase 10 — Indice de refraction de l'air · VALIDATED
+
+### Livre
+
+- `refraction/airIndex.ts` — formulation de **Ciddor (1996)**, standard
+  metrologique : `n(λ, T, p, humidite, CO₂)`, equation d'etat du CIPM,
+  profil vertical `n(z)`, pont vers l'etat de l'atmosphere.
+- Peck & Reeder **reste** dans `rayleigh/standardAir.ts` : la section efficace de
+  Rayleigh exige `n` et `N` aux memes conditions de reference. Deux indices, deux
+  questions differentes.
+
+### Le probleme de validation, et sa reponse
+
+Ce module est presque entierement fait de constantes publiees. Une coquille y
+serait invisible : l'indice de l'air vaut 1,0003, et il vaudrait encore 1,0003.
+Les controles de forme ne servent a rien ; seuls comptent les recoupements
+independants.
+
+| Recoupement | Resultat |
+| --- | --- |
+| Ciddor contre Peck & Reeder (380–780 nm) | **3,5·10⁻⁵** |
+| `n` à 633 nm, 20 °C — valeur de l'article | **1,000271800** |
+| Densité CIPM contre US1976 | 0,0375 % mesuré, 0,0408 % prédit par `1/Z` |
+| svp Ciddor contre Buck | 0,039 % |
+| **Réfraction à 45°** | **58,3″** contre 58,2″ des éphémérides |
+
+Le premier est le garde-fou. Le dernier fait retomber une formule de metrologie
+sur une constante d'ephemeride, a 0,2 %.
+
+### L'humidite abaisse l'indice
+
+Un invariant de **signe**, teste explicitement parce qu'une inversion y serait
+invisible : `n−1` passe de 2,7308·10⁻⁴ a sec a 2,7224·10⁻⁴ a saturation, soit
+**−0,31 %**.
+
+### Deux formules pour la meme grandeur, volontairement
+
+Le moteur porte maintenant deux pressions saturantes et deux facteurs
+d'accroissement — Buck pour la meteorologie, Ciddor pour l'indice. Une
+formulation doit etre employee avec les relations sur lesquelles ses coefficients
+ont ete ajustes. L'ecart est mesure (0,039 % et 0,018 %) plutot que masque.
+
+**Dette de phase 1 soldee** : le coefficient de Buck, `1,0007 + 3,46·10⁻⁶ P`, est
+confirme conforme a la publication.
+
+### Rien a l'ecran, et c'est voulu
+
+Aucun materiau ne lit ce module ; le banc le confirme — aucune derive, noyaux GPU
+dans le bruit. C'est l'infrastructure de la phase 11.
+
+Gradient d'indice au sol : **−2,67·10⁻⁸ m⁻¹**. Et deja, a 85° de distance
+zenithale, **661″ de refraction dans le bleu contre 651″ dans le rouge** — les
+dix secondes d'arc qui feront le rayon vert.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -954,3 +1010,4 @@ ete reecrits sur la grandeur ou l'invariant est vrai.
 | 2026-08-26 | Phase 6 — aérosols et Mie ; bilan de journée refermé à 1–2 % ; trouble rendu physique ; **440 contrôles** |
 | 2026-08-27 | Phase 8 — diffusion multiple ; facteur 4π attrapé par le bilan d'éclairement ; albédo du sol câblé ; nœud à 5° signalé ; **461 contrôles** |
 | 2026-08-27 | Phase 9 — perspective atmosphérique ; une seule table pour le ciel et les objets ; ancien noyau analytique hors du rendu ; GPU ×22 ; **480 contrôles** |
+| 2026-08-27 | Phase 10 — indice de Ciddor ; recoupé avec Peck & Reeder à 3,5·10⁻⁵ et avec les éphémérides à 0,2 % ; dette de phase 1 soldée ; **507 contrôles** |

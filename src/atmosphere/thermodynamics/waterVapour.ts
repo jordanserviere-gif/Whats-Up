@@ -82,8 +82,14 @@ export function saturationVapourPressureOverIce(temperatureK: number): number {
  * vapeur que la thermodynamique de la vapeur pure ne le prevoit. La correction
  * vaut +0,42 % au niveau de la mer et decroit avec la pression.
  *
- * **Coefficient a confronter a la publication avant la phase 10** — voir
- * l'en-tete du module.
+ * **Coefficient confronte a la publication (phase 10)** : Buck (1981) donne
+ * `f_w = 1,0007 + 3,46·10⁻⁶ P` avec `P` en millibars, ce qui est exactement la
+ * forme ci-dessous. La dette est soldee.
+ *
+ * Ciddor porte sa **propre** forme, `α + β·p + γ·t²`, qui vaut 1,00403 la ou
+ * celle-ci vaut 1,00421 — 1,8·10⁻⁴ d'ecart. Les deux coexistent volontairement :
+ * une formulation doit etre employee avec les relations auxiliaires sur
+ * lesquelles ses coefficients ont ete ajustes. Voir `refraction/airIndex.ts`.
  */
 export function enhancementFactor(pressurePa: number): number {
   return 1.0007 + 3.46e-6 * (pressurePa / 100)
