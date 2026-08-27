@@ -62,7 +62,7 @@ aucune réorganisation.
 | **10** | Indice de réfraction spectral | **VALIDATED** | Ciddor 1996 · recoupé à 3,5·10⁻⁵ avec Peck & Reeder · rien à l'écran, c'est l'infrastructure de la 11 |
 | **11** | Courbure des rayons | **VALIDATED** | 57,99″ à 45° contre 58,23″ de l'Almanach · Soleil couchant 27,6′ × 32,0′ · **non câblée** |
 | **12** | Phénomènes émergents de réfraction | **VALIDATED** | cinq couches câblées d'un coup · GPU/CPU à 2,6″ · Soleil ovale 27,6′ × 32,0′ |
-| **13** | Atmosphère 3D | **TODO** | |
+| **13** | Atmosphère 3D | **VALIDATED** | équation eikonale · 0,044″ contre l'intégrale 1D · le rayon se retourne au-dessus d'une route chaude |
 | **14** | Inversions thermiques et mirages | **TODO** | |
 | **15** | Turbulence | **TODO** | |
 | **16** | Optique ondulatoire | **TODO** | |
@@ -1101,6 +1101,60 @@ demande trois tables et un disque spectral.
 
 ---
 
+## Phase 13 — Atmosphère 3D · VALIDATED
+
+### Livré
+
+- `field/AtmosphereField.ts` — champ d'indice adressable en 3D, repère
+  géocentrique, observateur sur +Y. Perturbations **composables** : dalle
+  surchauffée locale, gradient horizontal saturé.
+- `field/rayTracer.ts` — intégration de l'équation eikonale par Runge-Kutta 4,
+  pas croissant avec l'altitude, sans aucune hypothèse de symétrie.
+
+### Le contrôle qui porte la phase
+
+Le traceur **n'utilise jamais** l'invariant de Bouguer, et doit pourtant le
+conserver et retomber sur la phase 11.
+
+| Contrôle | Résultat |
+| --- | --- |
+| Traceur 3D contre intégrale 1D | **0,044″** sur 1980″ |
+| Invariant de Bouguer sur 24 035 pas | **1,6·10⁻⁷** |
+| Perturbation nulle contre champ de base | **égalité stricte** |
+
+Deux algorithmes sans rien de commun, un seul nombre — et une loi de
+conservation que le schéma numérique ignore.
+
+### Ce que ça produit
+
+Un front de 2 K/km donne **30,74′ vers l'air chaud contre 35,64′ vers l'air
+froid** : presque cinq minutes d'arc d'un bord à l'autre, sans que rien ne
+l'écrive.
+
+Et un rayon visé à −0,2° au-dessus d'une route à 35 K descend jusqu'à **0,88 m
+puis remonte**, là où l'atmosphère standard le laisse rencontrer le sol. C'est la
+condition du mirage inférieur.
+
+### ⚠️ Un bug que seul le mirage pouvait révéler
+
+La couche chaude prenait l'altitude de l'**observateur** comme origine de ses
+hauteurs au lieu de celle du **sol**. Avec un œil à 1,7 m, il n'y avait donc
+aucun échauffement sous 1,7 m — exactement là où l'inversion existe.
+`surfaceInversionProfile` de la phase 11 portait la même faute, masquée par un
+défaut à zéro.
+
+Rien d'autre ne pouvait l'attraper : la réfraction restait juste, les invariants
+étaient conservés, les valeurs restaient plausibles. Seule la question « le rayon
+remonte-t-il ? » avait une réponse fausse.
+
+### ⚠️ Ce qui reste sphérique
+
+Les tables de ciel et de perspective atmosphérique. Les rendre 3D ajouterait deux
+dimensions pour un gain visuel nul — un dégradé ne se juge pas au dixième de
+degré. La phase 14 n'en a pas besoin : un mirage est un phénomène de **rayon**.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1121,3 +1175,4 @@ demande trois tables et un disque spectral.
 | 2026-08-27 | Phase 10 — indice de Ciddor ; recoupé avec Peck & Reeder à 3,5·10⁻⁵ et avec les éphémérides à 0,2 % ; dette de phase 1 soldée ; **507 contrôles** |
 | 2026-08-27 | Phase 11 — courbure des rayons ; 57,99″ à 45° contre 58,23″ de l'Almanach ; Soleil couchant à 27,6′ × 32,0′ ; non câblée, et pourquoi ; **536 contrôles** |
 | 2026-08-27 | Phase 12 — réfraction câblée aux cinq couches ; GPU/CPU à 2,6″ ; le Soleil se couche après s'être couché ; **541 contrôles** |
+| 2026-08-27 | Phase 13 — champ 3D et équation eikonale ; 0,044″ contre l'intégrale 1D ; bug d'origine de couche révélé par le mirage ; **555 contrôles** |

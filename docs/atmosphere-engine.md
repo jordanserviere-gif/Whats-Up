@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 541 contrôles, 23 suites, aucun échec.**
+**État : 555 contrôles, 24 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2201,5 +2201,130 @@ refraction deplace des objets, pas des pixels de ciel.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 12 (sauf 2 partielle) ; le ciel
-physique, les objets qui s'y trouvent et la courbure des rayons sont a l'ecran.*
+## L'atmosphere 3D — phase 13
+
+### L'hypothese que cette phase leve
+
+Tout le moteur, jusqu'ici, suppose l'atmosphere **a symetrie spherique** :
+l'indice, la densite et la temperature ne dependent que de l'altitude. Ce n'est
+pas un detail d'implementation — c'est ce qui rend possible l'invariant de
+Bouguer, une table de ciel a deux dimensions, et un point tangent unique.
+
+C'est aussi ce qui interdit tout ce qui varie **horizontalement** : une dalle de
+bitume surchauffee, un front qui approche, une couche d'inversion qui ne couvre
+qu'un secteur. C'est-a-dire l'essentiel de ce qui fait un mirage reel, lequel
+n'est presque jamais symetrique.
+
+### L'equation qui remplace l'invariant
+
+Des que l'indice varie horizontalement, il n'y a plus de constante du mouvement
+a exploiter. Il faut integrer l'equation du rayon elle-meme :
+
+```
+dr/ds = u          du/ds = (∇n − (u·∇n)·u) / n
+```
+
+Le second terme du numerateur retire la composante **longitudinale** du
+gradient : seule sa partie transverse courbe le rayon, la longitudinale ne fait
+que changer la vitesse de phase. C'est ce qui garde `u` unitaire, et c'est
+exactement ce qui manquerait a une integration naive.
+
+### Le controle qui porte la phase
+
+Le traceur **n'utilise jamais** l'invariant de Bouguer. Dans un champ spherique,
+il doit pourtant le conserver, et retomber sur la refraction de la phase 11 —
+obtenue par un tout autre chemin.
+
+| Contrôle | Résultat |
+| --- | --- |
+| Traceur 3D **contre** intégrale 1D de la phase 11 | **0,044″** sur 1980″ |
+| Invariant de Bouguer, dérive sur 24 035 pas | **1,6·10⁻⁷** |
+| Isotropie azimutale d'un champ sphérique | 2·10⁻⁷ ″ — bruit de flottant |
+| Gradient par différences finies **contre** analytique | 9,1·10⁻⁸ |
+| Perturbation nulle **contre** champ de base | **égalité stricte** |
+
+Le premier est plus fort qu'une comparaison a une table publiee : il n'y a ici
+aucune reference exterieure a laquelle s'ajuster. Deux algorithmes sans rien de
+commun rendent le meme nombre.
+
+Le deuxieme est meilleur encore — c'est une **loi de conservation que le schema
+numerique ignore**. Il ne peut pas la satisfaire par construction.
+
+### La composition plutot que l'heritage
+
+Un champ est une fonction ; une perturbation est une fonction qui en enveloppe
+une autre. L'atmosphere standard spherique est le champ de base ; la dalle
+chauffee et le gradient horizontal sont des couches posees dessus.
+
+D'ou le controle a **egalite stricte** : une perturbation d'amplitude nulle rend
+le champ de base au bit pres. Une couche qui deriverait de zero fausserait
+silencieusement tout ce qui la traverse, et l'ecart serait porte au compte de la
+physique.
+
+### Ce que le champ 3D produit
+
+**Un front de 2 K/km**, sature a 20 K :
+
+| Visée | Réfraction horizontale | Écart |
+| --- | --- | --- |
+| vers l'air chaud | 30,74′ | **−136″** |
+| perpendiculaire | 33,09′ | +5″ |
+| vers l'air froid | 35,64′ | **+158″** |
+
+Presque cinq minutes d'arc d'un bord a l'autre. L'air chaud est moins dense donc
+moins refringent : viser vers lui diminue la refraction, et rien n'a eu besoin de
+l'ecrire.
+
+**Un rayon qui se retourne.** Au-dessus d'une route surchauffee de 35 K sur
+80 cm, un rayon vise a −0,2° descend jusqu'a **0,88 m puis remonte**, la ou
+l'atmosphere standard le laisse rencontrer le sol. C'est la condition du mirage
+inferieur — l'observateur voit le ciel dans une direction ou devrait etre le sol.
+
+L'atmosphere standard, dont le gradient d'indice est monotone, **ne peut pas**
+produire cela. Le controle l'affirme dans les deux sens.
+
+### ⚠️ Un bug que seul le mirage pouvait reveler
+
+La couche chaude prenait l'altitude de l'**observateur** comme origine de ses
+hauteurs, au lieu de celle du **sol**. Avec un oeil a 1,7 m, il n'y avait donc
+aucun echauffement sous 1,7 m — precisement la ou l'inversion existe. Les rayons
+rencontraient le sol au lieu de se retourner, et aucun mirage n'etait possible.
+
+`surfaceInversionProfile`, ecrit a la phase 11, portait la meme faute, masquee
+par un parametre qui valait zero par defaut. Les deux sont corriges, et le
+parametre s'appelle desormais `surfaceAltitudeM`.
+
+Rien d'autre ne pouvait l'attraper : la refraction restait juste, les invariants
+etaient conserves, et le champ perturbe rendait des valeurs plausibles. Seule la
+question « le rayon remonte-t-il ? » avait une reponse fausse.
+
+### ⚠️ Une fiction commode, bornee
+
+Un gradient horizontal lineaire devient absurde a l'echelle d'un rayon rasant :
+celui-ci parcourt trois cents kilometres d'horizontale, ou 2 K/km donneraient six
+cents kelvins d'ecart — et une temperature negative d'un cote. Un front reel a
+une amplitude finie, que `maxExcessK` porte par saturation en tangente
+hyperbolique : lineaire pres de l'observateur, bornee au loin.
+
+### ⚠️ Ce qui reste spherique, et ce que cela coute
+
+Les tables de **ciel** et de **perspective atmospherique** restent construites
+sous l'hypothese de symetrie. Les rendre tridimensionnelles ajouterait deux
+dimensions a des tables qui en ont deja trois, et le cout serait sans rapport
+avec le gain visuel — un degrade de ciel ne se juge pas au dixieme de degre.
+
+La phase 14 n'en a pas besoin : un mirage est un phenomene de **rayon**, pas de
+transport, et le traceur qui le produit est la.
+
+### Le cout
+
+Une trace complete a l'horizon coute **22 ms** pour 24 035 pas, et le pas croit
+avec l'altitude — cinq metres au ras du sol, deux kilometres en haut. Ce n'est
+pas une operation d'image : c'est un outil de phase 14, et l'usage en rendu
+passera par une table, comme partout ailleurs dans ce moteur.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 13 (sauf 2 partielle) ; le ciel
+physique, les objets et la courbure des rayons sont a l'ecran ; le champ
+tridimensionnel est en place et attend la phase 14.*

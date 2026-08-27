@@ -402,12 +402,19 @@ export function surfaceInversionProfile(
   lambdaNm: number,
   excessK: number,
   thicknessM: number,
-  observerElevationM = 0,
+  /**
+   * Altitude du **sol**, m — et non celle de l'observateur.
+   *
+   * La couche chaude repose sur la surface. Y mettre la hauteur de l'oeil la
+   * decalerait vers le haut et viderait le premier metre au-dessus du sol,
+   * c'est-a-dire l'endroit ou l'inversion existe.
+   */
+  surfaceAltitudeM = 0,
 ): (altitudeM: number) => number {
   const base = standardIndexProfile(lambdaNm)
   return (altitudeM: number) => {
     const n = base(altitudeM)
-    const height = altitudeM - observerElevationM
+    const height = altitudeM - surfaceAltitudeM
     if (height < 0 || height > thicknessM * 8) return n
     // L'exces decroit exponentiellement : c'est le profil d'une couche limite
     // thermique, et la forme exacte importe moins que le signe du gradient.
