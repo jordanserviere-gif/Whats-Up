@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 555 contrôles, 24 suites, aucun échec.**
+**État : 566 contrôles, 25 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2325,6 +2325,120 @@ passera par une table, comme partout ailleurs dans ce moteur.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 13 (sauf 2 partielle) ; le ciel
-physique, les objets et la courbure des rayons sont a l'ecran ; le champ
-tridimensionnel est en place et attend la phase 14.*
+## Les inversions thermiques et les mirages — phase 14
+
+### Ce qu'est vraiment un mirage
+
+Ce n'est pas une image « reflechie » : rien ne reflechit. C'est le meme rayon,
+courbe assez fort par un gradient d'indice inverse pour redescendre vers l'oeil
+apres etre parti vers le bas. L'oeil, qui suppose les rayons droits, attribue
+alors l'image a la direction d'ou elle arrive.
+
+D'ou la grandeur qui decrit tout : **la fonction de transfert**, qui a une
+direction de visee associe la direction d'ou vient effectivement la lumiere.
+
+Dans une atmosphere standard, elle est croissante : viser plus haut, c'est voir
+plus haut. **Un mirage est exactement le moment ou elle cesse de l'etre.**
+
+### La forme en V
+
+Route surchauffee de 20 K sur 80 cm, oeil a 1,7 m :
+
+| Visée | Source | |
+| --- | --- | --- |
+| −0,350° | *le sol* | |
+| −0,290° | −0,196° | ↖ branche inversée |
+| −0,170° | −0,323° | |
+| −0,050° | −0,409° | |
+| **−0,020°** | **minimum** | **ligne de fuite** |
+| +0,010° | −0,412° | |
+| +0,130° | −0,338° | ↗ branche directe |
+| +0,250° | −0,220° | |
+
+La fonction descend puis remonte. Deux visees de part et d'autre du minimum
+ramenent la meme portion de ciel : **l'objet est vu deux fois**, dont une a
+l'envers. C'est la ligne de fuite du mirage, la ou les deux images se rejoignent.
+
+Mesure : **deux images**, image inversee de **0,270°** — a comparer au demi-degre
+du disque solaire, ce qui place le regime dans celui du Soleil « vase etrusque ».
+A 50 K sur 50 cm, elle passe a 0,450°.
+
+Et la bande de −0,290° a −0,005° rend du **ciel** la ou il devrait y avoir du
+sol : c'est la flaque d'eau sur une route seche, qui n'a jamais ete autre chose
+que l'image du ciel ramenee vers l'oeil.
+
+### Le decoupage qui rend le calcul possible
+
+Une trace complete coute 22 ms — hors de question par pixel. Mais le mirage se
+joue dans les premieres dizaines de metres ; au-dessus, le rayon reprend une
+refraction ordinaire, **deja tabulee depuis la phase 11**.
+
+On ne trace donc que la couche limite, et on raccorde. Le cout tombe a **24 ms
+par visee**, contre 400 ms pour une trace complete.
+
+### ⚠️ Deux erreurs de repere que seul le raccord pouvait reveler
+
+Le raccord doit etre **indifferent a l'endroit de la coupe** : couper a 8, 20 ou
+60 metres doit donner le meme resultat, et retomber sur la table directe quand il
+n'y a aucune inversion. C'est ce controle qui a attrape deux fautes, toutes deux
+invisibles autrement.
+
+| | Dérive du raccord |
+| --- | --- |
+| `apparentFromTable` employée à l'envers | 20″ à 118″ selon le sommet |
+| angle mesuré sur l'axe Y global | 350″ à 1001″ |
+| **corrigé** | **1,3″ de dispersion** |
+
+**La premiere** confondait les deux sens de la table de refraction. Elle va de la
+hauteur vraie a l'apparente ; le raccord a besoin de l'inverse — « je regarde la,
+d'ou vient la lumiere ? ». Les confondre **ajoute** la refraction la ou il faut
+la retrancher. Une fonction `trueFromTable` a ete ajoutee, et les deux sens
+existent desormais parce que les deux questions existent.
+
+**La seconde** mesurait l'angle de sortie sur l'axe `Y` global. Or le rayon a
+parcouru des kilometres a l'horizontale, et **la verticale locale y a tourne**.
+L'erreur croissait en `√(sommet)` — la signature de la distance horizontale, qui
+vaut `√(2Rh)` — ce qui a permis de l'identifier.
+
+Aucun des deux ne se voyait sur la forme du mirage, qui restait plausible dans
+les deux cas.
+
+### ⚠️ La ligne de fuite est une caustique
+
+Le bord de la bande de retournement reste sensible au pas de marche, meme fin :
+un rayon qui se retourne de justesse et un rayon qui touche le sol y sont
+voisins. Ce n'est pas un defaut numerique — c'est la nature d'une **caustique**,
+et la ligne de fuite d'un mirage en est une.
+
+Le corps de la fonction, lui, est convergé : 0,6932° contre 0,6931° entre un pas
+de 0,1 m et un pas de 0,05 m.
+
+### ⚠️ Le pas doit resoudre la couche, et c'est un resultat
+
+Un pas de 3 metres sur une couche de 80 centimetres **efface le mirage**. Ce
+n'est pas une limite a masquer : un modele qui ne voit pas la couche ne peut pas
+en voir les consequences. La suite de validation le controle explicitement, pour
+que le reglage ne derive pas silencieusement vers l'aveuglement.
+
+### ⚠️ Ce qui n'arrive pas a l'ecran, et pourquoi
+
+Un mirage rend l'application `visee → objet` **multivaluee**. C'est toute sa
+nature, et c'est ce qui l'oppose a tout ce que le moteur sait faire jusqu'ici :
+
+- la phase 12 **deplace** les objets par une fonction a valeur unique ;
+- un maillage ne peut etre qu'a un endroit.
+
+Le Soleil « vase etrusque » — l'image inversee soudee a l'image directe — demande
+donc que le disque soit rendu **a travers** la fonction de transfert, et non
+deplace par elle. C'est un changement de rendu distinct : il faut echantillonner
+le ciel et les astres par direction, dans la bande proche de l'horizon, la ou le
+moteur les dessine aujourd'hui comme des objets places.
+
+La physique est la, mesuree et validee. Le rendu ne l'est pas, et ce serait le
+faire a moitie que de deplacer le Soleil sur une seule branche.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 14 (sauf 2 partielle) ; le ciel
+physique, les objets et la courbure des rayons sont a l'ecran ; le champ 3D et la
+fonction de transfert des mirages sont valides et attendent leur rendu.*

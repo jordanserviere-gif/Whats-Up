@@ -25,6 +25,7 @@ import { ozoneSuite } from '../absorption/ozone.validation'
 import { airIndexSuite } from '../refraction/airIndex.validation'
 import { rayBendingSuite } from '../refraction/rayBending.validation'
 import { rayTracerSuite } from '../field/rayTracer.validation'
+import { mirageSuite } from '../field/mirageTransfer.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
@@ -72,6 +73,8 @@ export function allSuites(): SuiteResult[] {
     rayBendingSuite(),
     // Phase 13 — champ 3D et traceur de rayons.
     rayTracerSuite(),
+    // Phase 14 — inversions thermiques et mirages.
+    mirageSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),

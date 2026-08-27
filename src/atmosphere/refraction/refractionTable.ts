@@ -178,6 +178,37 @@ export function apparentFromTable(table: RefractionTable, trueAltitudeDeg: numbe
 }
 
 /**
+ * Hauteur **vraie** d'un astre vu a une hauteur apparente donnee.
+ *
+ * L'inverse exact de `apparentFromTable`, et la forme dont a besoin tout ce qui
+ * part d'une **direction de visee** pour remonter a sa source : « je regarde
+ * la, d'ou vient la lumiere ? »
+ *
+ * Les deux sens existent parce que les deux questions existent. Placer un astre
+ * dont on connait l'ephemeride demande le premier ; echantillonner le ciel dans
+ * la direction d'un pixel demande le second. Les confondre ajoute la refraction
+ * la ou il faut la retrancher — deux fois l'erreur, soit plus d'un degre a
+ * l'horizon.
+ */
+export function trueFromTable(table: RefractionTable, apparentAltitudeDeg: number): number {
+  const { trueDeg, apparentDeg } = table
+  const last = apparentDeg.length - 1
+  if (apparentAltitudeDeg <= apparentDeg[0]) return apparentAltitudeDeg + trueDeg[0] - apparentDeg[0]
+  if (apparentAltitudeDeg >= apparentDeg[last]) return apparentAltitudeDeg
+
+  let low = 0
+  let high = last
+  while (high - low > 1) {
+    const mid = (low + high) >> 1
+    if (apparentDeg[mid] <= apparentAltitudeDeg) low = mid
+    else high = mid
+  }
+  const span = apparentDeg[high] - apparentDeg[low]
+  const t = span > 0 ? (apparentAltitudeDeg - apparentDeg[low]) / span : 0
+  return trueDeg[low] * (1 - t) + trueDeg[high] * t
+}
+
+/**
  * Taux de dilatation vertical local, `da_apparente/da_vraie`.
  *
  * **C'est le Soleil aplati.** La refraction decroit quand la hauteur augmente :

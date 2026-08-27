@@ -63,7 +63,7 @@ aucune réorganisation.
 | **11** | Courbure des rayons | **VALIDATED** | 57,99″ à 45° contre 58,23″ de l'Almanach · Soleil couchant 27,6′ × 32,0′ · **non câblée** |
 | **12** | Phénomènes émergents de réfraction | **VALIDATED** | cinq couches câblées d'un coup · GPU/CPU à 2,6″ · Soleil ovale 27,6′ × 32,0′ |
 | **13** | Atmosphère 3D | **VALIDATED** | équation eikonale · 0,044″ contre l'intégrale 1D · le rayon se retourne au-dessus d'une route chaude |
-| **14** | Inversions thermiques et mirages | **TODO** | |
+| **14** | Inversions thermiques et mirages | **VALIDATED** | transfert non monotone · 2 images · inversée 0,270° · non rendue |
 | **15** | Turbulence | **TODO** | |
 | **16** | Optique ondulatoire | **TODO** | |
 | **17** | Seeing et scintillation | **TODO** | |
@@ -1155,6 +1155,49 @@ degré. La phase 14 n'en a pas besoin : un mirage est un phénomène de **rayon*
 
 ---
 
+## Phase 14 — Inversions thermiques et mirages · VALIDATED
+
+### Livré
+
+- `field/mirageTransfer.ts` — fonction de transfert `visée → source`, construite
+  en ne traçant que la couche limite puis en raccordant à la table de la
+  phase 11. **24 ms par visée** au lieu de 400.
+- `analyseMirage` — détection de la bande de retournement, de la perte de
+  monotonie, de l'épaisseur de l'image inversée et du nombre d'images.
+- `trueFromTable` — l'inverse de `apparentFromTable`, qui manquait.
+
+### Ce qui émerge
+
+Route à 20 K sur 80 cm : la fonction de transfert **cesse d'être monotone**,
+passe par un minimum à −0,020° de visée, et rend **deux images** dont une
+inversée de **0,270°** — l'ordre du demi-degré solaire, donc le régime du Soleil
+« vase étrusque ». À 50 K sur 50 cm : 0,450°.
+
+La bande de −0,290° à −0,005° rend du **ciel** là où il devrait y avoir du sol.
+C'est la flaque d'eau sur une route sèche.
+
+### ⚠️ Deux erreurs de repère révélées par le raccord
+
+Le raccord doit être indifférent à l'endroit de la coupe. Ce contrôle a attrapé
+`apparentFromTable` employée à l'envers (20″ à 118″ de dérive) puis l'angle de
+sortie mesuré sur l'axe **Y global** au lieu de la **verticale locale** (350″ à
+1001″, croissant en `√(sommet)` — la signature de la distance horizontale).
+Corrigé : **1,3″** de dispersion. Aucun des deux ne se voyait sur la forme du
+mirage, qui restait plausible.
+
+### ⚠️ Deux limites, dites
+
+**La ligne de fuite est une caustique** : son bord reste sensible au pas, parce
+qu'un rayon qui se retourne de justesse et un rayon qui touche le sol y sont
+voisins. Le corps de la fonction, lui, est convergé.
+
+**Rien à l'écran.** Un mirage rend `visée → objet` **multivaluée** ; un maillage
+ne peut être qu'à un endroit. Le Soleil « vase étrusque » demande que le disque
+soit rendu *à travers* la fonction de transfert, pas déplacé par elle — un
+changement de rendu distinct, et le faire à moitié serait pire.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1176,3 +1219,4 @@ degré. La phase 14 n'en a pas besoin : un mirage est un phénomène de **rayon*
 | 2026-08-27 | Phase 11 — courbure des rayons ; 57,99″ à 45° contre 58,23″ de l'Almanach ; Soleil couchant à 27,6′ × 32,0′ ; non câblée, et pourquoi ; **536 contrôles** |
 | 2026-08-27 | Phase 12 — réfraction câblée aux cinq couches ; GPU/CPU à 2,6″ ; le Soleil se couche après s'être couché ; **541 contrôles** |
 | 2026-08-27 | Phase 13 — champ 3D et équation eikonale ; 0,044″ contre l'intégrale 1D ; bug d'origine de couche révélé par le mirage ; **555 contrôles** |
+| 2026-08-27 | Phase 14 — mirages ; transfert non monotone, 2 images ; deux erreurs de repère attrapées par le raccord ; **566 contrôles** |
