@@ -23,6 +23,7 @@ import { singleScatteringSuite } from '../transport/singleScattering.validation'
 import { multipleScatteringSuite } from '../transport/multipleScattering.validation'
 import { ozoneSuite } from '../absorption/ozone.validation'
 import { airIndexSuite } from '../refraction/airIndex.validation'
+import { rayBendingSuite } from '../refraction/rayBending.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
@@ -66,6 +67,8 @@ export function allSuites(): SuiteResult[] {
     multipleScatteringSuite(),
     // Phase 10 — indice de refraction de l'air.
     airIndexSuite(),
+    // Phase 11 — courbure des rayons.
+    rayBendingSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),

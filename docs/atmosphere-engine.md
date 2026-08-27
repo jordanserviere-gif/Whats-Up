@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 507 contrôles, 22 suites, aucun échec.**
+**État : 536 contrôles, 23 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1941,6 +1941,145 @@ secondes d'arc sont le germe du rayon vert.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 10 (sauf 2 partielle), tables de
-colonne, de diffusion multiple et de perspective atmospherique validees ; le
-ciel physique et les objets qui s'y trouvent suivent le meme transport.*
+## La courbure des rayons — phase 11
+
+### Ce qui change
+
+Jusqu'ici, tous les rayons du moteur etaient **droits**. C'est ce qui interdisait
+a une classe entiere de phenomenes d'exister — le Soleil visible alors qu'il est
+geometriquement couche, son disque aplati, le rayon vert, les mirages. Aucun
+n'est un effet a peindre : ce sont des consequences du fait qu'un rayon ne va pas
+droit dans un milieu dont l'indice varie.
+
+### L'invariant, et la singularite qu'il faut savoir traiter
+
+En stratification spherique, la loi de Snell devient une constante le long du
+rayon :
+
+```
+n(r)·r·sin z = L        →        R = −∫ tan z ·(1/n)(dn/dr) dr
+```
+
+A l'horizon `z → 90°`, donc `tan z → ∞`. L'integrale reste finie — la
+singularite est en racine carree — mais l'evaluer naivement rend l'infini des le
+premier pas.
+
+Le changement de variable **`r = r₀ + w²`** la supprime exactement : pres de
+l'observateur `cos z ∝ w`, la tangente diverge en `1/w`, et le `2w dw` du
+jacobien l'annule terme a terme. Ce n'est pas une commodite numerique — c'est la
+seule facon d'obtenir la refraction a l'horizon, precisement la ou tout se joue.
+
+### Confrontation aux grandeurs publiees
+
+| Grandeur | Modele | Reference |
+| --- | --- | --- |
+| Réfraction à 45° | **57,99″** | 58,23″ — *Astronomical Almanac* |
+| Réfraction horizontale | 33,53′ | 34,48′ — Bennett (−2,8 %) |
+| Accord général 1–45° | **< 2,9 %** | Bennett |
+| Dépression de l'horizon, 35 m / 1 km | 0,911 / 0,915 | rapport classique ~0,92 |
+| Astre visible dès | **−33,0′** | −34′ des almanachs |
+| **Disque solaire couchant** | **27,6′ × 32,0′** | ~28′ observé |
+
+Les conditions sont ramenees a celles des references : une table de refraction
+sans sa temperature et sa pression ne veut rien dire.
+
+Bennett s'ecarte de 2 a 3 % en altitude, ou l'Almanach est suivi a **0,4 %** —
+c'est son ajustement empirique qui derive la, pas le modele.
+
+### Ce qui emerge, sans etre ecrit
+
+**Le Soleil aplati.** La refraction decroit quand la hauteur augmente : le limbe
+inferieur est donc releve davantage que le superieur, et le disque s'ecrase. Le
+facteur est `da_apparente/da_vraie`, une **derivee de la meme fonction** que la
+position — ni parametre, ni courbe d'ajustement. Le diametre horizontal n'est pas
+touche, d'ou un ovale et non un disque plus petit.
+
+| Hauteur vraie | Facteur | Diamètre vertical |
+| --- | --- | --- |
+| 0° | **0,8638** | **27,6′** contre 32,0′ |
+| 0,5° | 0,8882 | 28,4′ |
+| 2° | 0,9367 | 30,0′ |
+| 20° | 0,9977 | 31,9′ |
+
+**Le lever anticipe.** Un astre est visible des sa hauteur vraie de −33,0′ : le
+Soleil se leve avant d'etre leve, et se couche apres s'etre couche.
+
+**La reponse aux conditions.** −40 °C donne 41,7′ a l'horizon, +40 °C 30,2′ : la
+dispersion reelle observee, 30′ a 42′. Rien ne la parametre — elle sort de la
+densite de l'air.
+
+**La dispersion chromatique.** 53,9″ entre 400 et 700 nm a l'horizon, soit 2,8 %
+du diametre solaire. C'est le germe du rayon vert.
+
+### La branche descendante, et la depression de l'horizon
+
+Une visee sous l'horizon apparent — depuis un sommet, un avion — suit un rayon
+qui **descend**, atteint un point tangent, puis remonte. Les deux branches sont
+integrees, et le raccord est verifie par la continuite a la traversee de
+l'horizontale : 4,2·10⁻⁴ en relatif.
+
+Un rayon qui rencontrerait le sol rend `NaN` plutot qu'un nombre plausible. Une
+valeur silencieusement fausse serait pire qu'une absence de valeur.
+
+### ⚠️ Le mirage n'est pas encore possible, et voici pourquoi
+
+Le module fournit `surfaceInversionProfile` : une couche surchauffee est moins
+dense, donc **moins refringente**, et le gradient d'indice s'y retourne — mesure,
+de −2,67·10⁻⁸ a +1,19·10⁻⁵ m⁻¹ pour 15 K d'exces sur un metre.
+
+Mais un mirage demande davantage : il faut que `n(r)·r` cesse d'etre monotone,
+c'est-a-dire `dn/dr < −1/r`, soit **six fois le gradient standard**. La racine du
+point tangent cesse alors d'etre unique — le meme astre est vu par deux chemins.
+La dichotomie n'en trouve qu'une, et le module ne rend qu'une image.
+
+Le crochet est en place, la condition est identifiee et chiffree, le phenomene ne
+peut pas encore apparaitre. C'est dit plutot que suggere.
+
+### Le cout, et la table
+
+L'integrale coute **0,2 ms**, et son inversion vers la hauteur apparente 1,6 ms.
+Dix astres feraient 14 ms — presque une image entiere — et les etoiles se
+comptent par milliers.
+
+La table contourne l'inversion par le sens de construction : elle est batie sur
+une grille de hauteurs **apparentes**, dont les hauteurs vraies se deduisent par
+soustraction. La suite obtenue est croissante, et la lecture inverse n'est plus
+qu'une dichotomie.
+
+| | Cout | Ecart au solveur |
+| --- | --- | --- |
+| solveur direct | 1 600 µs | — |
+| **table de 512 entrees** | **0,023 µs** | **2,1″** |
+
+Un facteur **70 000**, pour 2,1 secondes d'arc sur un disque solaire qui en fait
+1920. Construction : 16 ms, une fois.
+
+> **Une erreur que le profil tabule a revelee.** La derivee de l'indice se prend
+> par difference finie sur un metre : a dix centimetres d'altitude, elle
+> interroge donc `n(−0,9 m)`. Ecreter a zero y **halve le gradient**, la ou la
+> refraction horizontale se joue presque entierement — 9,3 secondes d'arc
+> d'erreur. Extrapoler sous le sol la ramene a 2,4″.
+
+### Rien n'arrive encore a l'ecran, et c'est un choix
+
+Comme la phase 10, celle-ci est de l'infrastructure. Le cablage n'est **pas**
+fait, et deliberement.
+
+La raison est dans le code lui-meme : `astro/bodies.ts` desactive explicitement
+la refraction avec un commentaire qui avertit qu'un melange des deux conventions
+« decale les etiquettes de leurs objets ». Les corps du systeme solaire, les
+etoiles, le ciel profond, les constellations et les etiquettes suivent des
+chemins differents — direction equatoriale tournee par matrice pour les uns,
+coordonnees horizontales pour les autres.
+
+**Une refraction a moitie cablee serait pire que pas de refraction du tout** :
+une planete se detacherait visiblement de sa constellation pres de l'horizon, de
+plus d'un diametre lunaire. Le cablage doit se faire d'un seul tenant, pour
+toutes les couches, et c'est un travail distinct.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 11 (sauf 2 partielle), tables de
+colonne, de diffusion multiple, de perspective atmospherique et de refraction
+validees ; le ciel physique et les objets qui s'y trouvent suivent le meme
+transport ; la refraction attend son cablage.*

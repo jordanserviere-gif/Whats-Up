@@ -60,7 +60,7 @@ aucune réorganisation.
 | **8** | Diffusion multiple | **VALIDATED** | Hillaire 2020 · le creux de phase de Rayleigh comblé · albédo du sol câblé |
 | **9** | Perspective atmosphérique sur les objets | **VALIDATED** | une seule table pour le ciel et les objets · ancien noyau hors du rendu · ×22 |
 | **10** | Indice de réfraction spectral | **VALIDATED** | Ciddor 1996 · recoupé à 3,5·10⁻⁵ avec Peck & Reeder · rien à l'écran, c'est l'infrastructure de la 11 |
-| **11** | Ray bending | **TODO** | |
+| **11** | Courbure des rayons | **VALIDATED** | 57,99″ à 45° contre 58,23″ de l'Almanach · Soleil couchant 27,6′ × 32,0′ · **non câblée** |
 | **12** | Phénomènes émergents de réfraction | **TODO** | |
 | **13** | Atmosphère 3D | **TODO** | |
 | **14** | Inversions thermiques et mirages | **TODO** | |
@@ -993,6 +993,65 @@ dix secondes d'arc qui feront le rayon vert.
 
 ---
 
+## Phase 11 — Courbure des rayons · VALIDATED (non câblée)
+
+### Livré
+
+- `refraction/rayBending.ts` — invariant de Bouguer `n·r·sin z = L`, intégrale de
+  réfraction, branches montante **et** descendante, dépression de l'horizon,
+  aplatissement du disque, profil à inversion de surface.
+- `refraction/refractionTable.ts` — table 512 entrées, lecture en 0,023 µs.
+
+### La singularité, et son traitement
+
+À l'horizon `tan z → ∞`. Le changement de variable `r = r₀ + w²` supprime la
+divergence **exactement** : `cos z ∝ w`, et le `2w dw` du jacobien annule le
+`1/w` de la tangente. C'est la seule façon d'atteindre l'horizon, là où tout se
+joue.
+
+### Confrontation
+
+| Grandeur | Modèle | Référence |
+| --- | --- | --- |
+| Réfraction à 45° | **57,99″** | 58,23″ — Almanach (**0,4 %**) |
+| Réfraction horizontale | 33,53′ | 34,48′ — Bennett |
+| Dépression de l'horizon | 0,911 | ~0,92 |
+| **Disque solaire couchant** | **27,6′ × 32,0′** | ~28′ observé |
+| Astre visible dès | −33,0′ | −34′ |
+| Dispersion bleu-rouge | 53,9″ | germe du rayon vert |
+
+L'intégrateur est validé séparément contre l'asymptotique exponentielle : l'écart
+suit **proportionnellement** le paramètre de développement `N₀R/H`, et s'annule
+quand il tend vers zéro. Un écart constant aurait signalé une erreur.
+
+### Ce qui émerge sans être écrit
+
+L'aplatissement du Soleil sort d'une **dérivée** de la fonction de réfraction, pas
+d'un paramètre. La réponse aux conditions (41,7′ à −40 °C, 30,2′ à +40 °C)
+reproduit la dispersion observée de 30′ à 42′.
+
+### Une erreur révélée par le profil tabulé
+
+La dérivée de l'indice se prend sur un mètre : à dix centimètres d'altitude elle
+interroge `n(−0,9 m)`. Écrêter y **halve le gradient**, exactement là où la
+réfraction horizontale se joue — 9,3″ d'erreur. Extrapoler sous le sol la ramène
+à 2,4″.
+
+### ⚠️ Deux choses signalées
+
+**Le mirage ne peut pas encore apparaître.** Le crochet existe et le gradient se
+retourne bien (−2,67·10⁻⁸ → +1,19·10⁻⁵ m⁻¹ pour 15 K sur 1 m), mais un mirage
+demande `dn/dr < −1/r`, soit **six fois le gradient standard**, pour que la
+racine du point tangent cesse d'être unique. La dichotomie n'en trouve qu'une.
+
+**Le câblage n'est pas fait, délibérément.** Corps, étoiles, ciel profond,
+constellations et étiquettes suivent des chemins différents. Une réfraction à
+moitié câblée détacherait une planète de sa constellation de plus d'un diamètre
+lunaire près de l'horizon — le commentaire de `astro/bodies.ts` met justement en
+garde contre cela. Le câblage doit se faire d'un seul tenant.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1011,3 +1070,4 @@ dix secondes d'arc qui feront le rayon vert.
 | 2026-08-27 | Phase 8 — diffusion multiple ; facteur 4π attrapé par le bilan d'éclairement ; albédo du sol câblé ; nœud à 5° signalé ; **461 contrôles** |
 | 2026-08-27 | Phase 9 — perspective atmosphérique ; une seule table pour le ciel et les objets ; ancien noyau analytique hors du rendu ; GPU ×22 ; **480 contrôles** |
 | 2026-08-27 | Phase 10 — indice de Ciddor ; recoupé avec Peck & Reeder à 3,5·10⁻⁵ et avec les éphémérides à 0,2 % ; dette de phase 1 soldée ; **507 contrôles** |
+| 2026-08-27 | Phase 11 — courbure des rayons ; 57,99″ à 45° contre 58,23″ de l'Almanach ; Soleil couchant à 27,6′ × 32,0′ ; non câblée, et pourquoi ; **536 contrôles** |
