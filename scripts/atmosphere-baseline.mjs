@@ -46,14 +46,21 @@ const PARIS = { name: 'Paris', latitude: 48.8566, longitude: 2.3522, elevation: 
 /**
  * Noyaux GPU mesures.
  *
- * `build` recoit le module `scene/atmosphere.ts` importe dans la page et rend
- * le corps du fragment shader. Le quad, la synchronisation et le chronometrage
- * sont communs : deux noyaux sont donc toujours comparables entre eux.
+ * `build` recoit le module designe par `modulePath` — importe dans la page — et
+ * rend le corps du fragment shader. Le quad, la synchronisation et le
+ * chronometrage sont communs : deux noyaux sont donc toujours comparables entre
+ * eux.
+ *
+ * `setup` est facultatif : c'est la source d'une fonction `(gl, program)`
+ * executee apres l'edition de liens, pour les noyaux qui ont besoin de
+ * textures. Elle est passee en texte parce que tout ceci s'execute dans la
+ * page, pas ici.
  */
 const KERNELS = [
   {
-    name: 'diffusion simple Rayleigh+Mie (16×8, moteur actuel)',
+    name: 'diffusion simple Rayleigh+Mie (16×8, ancien noyau analytique)',
     phase: 'baseline',
+    modulePath: '/src/scene/atmosphere.ts',
     build: (m) => ({
       glsl: m.ATMOSPHERE_GLSL,
       body: `
@@ -69,6 +76,59 @@ const KERNELS = [
         // eliminer le calcul de transmittance, qui fait partie du cout reel.
         frag = vec4(c * 0.3 + tr * 1e-6, 1.0);
       `,
+    }),
+  },
+  {
+    // Depuis la phase 9, plus aucun materiau n'appelle le noyau ci-dessus : le
+    // fond de ciel, les corps et les avions echantillonnent tous la table de
+    // perspective atmospherique. C'est **ce noyau-ci** qui tourne reellement, et
+    // le precedent n'est conserve que comme point de comparaison historique.
+    name: 'lecture de la table de perspective atmospherique (phase 9)',
+    phase: '9',
+    modulePath: '/src/atmosphere/lut/aerialPerspectiveLut.ts',
+    build: (m) => ({
+      // Les materiaux sont en GLSL ES 1.00, ou `texture2D` est la bonne
+      // fonction ; le banc compile en 3.00, ou elle s'appelle `texture`.
+      glsl: m.AERIAL_LUT_GLSL.replace(/texture2D\(/g, 'texture('),
+      body: `
+        // Deux lectures : un astre a l'infini et un objet a distance finie.
+        // C'est ce que fait une image reelle, ou le ciel et les objets tapent
+        // dans la meme table.
+        vec3 tFar;
+        vec3 far = aerialPerspectiveToSpace(dir, tFar);
+        vec3 tNear;
+        vec3 near = aerialPerspective(dir, 40000.0 + uSeed, tNear);
+        frag = vec4(far + near * 1e-3 + (tFar + tNear) * 1e-6, 1.0);
+      `,
+      setup: `(gl, program) => {
+        const W = 64, ROWS = 512;
+        // Contenu plausible plutot que nul : une texture uniforme pourrait
+        // flatter le cout d'echantillonnage sur certains pilotes.
+        const data = new Float32Array(W * ROWS * 4);
+        for (let i = 0; i < data.length; i += 4) {
+          const t = (i / 4) / (W * ROWS);
+          data[i] = t * 12.0; data[i + 1] = t * 9.0; data[i + 2] = t * 20.0; data[i + 3] = 0;
+        }
+        const make = (unit) => {
+          const tex = gl.createTexture();
+          gl.activeTexture(gl.TEXTURE0 + unit);
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, W, ROWS, 0, gl.RGBA, gl.FLOAT, data);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          return tex;
+        };
+        make(2); make(3);
+        gl.uniform1i(gl.getUniformLocation(program, 'uAerialScattered'), 2);
+        gl.uniform1i(gl.getUniformLocation(program, 'uAerialTransmittance'), 3);
+        gl.uniform3f(gl.getUniformLocation(program, 'uAerialSize'), W, 32, 16);
+        gl.uniform3f(gl.getUniformLocation(program, 'uAerialSunDir'), 0.3, 0.5, -0.8);
+        gl.uniform1f(gl.getUniformLocation(program, 'uAerialExposure'), 1.0);
+        gl.uniform1f(gl.getUniformLocation(program, 'uAerialObserverRadius'), 6371000.0);
+        gl.uniform1f(gl.getUniformLocation(program, 'uAerialTopRadius'), 6471000.0);
+      }`,
     }),
   },
 ]
@@ -152,11 +212,11 @@ const environment = await bench.evaluate(() => {
 const kernels = {}
 for (const kernel of KERNELS) {
   const result = await bench.evaluate(
-    async ({ source }) => {
-      const module = await import('/src/scene/atmosphere.ts')
+    async ({ source, modulePath }) => {
+      const module = await import(modulePath)
       // eslint-disable-next-line no-new-func
       const build = new Function(`return (${source})`)()
-      const { glsl, body } = build(module)
+      const { glsl, body, setup } = build(module)
 
       const canvas = document.createElement('canvas')
       const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true })
@@ -208,6 +268,10 @@ for (const kernel of KERNELS) {
       gl.enableVertexAttribArray(location)
       gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0)
       gl.uniform3f(gl.getUniformLocation(program, 'uSun'), 0.3, 0.5, -0.8)
+      if (setup) {
+        // eslint-disable-next-line no-new-func
+        new Function(`return (${setup})`)()(gl, program)
+      }
       const seed = gl.getUniformLocation(program, 'uSeed')
 
       const pixel = new Uint8Array(4)
@@ -290,7 +354,7 @@ for (const kernel of KERNELS) {
       }
       return { measurements }
     },
-    { source: kernel.build.toString() },
+    { source: kernel.build.toString(), modulePath: kernel.modulePath },
   )
 
   if (result.error) {

@@ -19,13 +19,8 @@ import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels }
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL, RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
-import {
-  ATMOSPHERE_GLSL,
-  ATMOSPHERE_HAZE_COLOR_FN,
-  ATMOSPHERE_UNIFORM_DECLARATIONS,
-  applyAerosolTurbidity,
-  atmosphereUniforms,
-} from './atmosphere'
+import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
+import { aerialUniforms, applyAerialUniforms } from './useAerialLut'
 
 const DEG = Math.PI / 180
 
@@ -75,7 +70,7 @@ function bodyMaterial() {
       /** Relief simule a partir du gradient de l'albedo : creuse les crateres. */
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
-      ...atmosphereUniforms(),
+      ...aerialUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -95,10 +90,8 @@ function bodyMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
-      ${ATMOSPHERE_GLSL}
-      ${ATMOSPHERE_UNIFORM_DECLARATIONS}
       ${DISPLAY_TONEMAP_GLSL}
-      ${ATMOSPHERE_HAZE_COLOR_FN}
+      ${AERIAL_LUT_GLSL}
       varying vec3 vNormal;
       varying vec3 vViewDir;
       varying vec3 vDir;
@@ -168,7 +161,7 @@ function bodyMaterial() {
         //   photometrique en magnitudes, qui reste en revanche a sa place sur
         //   le halo — la, l'objet est une source ponctuelle, pas une surface.
         vec3 transmittance;
-        vec3 haze = hazeColorAlong(normalize(vDir), transmittance);
+        vec3 haze = aerialPerspectiveToSpace(normalize(vDir), transmittance);
         // La couleur du disque est encore en espace d'affichage : albedo de carte multiplie
         // par un eclairement sans unite. On la remonte en radiance pour que le
         // produit par la transmittance et la somme avec le voile se fassent
@@ -325,7 +318,7 @@ interface BodyProps {
    */
   sunTint: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
-  atmosphereExposure: number
+  skyExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
   aerosolTurbidity: number
   selected: boolean
@@ -348,7 +341,7 @@ function Body({
   discScale,
   sunDirection,
   sunTint,
-  atmosphereExposure,
+  skyExposure,
   aerosolTurbidity,
   selected,
   selectionColor,
@@ -406,9 +399,11 @@ function Body({
     } else {
       const sd = equatorialDirectionToScene(state.sunDirectionEq, date, location, scratch.current)
       ;(surface.uniforms.uBodySunDir.value as Vector3).set(sd[0], sd[1], sd[2])
-      ;(surface.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
-      surface.uniforms.uAtmosphereExposure.value = atmosphereExposure
-      applyAerosolTurbidity(surface.uniforms as Parameters<typeof applyAerosolTurbidity>[0], aerosolTurbidity)
+      applyAerialUniforms(
+        surface.uniforms as unknown as ReturnType<typeof aerialUniforms>,
+        sunDirection,
+        skyExposure,
+      )
       surface.uniforms.uEmissive.value = 0
       // Lumiere cendree cote nuit — la Terre reflechie sur la face non
       // eclairee de la Lune. 0,035 la rendait aussi visible qu'un authentique
@@ -644,7 +639,7 @@ export function SolarSystemBodies({
   discScale,
   sunDirection,
   sunTint,
-  atmosphereExposure,
+  skyExposure,
   aerosolTurbidity,
   colors,
   sunGlowColor,
@@ -662,7 +657,7 @@ export function SolarSystemBodies({
   /** Couleur du disque solaire transmise par l'atmosphere, sRGB lineaire. */
   sunTint: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
-  atmosphereExposure: number
+  skyExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
   aerosolTurbidity: number
   colors: Map<string, string>
@@ -688,7 +683,7 @@ export function SolarSystemBodies({
           discScale={discScale}
           sunDirection={sunDirection}
           sunTint={sunTint}
-          atmosphereExposure={atmosphereExposure}
+          skyExposure={skyExposure}
           aerosolTurbidity={aerosolTurbidity}
           selected={selectedId === state.id}
           selectionColor={selectionColor}

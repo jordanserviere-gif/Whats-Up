@@ -25,6 +25,7 @@ import { ozoneSuite } from '../absorption/ozone.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
+import { aerialPerspectiveLutSuite } from '../lut/aerialPerspectiveLut.validation'
 import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
@@ -65,5 +66,7 @@ export function allSuites(): SuiteResult[] {
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),
+    // Phase 9 — perspective atmospherique sur les objets.
+    aerialPerspectiveLutSuite(),
   ]
 }

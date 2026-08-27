@@ -224,7 +224,7 @@ export const EXTINCTION_COEFFICIENT = MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION
  * Perte de magnitude due a la traversee de l'atmosphere.
  *
  * `turbidity` est le meme trouble atmospherique (charge en aerosols) que celui
- * qui pilote la diffusion de Mie du ciel -- voir `applyAerosolTurbidity` dans
+ * qui pilote la diffusion de Mie du ciel -- voir `mie/aerosol.ts` et
  * `scene/atmosphere.ts`. Un ciel charge en aerosols n'eclaircit pas que
  * l'horizon : il eteint aussi davantage les etoiles et les halos qui le
  * traversent, par le meme phenomene physique.

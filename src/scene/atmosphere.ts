@@ -1,4 +1,23 @@
 /**
+ * ⚠️ **Ce module n'est plus dans le chemin de rendu.**
+ *
+ * Depuis la phase 9, le fond de ciel, les corps du systeme solaire et les avions
+ * echantillonnent tous la table de perspective atmospherique
+ * (`atmosphere/lut/aerialPerspectiveLut.ts`), construite par le solveur
+ * physique. Plus aucun materiau n'appelle `hazeColorTo` ni `atmosphereScatter`.
+ *
+ * Il est conserve pour une seule raison : `scripts/atmosphere-baseline.mjs` le
+ * mesure comme **point de comparaison historique** du cout GPU. C'est ce qui
+ * permet de dire que la lecture de table coute 0,04 ns/pixel contre 0,88 pour la
+ * marche analytique.
+ *
+ * Les constantes ci-dessous — coefficients de Rayleigh choisis a la main,
+ * asymetrie de Mie de 0,758, intensite solaire de 22, exposition de calibrage de
+ * 0,3 — sont exactement ce que l'audit designait comme le modele artistique a
+ * remplacer. Elles ne pilotent plus rien.
+ */
+
+/**
  * Diffusion atmospherique reelle — Rayleigh (air) + Mie (aerosols), simple
  * diffusion, integree le long du rayon de visee et du rayon secondaire vers
  * le Soleil.

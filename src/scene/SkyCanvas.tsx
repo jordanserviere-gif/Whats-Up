@@ -171,13 +171,6 @@ export function SkyCanvas() {
   const limitingMagnitude = layers.atmosphere ? sky.limitingMagnitude : 6.6
   const illuminance = layers.atmosphere ? sky.illuminance : 2e-4
 
-  /**
-   * Exposition de la diffusion atmospherique reelle (voir `atmosphere.ts`),
-   * partagee par le fond de ciel, les corps du systeme solaire et le voile
-   * des avions/trainees — meme formule que `SkyBackground`, pour que tous
-   * s'eteignent exactement au meme rythme pendant une eclipse ou en vue
-   * depuis l'espace plutot que de deriver chacun de son cote.
-   */
 /**
    * Attenuation due a une eclipse, partagee par les deux echelles d'exposition.
    *
@@ -188,11 +181,6 @@ export function SkyCanvas() {
    * revolution.
    */
   const eclipseDimming = Math.sqrt(1 - sky.obscuration + 8e-4 * sky.obscuration)
-
-  const atmosphereExposure = useMemo(() => {
-    if (!layers.atmosphere) return 0
-    return 0.3 * eclipseDimming
-  }, [layers.atmosphere, eclipseDimming])
 
   /**
    * Exposition d'affichage du ciel physique — voir `display/exposure.ts`.
@@ -585,7 +573,7 @@ export function SkyCanvas() {
             discScale={discScale}
             sunDirection={sunDirection}
             sunTint={sunTint}
-            atmosphereExposure={atmosphereExposure}
+            skyExposure={skyExposure}
             aerosolTurbidity={aerosolTurbidity}
             colors={bodyColors}
             sunGlowColor={colors.sunGlow}
@@ -612,8 +600,7 @@ export function SkyCanvas() {
             states={aircraftStates}
             location={location}
             sunDirection={sunDirection}
-            atmosphereExposure={atmosphereExposure}
-            aerosolTurbidity={aerosolTurbidity}
+            skyExposure={skyExposure}
             dayFactor={dayFactor}
             selectedHex={selectedAircraftHex}
             trackColor={colors.selection}

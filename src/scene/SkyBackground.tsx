@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
-import { BackSide, Color, DataTexture, ShaderMaterial, Vector2, Vector3 } from 'three'
+import { BackSide, Color, ShaderMaterial, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
-import { SKY_VIEW_LUT_GLSL } from '@/atmosphere/lut/skyViewLut'
-import { useSkyViewLut } from './useSkyViewLut'
+import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
+import { aerialUniforms, applyAerialUniforms, useAerialLut } from './useAerialLut'
 import { DOME_RADIUS } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 
@@ -22,8 +22,12 @@ import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
  * Le nuanceur ne marche plus aucun rayon. Il echantillonne une table calculee
  * sur le processeur par le solveur physique — atmosphere standard, spectre
  * solaire mesure, sections efficaces de Rayleigh derivees, transport oblique en
- * geometrie spherique, diffusion simple avec test d'ombre terrestre. Voir
- * `atmosphere/lut/skyViewLut.ts` et `useSkyViewLut.ts`.
+ * geometrie spherique, diffusion simple et multiple avec test d'ombre
+ * terrestre. Voir `atmosphere/lut/aerialPerspectiveLut.ts` et `useAerialLut.ts`.
+ *
+ * Cette table porte **toutes les distances**, pas seulement le ciel entier. Le
+ * fond de ciel en lit la derniere tranche — celle qui va jusqu'a la sortie de
+ * l'atmosphere — et les corps du systeme solaire lisent exactement la meme.
  *
  * Le ciel bleu, son blanchiment vers l'horizon, l'arche crepusculaire et
  * l'ombre de la Terre ne sont ecrits nulle part : ils sortent du calcul.
@@ -34,12 +38,11 @@ import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
  * et ce sont de vraies sources d'emission qui ont leur place dans l'equation du
  * transfert, pas par-dessus. Phase 11.
  *
- * Les corps et les avions continuent d'utiliser `hazeColorAlong()`, l'ancien
- * noyau. **Le ciel et le voile des objets suivent donc temporairement deux
- * modeles differents** : un astre bas sur l'horizon ne se fond plus exactement
- * dans le ciel qui l'entoure. C'est la dette de cette etape, et elle se solde a
- * la phase 9, quand la perspective atmospherique des objets passera au meme
- * transport.
+ * Les corps et les avions lisent **la meme table**, a leur propre distance —
+ * l'infini pour un astre, quelques centaines de kilometres pour un avion. La
+ * dette d'un ciel et d'un voile suivant deux modeles differents est soldee : le
+ * raccord entre un astre bas et le ciel qui l'entoure n'est pas ajuste, il est
+ * structurel.
  *
  * Son disque solaire est retire — la scene rend le sien, a sa distance, faute
  * de quoi la Lune ne pourrait pas l'occulter.
@@ -57,14 +60,9 @@ function buildSkyMaterial(): ShaderMaterial {
 
   const fragmentShader = /* glsl */ `
     ${DISPLAY_TONEMAP_GLSL}
-    ${SKY_VIEW_LUT_GLSL}
+    ${AERIAL_LUT_GLSL}
 
     varying vec3 vDir;
-
-    uniform sampler2D uSkyLut;
-    uniform vec2 uSkyLutSize;
-    uniform vec3 uSunDir;
-    uniform float uSkyExposure;
 
     uniform vec3 uNight;
     uniform vec3 uMoonDir;
@@ -77,11 +75,17 @@ function buildSkyMaterial(): ShaderMaterial {
 
       // --- Diffusion : une lecture de table, plus aucune integration ---------
       // La table porte une radiance en sRGB lineaire, calculee par le solveur
-      // physique (voir \`atmosphere/lut/skyViewLut.ts\`). \`uSkyExposure\` la
-      // porte dans l'espace du transform d'affichage — c'est la seule grandeur
-      // de cette ligne qui ne soit pas physique, et elle est documentee comme
-      // telle dans \`display/exposure.ts\`.
-      vec3 scattered = sampleSkyView(uSkyLut, uSkyLutSize, dir, normalize(uSunDir)) * uSkyExposure;
+      // physique (voir \`atmosphere/lut/aerialPerspectiveLut.ts\`).
+      // \`uAerialExposure\` la porte dans l'espace du transform d'affichage —
+      // c'est la seule grandeur de cette ligne qui ne soit pas physique, et elle
+      // est documentee comme telle dans \`display/exposure.ts\`.
+      //
+      // Le fond de ciel n'a rien devant lui : il lit donc la tranche a l'infini,
+      // et jette la transmittance. Un astre lit la meme tranche et la garde.
+      vec3 ignoredTransmittance;
+      vec3 scattered = dir.y < 0.0
+        ? vec3(0.0)
+        : aerialPerspectiveToSpace(dir, ignoredTransmittance);
 
       // --- Socle nocturne : encore peint, encore a remplacer ------------------
       // Airglow, lueur lunaire et halo urbain restent des couleurs choisies. Ce
@@ -103,10 +107,7 @@ function buildSkyMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     name: 'SkyBackgroundMaterial',
     uniforms: {
-      uSkyLut: { value: null as DataTexture | null },
-      uSkyLutSize: { value: new Vector2(1, 1) },
-      uSunDir: { value: new Vector3(0, 1, 0) },
-      uSkyExposure: { value: 0 },
+      ...aerialUniforms(),
       uMoonDir: { value: new Vector3(0, -1, 0) },
       uMoonFactor: { value: 0 },
       uNight: { value: new Color('#03040a') },
@@ -182,7 +183,7 @@ export function SkyBackground({
   // se met a jour par `useFrame`, et les rappels de react-three-fiber ne sont
   // disponibles que la. C'est aussi la bonne place du point de vue des
   // responsabilites — le materiau du ciel possede la table qu'il echantillonne.
-  const skyView = useSkyViewLut(sunAltitude, observerElevationM, aerosolTurbidity, atmosphereEnabled)
+  useAerialLut(sunAltitude, observerElevationM, aerosolTurbidity, atmosphereEnabled)
 
   useFrame(() => {
     const u = material.uniforms
@@ -190,11 +191,11 @@ export function SkyBackground({
     // Repere de la scene : +X est, +Y zenith, −Z nord.
     const alt = (sunAltitude * Math.PI) / 180
     const az = (sunAzimuth * Math.PI) / 180
-    ;(u.uSunDir.value as Vector3).set(Math.cos(alt) * Math.sin(az), Math.sin(alt), -Math.cos(alt) * Math.cos(az))
-
-    u.uSkyLut.value = skyView.texture
-    ;(u.uSkyLutSize.value as Vector2).copy(skyView.size)
-    u.uSkyExposure.value = skyExposure
+    applyAerialUniforms(
+      u as unknown as ReturnType<typeof aerialUniforms>,
+      [Math.cos(alt) * Math.sin(az), Math.sin(alt), -Math.cos(alt) * Math.cos(az)],
+      skyExposure,
+    )
 
     const malt = (moonAltitude * Math.PI) / 180
     const maz = (moonAzimuth * Math.PI) / 180

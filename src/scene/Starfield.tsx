@@ -148,7 +148,7 @@ export function Starfield({
     material.uniforms.uLimitMag.value = limitingMagnitude
     // Un ciel plus charge en aerosols eteint aussi davantage les etoiles, par
     // le meme phenomene qui blanchit l'horizon -- meme trouble que la
-    // diffusion Mie du fond de ciel, voir `applyAerosolTurbidity`.
+    // diffusion Mie du fond de ciel, voir `atmosphere/mie/aerosol.ts`.
     material.uniforms.uExtinctionK.value = EXTINCTION_COEFFICIENT * aerosolTurbidity
   })
 

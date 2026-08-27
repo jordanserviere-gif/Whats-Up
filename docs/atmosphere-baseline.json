@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-26T21:56:10.092Z",
+  "recordedAt": "2026-08-27T17:59:05.953Z",
   "environment": {
     "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl2": true,
@@ -9,45 +9,86 @@
     "webgpuAvailable": true
   },
   "kernels": {
-    "diffusion simple Rayleigh+Mie (16×8, moteur actuel)": {
+    "diffusion simple Rayleigh+Mie (16×8, ancien noyau analytique)": {
       "phase": "baseline",
       "measurements": {
         "1440x900": {
-          "nsPerPixel": 0.9329405161954555,
-          "minNsPerPixel": 0.8838383839429094,
-          "maxNsPerPixel": 0.9574915825177138,
-          "spread": 0.07894736834365736,
-          "msPerPass": 1.2090909089893103,
-          "reps": 22,
+          "nsPerPixel": 1.0436972059665612,
+          "minNsPerPixel": 0.9624756335358294,
+          "maxNsPerPixel": 1.0640025990978828,
+          "spread": 0.09727626459249726,
+          "msPerPass": 1.3526315789326635,
+          "reps": 19,
           "samples": 9
         },
         "720x450": {
-          "nsPerPixel": 0.9259259258985502,
-          "minNsPerPixel": 0.8708112874505785,
-          "maxNsPerPixel": 1.0141093474974323,
-          "spread": 0.15476190485517782,
-          "msPerPass": 0.29999999999113025,
-          "reps": 84,
+          "nsPerPixel": 1.0068811981333166,
+          "minNsPerPixel": 0.9562841530007523,
+          "maxNsPerPixel": 1.0321797207231598,
+          "spread": 0.07537688444586337,
+          "msPerPass": 0.32622950819519453,
+          "reps": 61,
           "samples": 9
         },
         "360x225": {
-          "nsPerPixel": 0.8935508935187318,
-          "minNsPerPixel": 0.8892342226318793,
-          "maxNsPerPixel": 0.9669343002033102,
-          "spread": 0.08695652159828764,
-          "msPerPass": 0.07237762237501728,
-          "reps": 286,
+          "nsPerPixel": 1.11652156803505,
+          "minNsPerPixel": 1.05257980423525,
+          "maxNsPerPixel": 1.1952191235197185,
+          "spread": 0.127753303982741,
+          "msPerPass": 0.09043824701083905,
+          "reps": 251,
           "samples": 9
         }
       },
-      "nsPerPixel": 0.9329405161954555,
-      "spread": 0.07894736834365736,
+      "nsPerPixel": 1.0436972059665612,
+      "spread": 0.09727626459249726,
       "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 1.2090909089893103,
-        "1440x900@dpr2": 4.836363635957241,
-        "1920x1080@dpr2": 7.738181817531586
+        "1440x900@dpr1": 1.3526315789326635,
+        "1440x900@dpr2": 5.410526315730654,
+        "1920x1080@dpr2": 8.656842105169044
+      }
+    },
+    "lecture de la table de perspective atmospherique (phase 9)": {
+      "phase": "9",
+      "measurements": {
+        "1440x900": {
+          "nsPerPixel": 0.042507577437502005,
+          "minNsPerPixel": 0.040659421897162,
+          "maxNsPerPixel": 0.04782102461786211,
+          "spread": 0.1684782608754796,
+          "msPerPass": 0.055089820359002596,
+          "reps": 334,
+          "samples": 9
+        },
+        "720x450": {
+          "nsPerPixel": 0.049900199599937786,
+          "minNsPerPixel": 0.042507577438577776,
+          "maxNsPerPixel": 0.05452058845616664,
+          "spread": 0.24074074079663285,
+          "msPerPass": 0.016167664670379844,
+          "reps": 334,
+          "samples": 9
+        },
+        "360x225": {
+          "nsPerPixel": 0.05555555554980665,
+          "minNsPerPixel": 0.046296296296296294,
+          "maxNsPerPixel": 0.08024691358312136,
+          "spread": 0.6111111112260892,
+          "msPerPass": 0.004499999999534338,
+          "reps": 400,
+          "samples": 9
+        }
+      },
+      "nsPerPixel": 0.042507577437502005,
+      "spread": 0.1684782608754796,
+      "samples": 9,
+      "fillRateBound": true,
+      "projectedMs": {
+        "1440x900@dpr1": 0.055089820359002596,
+        "1440x900@dpr2": 0.22035928143601038,
+        "1920x1080@dpr2": 0.3525748502976166
       }
     }
   },
@@ -78,7 +119,7 @@
         ],
         "antisoleil-30": [
           89,
-          145,
+          146,
           210
         ],
         "antisoleil-horizon": [

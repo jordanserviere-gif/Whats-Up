@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 461 contrôles, 20 suites, aucun échec.**
+**État : 480 contrôles, 21 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -1703,6 +1703,136 @@ précédente (dispersion ±8 %).
 
 ---
 
-*Dernière mise à jour : phases 0, 0.5, 1 à 8 (sauf 2 partielle), tables de
-colonne, de ciel et de diffusion multiple validées ; le ciel physique est à
-l'écran.*
+## La perspective atmospherique — phase 9
+
+### La dette que cette phase solde
+
+Depuis que le ciel etait passe au solveur physique, les astres et les avions
+etaient restes sur l'ancien noyau analytique `hazeColorAlong` : deux
+coefficients de Rayleigh choisis a la main, une phase de Henyey-Greenstein, un
+facteur d'exposition de calibrage de 0,3. **Le ciel et le voile des objets
+suivaient deux modeles differents**, et un astre bas ne se fondait plus dans le
+ciel qui l'entourait.
+
+### La table est le ciel, prolonge vers l'observateur
+
+Plutot que d'ajouter une seconde table aux objets, l'axe des **distances** a ete
+ajoute a celle du ciel :
+
+| Axe | Domaine | Parametrisation |
+| --- | --- | --- |
+| `u` | azimut relatif au Soleil, 0 à 180° | linéaire, repliée par symétrie |
+| `v` | hauteur de visée, 0 à 90° | `v = √(h/90)` |
+| `w` | distance | `t = trajet_total · w²` |
+
+La normalisation de `w` par le trajet atmospherique **propre a chaque
+direction** est le choix qui porte toute la phase : `w = 1` designe exactement la
+sortie de l'atmosphere, quelle que soit la visee. Un astre est a l'infini, il
+tombe donc pile sur le dernier texel — et non entre deux, ou l'interpolation
+l'aurait decale du ciel voisin.
+
+Consequence : **le fond de ciel n'a plus sa propre table**, il lit cette tranche.
+Un astre lit la meme. Le raccord n'est pas ajuste, il est structurel.
+
+Mesure : la tranche lointaine reproduit `skyRadiance` a **5,5·10⁻⁸** aux nœuds
+exacts. Et le banc de non-regression le confirme a l'ecran — **aucune derive
+colorimetrique** sur les 42 sondes apres bascule.
+
+### Une seule marche, seize distances
+
+La transmittance a la distance `d` et la diffusion cumulee jusqu'a `d` sont des
+**prefixes** des memes integrales que le ciel entier. La marche accumule deja
+les colonnes depuis l'observateur : il suffit de relever leur valeur en chemin.
+
+C'est ce qui rend une table 3D a peine plus chere qu'une 2D — 92 ms contre 34,
+pour seize fois plus de donnees. `skyRadiance` est d'ailleurs devenu un **cas
+particulier** de `aerialPerspective`, avec un seul intervalle : il n'y a plus
+qu'une implementation du transport, donc aucune derive possible entre ce que
+voit le fond et ce que voit un astre.
+
+### Ce qui disparait du chemin de rendu
+
+Plus aucun materiau n'appelle `scene/atmosphere.ts`. Avec lui sortent les
+dernieres constantes choisies a la main du rendu atmospherique :
+
+| Constante | Valeur | Devenue |
+| --- | --- | --- |
+| `RAYLEIGH_COEFFICIENTS` | `[55e-7, 13e-6, 224e-7]` | sections efficaces de Bodhaine |
+| `MIE_COEFFICIENT` | `21e-6` | calcul de Mie sur distribution log-normale |
+| `MIE_G` | `0,758` | asymetrie calculee, 0,646 a 550 nm |
+| `SUN_INTENSITY_REF` | `22` | spectre solaire ASTM G173 |
+| `uAtmosphereExposure` | `0,3` | l'exposition du ciel, partagee |
+
+Le module reste dans l'arbre, **hors du chemin de rendu**, comme point de
+comparaison du banc de mesure — et son en-tete le dit.
+
+### Le cout, mesure
+
+| Noyau | Cout | 1920x1080@dpr2 |
+| --- | --- | --- |
+| ancien noyau analytique (16×8) | 0,88 ns/px | 7,27 ms — 44 % d'une image |
+| **lecture de la table (phase 9)** | **0,04 ns/px** | **0,31 ms — 2 %** |
+
+Un facteur **22**, et la mesure de la phase 9 comprend **deux** lectures : un
+astre a l'infini et un objet a distance finie. Le banc mesurait jusqu'ici un
+noyau que plus rien n'appelle ; il porte desormais les deux, l'ancien etiquete
+comme tel.
+
+Cote processeur, la construction s'etale a deux lignes par image (2,9 ms), comme
+la table de ciel qu'elle remplace.
+
+### ⚠️ La transmittance spectrale reduite a trois nombres
+
+Le transport calcule `T(λ)` sur seize bandes ; le nuanceur n'en porte que trois.
+Or `∫L(λ)T(λ)` ne se factorise pas en `(∫L)(∫T)` : reduire une transmittance a
+trois nombres n'est **exact que pour un spectre d'objet donne**.
+
+Le spectre de reference retenu est celui du **Soleil**, parce que les objets qui
+traversent cette table — Lune, planetes, avions — sont eclaires par lui. Les
+etoiles ne passent pas par ici : elles gardent leur extinction en magnitudes,
+traitee par type spectral.
+
+**C'est une limite de la chaine RGB, pas du transport.** La lever demanderait de
+porter le spectre jusqu'au nuanceur.
+
+### Le gamut sRGB, et deux artefacts qu'il faut distinguer
+
+Une transmittance tres rougie — visee rasante, plusieurs dizaines de masses
+d'air — a une chromaticite qui **sort du triangle sRGB**. Sa projection sur la
+primaire bleue, qui a des lobes negatifs dans le rouge, devient alors legerement
+negative. Deux grandeurs sont touchees, et elles ont ete traitees
+differemment :
+
+| | Ampleur | Traitement |
+| --- | --- | --- |
+| **transmittance** | jusqu'a −2,5·10⁻³, remontee de 8,6·10⁻⁴ sur des valeurs de 2·10⁻³ — **43 % en relatif** | ecretee a zero puis minimum courant |
+| **diffusion cumulee** | baisse de 7,2·10⁻³ sur 25,8 — **2,8·10⁻⁴**, jamais negative | **rien** |
+
+La transmittance est un **multiplicateur** : un signe negatif y inverserait le
+canal bleu de l'objet, et la remontee brisait la decroissance avec la distance —
+une violation par direction, exactement. La diffusion est un terme **additif**,
+toujours positif, dont l'artefact reste sous le dix-millieme, et dont la tranche
+lointaine est validee au bit pres contre `skyRadiance`. La forcer abimerait le
+ciel pour rien.
+
+Dans les deux cas, **le spectre est monotone a zero violation** : la physique est
+juste, c'est la projection qui ne l'herite pas. Le test a ete reecrit sur la
+grandeur ou l'invariant est vrai, pas assoupli.
+
+### L'echantillonneur GPU verifie contre l'echantillonneur CPU
+
+Les seize tranches sont **empilees verticalement** dans une texture de 64 x 512
+— ce qui est deja la disposition memoire naturelle de la table, et evite
+d'imposer GLSL ES 3.00 aux trois materiaux consommateurs. L'indexation en bande
+et le recentrage de texels sont exactement le genre d'endroit ou une erreur d'un
+texel serait invisible a l'oeil.
+
+Le nuanceur a donc ete compile hors de l'application et compare a
+`sampleAerialLut` sur 24 combinaisons de visee et de distance : accord a
+**4,5·10⁻⁵**, la precision du flottant simple.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 9 (sauf 2 partielle), tables de
+colonne, de diffusion multiple et de perspective atmospherique validees ; le
+ciel physique et les objets qui s'y trouvent suivent le meme transport.*

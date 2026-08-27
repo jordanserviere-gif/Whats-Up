@@ -58,7 +58,7 @@ aucune réorganisation.
 | **6** | Aérosols + Mie | **VALIDATED** | Bohren-Huffman · bilan de journée refermé à 1–2 % |
 | **7** | Absorption atmosphérique | **VALIDATED** | ozone · les deux cibles de la phase 5 atteintes |
 | **8** | Diffusion multiple | **VALIDATED** | Hillaire 2020 · le creux de phase de Rayleigh comblé · albédo du sol câblé |
-| **9** | Perspective atmosphérique sur les objets | **TODO** | la couture existe déjà |
+| **9** | Perspective atmosphérique sur les objets | **VALIDATED** | une seule table pour le ciel et les objets · ancien noyau hors du rendu · ×22 |
 | **10** | Indice de réfraction spectral | **TODO** | |
 | **11** | Ray bending | **TODO** | |
 | **12** | Phénomènes émergents de réfraction | **TODO** | |
@@ -876,6 +876,67 @@ reconstruit jamais. Noyau GLSL inchangé à 0,88 ns/px.
 
 ---
 
+## Phase 9 — Perspective atmospherique sur les objets · VALIDATED
+
+### Livre
+
+- `transport/aerialPerspective` — la marche rend desormais la diffusion cumulee
+  **et** la transmittance a seize distances, en un seul parcours. `skyRadiance`
+  en est devenu un cas particulier : une seule implementation du transport.
+- `lut/aerialPerspectiveLut.ts` — table 3D (64 azimut × 32 hauteurs × 16
+  distances), deux textures, echantillonneur GLSL.
+- `scene/useAerialLut.ts` remplace `useSkyViewLut.ts`.
+- Fond de ciel, corps du systeme solaire et avions branches sur la meme table.
+
+### Le raccord est structurel, pas ajuste
+
+`w = 1` designe exactement la sortie de l'atmosphere **quelle que soit la
+visee**, parce que la distance est normalisee par le trajet propre a chaque
+direction. Un astre est a l'infini : il lit donc le meme texel que le fond de
+ciel a cote de lui.
+
+Mesure : tranche lointaine contre `skyRadiance`, **5,5·10⁻⁸** aux nœuds exacts.
+Et **aucune derive colorimetrique** sur les 42 sondes du banc apres bascule — le
+ciel est identique, seuls les objets ont change de modele.
+
+### L'ancien noyau sort du chemin de rendu
+
+Plus aucun materiau n'appelle `scene/atmosphere.ts`. Avec lui sortent
+`RAYLEIGH_COEFFICIENTS = [55e-7, 13e-6, 224e-7]`, `MIE_G = 0,758`,
+`SUN_INTENSITY_REF = 22` et le facteur de calibrage `0,3` — les dernieres
+constantes choisies a la main du rendu atmospherique. Le module est conserve
+comme reference du banc, et son en-tete le signale.
+
+### Cout : facteur 22
+
+| Noyau | Cout | 1920x1080@dpr2 |
+| --- | --- | --- |
+| ancien noyau analytique | 0,88 ns/px | 7,27 ms — 44 % d'une image |
+| **table de perspective** | **0,04 ns/px** | **0,31 ms — 2 %** |
+
+Et la mesure de la phase 9 comprend deux lectures, pas une.
+
+### Le GPU verifie contre le CPU
+
+L'indexation de l'atlas en bande verticale et le recentrage de texels sont
+l'endroit ou une erreur d'un texel passerait inapercue. Nuanceur compile hors
+application et compare a `sampleAerialLut` sur 24 combinaisons : **4,5·10⁻⁵**.
+
+### ⚠️ Deux limites signalees
+
+**La transmittance spectrale reduite a trois nombres** n'est exacte que pour un
+spectre d'objet donne ; le Soleil sert de reference, ce qui convient a la Lune,
+aux planetes et aux avions. Limite de la chaine RGB, pas du transport.
+
+**Le gamut sRGB** rend negative la projection bleue d'une transmittance tres
+rougie. Ecretee et rendue monotone pour la transmittance — un multiplicateur, ou
+l'artefact atteignait 43 % en relatif — mais **laissee intacte pour la
+diffusion**, terme additif toujours positif dont l'artefact reste a 2,8·10⁻⁴.
+Le spectre, lui, est monotone a zero violation dans les deux cas : les tests ont
+ete reecrits sur la grandeur ou l'invariant est vrai.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -892,3 +953,4 @@ reconstruit jamais. Noyau GLSL inchangé à 0,88 ns/px.
 | 2026-08-26 | Phase 7 — ozone ; les deux cibles de la phase 5 atteintes ; le crépuscule devient bleu ; **405 contrôles** |
 | 2026-08-26 | Phase 6 — aérosols et Mie ; bilan de journée refermé à 1–2 % ; trouble rendu physique ; **440 contrôles** |
 | 2026-08-27 | Phase 8 — diffusion multiple ; facteur 4π attrapé par le bilan d'éclairement ; albédo du sol câblé ; nœud à 5° signalé ; **461 contrôles** |
+| 2026-08-27 | Phase 9 — perspective atmosphérique ; une seule table pour le ciel et les objets ; ancien noyau analytique hors du rendu ; GPU ×22 ; **480 contrôles** |
