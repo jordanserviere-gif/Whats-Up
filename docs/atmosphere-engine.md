@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 611 contrôles, 27 suites, aucun échec.**
+**État : 629 contrôles, 28 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2664,6 +2664,109 @@ que l'application posait.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 16 (sauf 2 partielle) ; le ciel
-physique, les objets et la courbure des rayons sont a l'ecran ; champ 3D,
-mirages, turbulence et optique ondulatoire sont valides et attendent leur rendu.*
+## Le seeing et la scintillation — phase 17
+
+### Une decision de rendu, appuyee sur une mesure
+
+La phase 16 avait etabli que la pupille impose **16,7″ a 58,4″** de limite par sa
+seule diffraction, contre **2,00″** de seeing. La phase 17 en tire la
+consequence : **on ne rend pas le seeing.** L'oeil ne peut pas le voir, et le
+champ de l'application n'a de toute facon que 42 secondes d'arc par pixel.
+
+La scintillation, elle, n'est pas une deformation de l'image mais une variation
+de son **intensite**. L'oeil la percoit parfaitement, et c'est donc la seule des
+deux qui arrive a l'ecran.
+
+### Ce que voit vraiment l'oeil
+
+| | |
+| --- | --- |
+| Couche responsable | **7,42 km** — barycentre du moment `h^(5/6)` |
+| Rayon de Fresnel | **6,39 cm** |
+| Fréquence caractéristique | **548 Hz** |
+| Fraction sous la fusion rétinienne | **3,7 %** |
+
+La variance totale porte tout le spectre, jusqu'a plusieurs centaines de hertz.
+La retine en moyenne l'essentiel : **une etoile au zenith ne fremit qu'a
+σ = 0,094 magnitude**, la ou la variance brute laisserait croire a un
+clignotement spectaculaire.
+
+L'altitude de la couche n'est pas choisie — c'est le barycentre du moment dont
+depend la scintillation, et il retrouve la tranche 5–15 km que la phase 15 avait
+designee par un autre calcul.
+
+### Pourquoi les planetes ne scintillent pas
+
+**Aucune regle ne le dit.** C'est le rapport de deux longueurs : la taille
+qu'une source projette a l'altitude de la couche, comparee au rayon de Fresnel.
+
+| Objet | Taille projetée à 7,4 km | Moyennage | σ à 30° de hauteur |
+| --- | --- | --- | --- |
+| étoile | 0 m | 1,000 | **0,210 mag** |
+| Mars, 5″ | 0,18 m | 0,045 | 0,031 |
+| Jupiter, 40″ | 1,44 m | 0,0004 | **0,0028 mag** |
+| Lune, 30′ | 65 m | ~0 | 3·10⁻⁵ |
+
+Un facteur **76** entre une etoile et Jupiter, et la transition tombe a
+**1,8 secondes d'arc** — la ou une source projette exactement un rayon de
+Fresnel. Uranus et Neptune sont pile dessus, ce qui est correct : ce sont les
+seules planetes dont on discute encore si elles scintillent.
+
+### L'exposant qui permet le rendu
+
+La variance percue suit `sec^(7/3) ζ`, et cet exposant est une somme :
+
+- `11/6` pour la variance elle-meme ;
+- `1/2` parce qu'une visee oblique **allonge le trajet** jusqu'a la couche,
+  agrandit le rayon de Fresnel, abaisse la frequence — dont l'oeil percoit alors
+  une fraction plus grande.
+
+Mesure : **2,341** contre 2,333 predits. Ce n'est pas un ajustement, c'est une
+addition.
+
+C'est cet exposant unique qui permet de ne porter au GPU **qu'une seule
+constante** — la variance percue au zenith, `7,55·10⁻³` — toute la dependance a
+la hauteur etant analytique dans le nuanceur. Une etoile a 20° scintille alors a
+0,324 magnitude contre 0,094 au zenith, sans que rien ne l'ecrive.
+
+### Ce qui est physique, et ce qui est un tirage
+
+Le nuanceur module l'intensite de chaque etoile par trois sinusoides de
+frequences incommensurables, normalisees a **variance unite**. La realisation
+est arbitraire — c'est un tirage. Ce qui est physique, c'est son **amplitude** et
+sa **bande passante**, toutes deux issues de `C_n²`.
+
+Le temps employe est le temps **reel**, non le temps simule : en avance rapide,
+les etoiles continuent de fremir au meme rythme, parce que la turbulence ne
+depend pas de la vitesse a laquelle on fait defiler le ciel.
+
+Et sans atmosphere, plus de turbulence : les etoiles cessent de scintiller en
+meme temps que le ciel disparait. C'est le drapeau que la refraction portait
+deja.
+
+### ⚠️ Le plafond est une borne de validite
+
+A cinq degres de hauteur le modele rend `σ_I² = 18,3`. Au-dela de 1, la theorie
+de perturbation **surestime** : la scintillation reelle sature puis decroit, les
+taches de lumiere se fragmentant au lieu de se creuser.
+
+Le plafond de 0,5 sur la variance percue — soit 0,69 magnitude — n'est donc pas
+un reglage esthetique mais la borne du domaine, posee explicitement plutot que
+laissee diverger.
+
+### ⚠️ Deux approximations signalees
+
+**Le moyennage d'ouverture** emploie la forme d'ingenierie d'Andrews & Phillips
+plutot que l'integrale double exacte. Elle est correcte aux deux limites — et son
+asymptote en `D^(−7/3)` est mesuree a 0,2 % — a quelques pour cent entre.
+
+**La fraction percue** suppose un spectre plat a coupure franche et une reponse
+retinienne en creneau. Elle donne l'ordre de grandeur de ce qui reste visible,
+pas sa valeur exacte. La frequence de fusion retenue, 20 Hz, est celle de la
+vision **scotopique** — celle dont on regarde les etoiles.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 17 (sauf 2 partielle) ; le ciel
+physique, les objets, la courbure des rayons et la scintillation des etoiles sont
+a l'ecran ; champ 3D, mirages et couronnes sont valides et attendent leur rendu.*

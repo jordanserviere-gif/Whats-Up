@@ -28,6 +28,7 @@ import { rayTracerSuite } from '../field/rayTracer.validation'
 import { mirageSuite } from '../field/mirageTransfer.validation'
 import { turbulenceSuite } from '../turbulence/turbulence.validation'
 import { waveOpticsSuite } from '../wave/wave.validation'
+import { scintillationSuite } from '../turbulence/scintillation.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
@@ -81,6 +82,8 @@ export function allSuites(): SuiteResult[] {
     turbulenceSuite(),
     // Phase 16 — optique ondulatoire.
     waveOpticsSuite(),
+    // Phase 17 — seeing et scintillation.
+    scintillationSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),

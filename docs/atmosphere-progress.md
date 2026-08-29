@@ -66,7 +66,7 @@ aucune réorganisation.
 | **14** | Inversions thermiques et mirages | **VALIDATED** | transfert non monotone · 2 images · inversée 0,270° · non rendue |
 | **15** | Turbulence | **VALIDATED** | HV 5/7 rend 4,961 cm et 6,903 µrad · seeing du sol, scintillation d'altitude |
 | **16** | Optique ondulatoire | **VALIDATED** | le 1,22 trouvé, pas écrit · couronnes émergentes de Mie à 1 % · l'œil nu est limité par sa pupille |
-| **17** | Seeing et scintillation | **TODO** | |
+| **17** | Seeing et scintillation | **VALIDATED** | **au rendu** · les étoiles scintillent, les planètes non · facteur 76, émergent |
 | **18** | Microphysique | **TODO** | non prioritaire |
 | **19** | Fine tuning scientifique | **TODO** | |
 | **20** | Optimisation GPU | **TODO** | |
@@ -1309,6 +1309,57 @@ gouttelette. La limite de diffraction, elle, sert dès maintenant.
 
 ---
 
+## Phase 17 — Seeing et scintillation · VALIDATED · **AU RENDU**
+
+### Livré
+
+- `turbulence/scintillation.ts` — altitude effective de la couche, rayon de
+  Fresnel, moyennage d'ouverture et **de taille de source**, fraction perçue par
+  l'œil, statistique log-normale.
+- `scene/Starfield.tsx` — les étoiles scintillent, avec une amplitude et une
+  bande passante issues de `C_n²`.
+
+### La décision de rendu, appuyée sur une mesure
+
+**On ne rend pas le seeing.** 2,00″ contre 16,7″ de limite pupillaire même
+dilatée (phase 16) : l'œil ne peut pas le voir, et le champ n'a de toute façon
+que 42″ par pixel. Le rendre serait une erreur, pas un raffinement.
+
+### Pourquoi les planètes ne scintillent pas
+
+Aucune règle ne le dit — c'est le rapport de la taille projetée au rayon de
+Fresnel :
+
+| | Projetée à 7,4 km | σ à 30° |
+| --- | --- | --- |
+| étoile | 0 m | **0,210 mag** |
+| Jupiter 40″ | 1,44 m | **0,0028 mag** |
+
+Facteur **76**, et la transition tombe à **1,8″** — pile où sont Uranus et
+Neptune.
+
+### L'exposant qui permet le rendu
+
+La variance perçue suit `sec^(7/3)` : 11/6 pour la variance, plus 1/2 pour
+l'allongement du trajet qui abaisse la fréquence et augmente donc la part visible.
+Mesuré **2,341** contre 2,333. Une addition, pas un ajustement — et c'est ce qui
+permet de ne porter au GPU **qu'une constante**, `7,55·10⁻³`.
+
+### Ce qui est physique, ce qui est un tirage
+
+Le nuanceur module l'intensité par trois sinusoïdes normalisées à variance unité.
+La réalisation est arbitraire ; l'**amplitude** et la **bande passante** viennent
+de `C_n²`. Temps réel et non simulé : en avance rapide, les étoiles frémissent au
+même rythme.
+
+### ⚠️ Le plafond est une borne de validité
+
+À 5° de hauteur le modèle rend σ_I² = 18,3 ; au-delà de 1 la théorie de
+perturbation surestime et la scintillation réelle sature. Le plafond de 0,5 —
+0,69 mag — est la borne du domaine, pas un réglage esthétique.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1333,3 +1384,4 @@ gouttelette. La limite de diffraction, elle, sert dès maintenant.
 | 2026-08-27 | Phase 14 — mirages ; transfert non monotone, 2 images ; deux erreurs de repère attrapées par le raccord ; **566 contrôles** |
 | 2026-08-27 | Phase 15 — turbulence ; HV 5/7 se valide lui-même ; seeing du sol et scintillation d'altitude émergent des poids ; **591 contrôles** |
 | 2026-08-27 | Phase 16 — optique ondulatoire ; couronnes émergentes de Mie ; assertion fausse corrigée par la dispersion des tailles ; **611 contrôles** |
+| 2026-08-27 | Phase 17 — scintillation **au rendu** ; les planètes ne scintillent pas, par un rapport de longueurs ; seeing écarté sur mesure ; **629 contrôles** |
