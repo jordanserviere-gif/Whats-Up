@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 670 contrôles, 31 suites, aucun échec.**
+**État : 675 contrôles, 31 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -3026,6 +3026,73 @@ aberrant, apres le banc GPU de la phase 0, le rendu logiciel de la phase 20 et l
 
 ---
 
+## La passe globale — ce que l'adaptation a debloque
+
+### Le socle nocturne devient entierement physique
+
+L'amplitude de l'airglow etait bloquee par l'exposition fixe : `4·10⁻¹⁰` du blanc
+d'affichage. Depuis que l'exposition suit le ciel, **le plancher d'adaptation est
+precisement la luminance de l'airglow** — et celui-ci retrouve sa place.
+
+La couleur peinte a disparu. Le socle nocturne est desormais une emission
+calculee, de bout en bout : spectre de raies, geometrie de couche, extinction,
+exposition.
+
+| Sonde de nuit | Peinte | Calculée |
+| --- | --- | --- |
+| zénith | 3,4,10 | **3,3,3** |
+| vers le Soleil, 30° | 5,7,14 | **5,5,5** |
+| perpendiculaire, 30° | 5,7,14 | **5,5,5** |
+
+### La vision scotopique, et pourquoi elle etait indispensable
+
+L'airglow est physiquement **verdatre** — sa raie de l'oxygene a 557,7 nm domine
+le signal photopique. Le brancher tel quel donnait un ciel nocturne vert, ce que
+personne ne voit.
+
+La raison n'est pas que le calcul soit faux, c'est que **l'oeil ne voit pas les
+couleurs a ces luminances**. Les batonnets ne portent qu'un pigment : aucune
+comparaison entre types de recepteurs n'est possible, donc aucune teinte. Ce
+n'est pas une approximation, c'est de l'anatomie.
+
+Le ciel nocturne sort donc **gris**, et c'est ce qu'on observe.
+
+### ⚠️ Deux erreurs sur la bascule, et ce qu'elles apprennent
+
+**Elle est locale, non globale.** Une premiere version employait la luminance
+**moyenne** du ciel et grisait tout — y compris la bande orange de l'horizon au
+crepuscule nautique, qui rendait un `220,220,220` absurde alors qu'elle est la
+chose la plus lumineuse du ciel.
+
+L'adaptation est globale ; la **dominance des cones** ne l'est pas. Elle depend
+de l'eclairement retinien local, et c'est pourquoi on voit la couleur d'un feu la
+nuit pendant que le reste du paysage reste gris.
+
+**Elle est logarithmique, non lineaire.** Interpolee lineairement entre 0,01 et
+3 cd/m², un ciel a 1,8 cd/m² — presque photopique — ressortait a **34 %** de
+vision batonnets. L'oeil travaille en decades : en logarithme, c'est **2,3 %**.
+
+| Bande orange, crépuscule nautique | |
+| --- | --- |
+| avant la passe | 242,216,82 |
+| bascule globale | 220,220,220 ← grise, absurde |
+| bascule locale, linéaire | 223,220,217 ← encore grise |
+| **bascule locale, logarithmique** | **238,217,152** |
+
+### ⚠️ Ce qui n'est toujours pas modelise
+
+**Le decalage de Purkinje.** La sensibilite scotopique culmine a 507 nm contre
+555 en photopique : un observateur percoit la nuit legerement **bleutee**. Le
+rendre demanderait la courbe `V'(λ)`, que le moteur n'embarque pas. Le ciel
+nocturne sort donc gris neutre plutot que gris-bleu.
+
+**La lueur lunaire et le halo urbain** restent peints. La premiere est de la
+diffusion — exactement le calcul du ciel de jour, avec la Lune pour source,
+quatre cent mille fois plus faible — et devient faisable maintenant que
+l'exposition suit. Le second demande le modele de Garstang (1989).
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -3066,7 +3133,7 @@ en est.
 | --- | --- |
 | **Ancre d'exposition** | **résolue** : l'exposition suit désormais la luminance moyenne du ciel, mesurée sur la table qui s'affiche. `86 302 cd/m²` n'est plus qu'un point d'ancrage de continuité pour un midi. Restent l'adaptation **instantanée** et l'absence de vision **scotopique**. |
 | **Nœud à 5° de `SOLAR_ANCHORS`** | incompatible avec ses propres voisins ; écarté de la validation avec sa justification depuis la phase 8. Trancher demanderait un jeu **BSRN** ou **IDMP/CIE**. |
-| **Socle nocturne** | **forme désormais calculée** (van Rhijn × extinction) ; l'**amplitude** reste posée tant que l'exposition est fixe — l'airglow réel vaut 4·10⁻¹⁰ du blanc d'affichage. Lueur lunaire et halo urbain restent entièrement peints. |
+| **Socle nocturne** | **résolu** : forme et amplitude calculées, couleur peinte supprimée. Le ciel nocturne sort gris par **désaturation scotopique** — les bâtonnets sont monochromatiques. Restent le décalage de Purkinje (faute de `V'(λ)`), la lueur lunaire et le halo urbain. |
 | **Transmittance spectrale réduite à trois nombres** | exacte pour un spectre solaire seulement. Limite de la chaîne RGB, pas du transport. |
 | **Trou d'ozone antarctique** | anthropique et non stationnaire ; une chronologie, pas une formule. |
 | **Rendu des mirages** | la physique est validée ; un maillage ne peut être qu'à un endroit, et le Soleil « vase étrusque » demande que le disque soit rendu *à travers* la fonction de transfert. |

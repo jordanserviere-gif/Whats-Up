@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-29T18:16:58.510Z",
+  "recordedAt": "2026-08-29T18:47:36.042Z",
   "environment": {
     "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl2": true,
@@ -13,82 +13,82 @@
       "phase": "baseline",
       "measurements": {
         "1440x900": {
-          "nsPerPixel": 1.5016619181516957,
-          "minNsPerPixel": 1.4660493828929388,
-          "maxNsPerPixel": 1.531339031162142,
-          "spread": 0.04347826063909525,
-          "msPerPass": 1.9461538459245975,
+          "nsPerPixel": 1.4779202282740067,
+          "minNsPerPixel": 1.442307692130803,
+          "maxNsPerPixel": 1.5135327635327636,
+          "spread": 0.048192771192489235,
+          "msPerPass": 1.915384615843113,
           "reps": 13,
           "samples": 9
         },
         "720x450": {
-          "nsPerPixel": 1.5029522279898326,
-          "minNsPerPixel": 1.4895330114721037,
-          "maxNsPerPixel": 1.5633387008198985,
-          "spread": 0.04910714257798355,
-          "msPerPass": 0.48695652186870575,
-          "reps": 46,
+          "nsPerPixel": 1.4739229028697698,
+          "minNsPerPixel": 1.442428823756643,
+          "maxNsPerPixel": 1.4928193501499265,
+          "spread": 0.03418803405196552,
+          "msPerPass": 0.4775510205298054,
+          "reps": 49,
           "samples": 9
         },
         "360x225": {
-          "nsPerPixel": 1.5379786569345295,
-          "minNsPerPixel": 1.5065913361643966,
-          "maxNsPerPixel": 1.6426030553442386,
-          "spread": 0.08843537494267836,
-          "msPerPass": 0.12457627121169688,
-          "reps": 118,
+          "nsPerPixel": 1.5257395770953526,
+          "minNsPerPixel": 1.35103657046815,
+          "maxNsPerPixel": 1.595620778357819,
+          "spread": 0.16030534408453864,
+          "msPerPass": 0.12358490574472357,
+          "reps": 106,
           "samples": 9
         }
       },
-      "nsPerPixel": 1.5016619181516957,
-      "spread": 0.04347826063909525,
+      "nsPerPixel": 1.4779202282740067,
+      "spread": 0.048192771192489235,
       "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 1.9461538459245977,
-        "1440x900@dpr2": 7.784615383698391,
-        "1920x1080@dpr2": 12.455384613917424
+        "1440x900@dpr1": 1.9153846158431125,
+        "1440x900@dpr2": 7.66153846337245,
+        "1920x1080@dpr2": 12.25846154139592
       }
     },
     "lecture de la table de perspective atmospherique (phase 9)": {
       "phase": "9",
       "measurements": {
         "1440x900": {
-          "nsPerPixel": 0.07419278252611586,
-          "minNsPerPixel": 0.05800526633859967,
-          "maxNsPerPixel": 0.09118967455516956,
-          "spread": 0.4472727277062156,
-          "msPerPass": 0.09615384615384616,
-          "reps": 286,
+          "nsPerPixel": 0.0864875865128564,
+          "minNsPerPixel": 0.05681047350241006,
+          "maxNsPerPixel": 0.08987925649538339,
+          "spread": 0.3823529401882159,
+          "msPerPass": 0.1120879121206619,
+          "reps": 182,
           "samples": 9
         },
         "720x450": {
-          "nsPerPixel": 0.07037037040716336,
-          "minNsPerPixel": 0.048765432043575946,
-          "maxNsPerPixel": 0.09135802467296153,
-          "spread": 0.6052631581011242,
-          "msPerPass": 0.02280000001192093,
-          "reps": 500,
+          "nsPerPixel": 0.06512345677172696,
+          "minNsPerPixel": 0.04444444446284094,
+          "maxNsPerPixel": 0.0753086419477139,
+          "spread": 0.4739336487167633,
+          "msPerPass": 0.021099999994039532,
+          "reps": 1000,
           "samples": 9
         },
         "360x225": {
-          "nsPerPixel": 0.06296296288937699,
-          "minNsPerPixel": 0.04814814822173413,
-          "maxNsPerPixel": 0.09629629625950331,
-          "spread": 0.7647058814935893,
-          "msPerPass": 0.0050999999940395365,
-          "reps": 1000,
+          "nsPerPixel": 0.09345334739857677,
+          "minNsPerPixel": 0.054104569083642494,
+          "maxNsPerPixel": 0.11312773582311582,
+          "spread": 0.6315789469556465,
+          "msPerPass": 0.007569721139284719,
+          "reps": 251,
           "samples": 9
         }
       },
-      "nsPerPixel": 0.07419278252611586,
-      "spread": 0.4472727277062156,
+      "nsPerPixel": 0.0864875865128564,
+      "spread": 0.3823529401882159,
       "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 0.09615384615384616,
-        "1440x900@dpr2": 0.38461538461538464,
-        "1920x1080@dpr2": 0.6153846153846154
+        "1440x900@dpr1": 0.11208791212066191,
+        "1440x900@dpr2": 0.44835164848264764,
+        "1920x1080@dpr2": 0.7173626375722362
       }
     }
   },
@@ -98,14 +98,14 @@
       "sunAltitude": 64.54367365797758,
       "directions": {
         "zenith": [
-          138,
-          170,
+          137,
+          169,
           212
         ],
         "vers-soleil-30": [
-          158,
-          190,
-          227
+          156,
+          189,
+          226
         ],
         "vers-soleil-horizon": [
           225,
@@ -113,14 +113,14 @@
           231
         ],
         "perpendiculaire-30": [
-          110,
-          159,
-          216
+          106,
+          157,
+          215
         ],
         "antisoleil-30": [
-          91,
-          146,
-          210
+          87,
+          144,
+          209
         ],
         "antisoleil-horizon": [
           210,
@@ -134,12 +134,12 @@
       "sunAltitude": 35.7498695066071,
       "directions": {
         "zenith": [
-          78,
-          122,
-          183
+          76,
+          120,
+          182
         ],
         "vers-soleil-30": [
-          200,
+          199,
           217,
           235
         ],
@@ -149,17 +149,17 @@
           238
         ],
         "perpendiculaire-30": [
-          92,
-          145,
-          204
+          88,
+          142,
+          203
         ],
         "antisoleil-30": [
-          84,
-          143,
-          205
+          80,
+          141,
+          204
         ],
         "antisoleil-horizon": [
-          214,
+          213,
           220,
           223
         ]
@@ -170,12 +170,12 @@
       "sunAltitude": 9.433806659281156,
       "directions": {
         "zenith": [
-          50,
-          92,
-          139
+          47,
+          89,
+          136
         ],
         "vers-soleil-30": [
-          181,
+          180,
           196,
           208
         ],
@@ -185,14 +185,14 @@
           238
         ],
         "perpendiculaire-30": [
-          80,
-          129,
-          173
+          76,
+          126,
+          170
         ],
         "antisoleil-30": [
-          97,
-          151,
-          192
+          94,
+          149,
+          191
         ],
         "antisoleil-horizon": [
           217,
@@ -206,14 +206,14 @@
       "sunAltitude": 0.4029691484576414,
       "directions": {
         "zenith": [
-          62,
-          79,
-          103
+          59,
+          76,
+          98
         ],
         "vers-soleil-30": [
-          165,
-          159,
-          165
+          164,
+          158,
+          163
         ],
         "vers-soleil-horizon": [
           255,
@@ -221,18 +221,18 @@
           0
         ],
         "perpendiculaire-30": [
-          99,
-          114,
-          130
+          96,
+          111,
+          126
         ],
         "antisoleil-30": [
-          128,
-          145,
-          157
+          126,
+          142,
+          154
         ],
         "antisoleil-horizon": [
           206,
-          89,
+          88,
           0
         ]
       }
@@ -242,34 +242,34 @@
       "sunAltitude": -5.391881930019669,
       "directions": {
         "zenith": [
-          14,
-          25,
-          51
+          11,
+          20,
+          40
         ],
         "vers-soleil-30": [
-          57,
-          88,
-          140
+          53,
+          84,
+          136
         ],
         "vers-soleil-horizon": [
           248,
-          210,
+          209,
           0
         ],
         "perpendiculaire-30": [
-          24,
-          37,
-          65
+          19,
+          30,
+          55
         ],
         "antisoleil-30": [
-          19,
-          25,
-          44
+          13,
+          18,
+          31
         ],
         "antisoleil-horizon": [
-          4,
-          3,
-          3
+          1,
+          1,
+          2
         ]
       }
     },
@@ -278,34 +278,34 @@
       "sunAltitude": -10.475052231501428,
       "directions": {
         "zenith": [
-          4,
-          5,
-          12
+          1,
+          1,
+          1
         ],
         "vers-soleil-30": [
-          7,
-          8,
-          17
+          2,
+          2,
+          2
         ],
         "vers-soleil-horizon": [
-          242,
-          216,
-          82
+          238,
+          217,
+          152
         ],
         "perpendiculaire-30": [
-          6,
-          8,
-          16
+          1,
+          1,
+          1
         ],
         "antisoleil-30": [
-          6,
-          8,
-          16
+          1,
+          1,
+          1
         ],
         "antisoleil-horizon": [
-          4,
-          3,
-          2
+          1,
+          1,
+          1
         ]
       }
     },
@@ -315,33 +315,33 @@
       "directions": {
         "zenith": [
           3,
-          4,
-          10
+          3,
+          3
         ],
         "vers-soleil-30": [
           5,
-          7,
-          14
+          5,
+          5
         ],
         "vers-soleil-horizon": [
-          31,
-          8,
-          0
+          12,
+          12,
+          12
         ],
         "perpendiculaire-30": [
           5,
-          7,
-          14
+          5,
+          5
         ],
         "antisoleil-30": [
           5,
-          7,
-          14
+          5,
+          5
         ],
         "antisoleil-horizon": [
-          3,
           1,
-          0
+          1,
+          1
         ]
       }
     },

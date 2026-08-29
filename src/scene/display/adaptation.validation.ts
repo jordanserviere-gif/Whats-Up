@@ -41,8 +41,11 @@ import {
   DISPLAY_DECADES,
   REFERENCE_SKY_LUMINANCE,
   SCENE_DECADES,
+  PHOTOPIC_FLOOR,
+  SCOTOPIC_CEILING,
   adaptiveSkyExposure,
   adaptiveWhiteLuminance,
+  scotopicWeight,
 } from './adaptation'
 
 const grid = uniformSpectralGrid(360, 830, 16)
@@ -163,6 +166,34 @@ export function adaptationSuite(): SuiteResult {
         `ecart relatif maximal ${(worstAgreement * 100).toFixed(1)} % a ${worstSun}° — la table ` +
           'parcourt ses 64 × 32 texels, le solveur echantillonne 24 × 48 directions ' +
           'uniformement en cosinus zenithal. Rien de commun sinon la physique',
+      )
+
+      // --- La vision scotopique ------------------------------------------------
+      // Les batonnets sont monochromatiques : ce n'est pas une approximation,
+      // ils ne portent qu'un pigment. Sous 0,01 cd/m² il n'y a plus de vision
+      // des couleurs du tout.
+      t.check('vision entierement batonnets sous le plafond scotopique', scotopicWeight(1e-4), 1, 0)
+      t.check('et entierement cones au-dessus du plancher photopique', scotopicWeight(10), 0, 0)
+      t.checkMonotonic(
+        'la bascule est monotone',
+        [1e-4, 3e-3, 0.03, 0.3, 1, 3, 30].map((l) => scotopicWeight(l)),
+        'decroissant',
+      )
+      // ⚠️ L'interpolation se fait en **logarithme** de la luminance : l'oeil
+      // travaille en decades. En lineaire, un ciel a 1,8 cd/m² — presque
+      // photopique — ressortait a 34 % de vision batonnets, et la bande orange
+      // du crepuscule nautique en devenait grise.
+      t.checkTrue(
+        'a 1,8 cd/m², la vision est deja presque entierement photopique',
+        scotopicWeight(1.8) < 0.1,
+        `${(scotopicWeight(1.8) * 100).toFixed(1)} % de batonnets — en interpolation lineaire ` +
+          'ce serait 34 %, et l’horizon crepusculaire virerait au gris',
+      )
+      t.checkRelative(
+        'le milieu du domaine mesopique tombe a la moitie, en decades',
+        scotopicWeight(Math.sqrt(SCOTOPIC_CEILING * PHOTOPIC_FLOOR)),
+        0.5,
+        1e-9,
       )
 
       // --- Ce que cela change au crepuscule ----------------------------------------

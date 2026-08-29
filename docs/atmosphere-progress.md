@@ -1519,6 +1519,40 @@ rompu. Quatrième fois de la session ; le rendu n'a été en cause aucune.
 
 ---
 
+## Passe globale — socle nocturne **entièrement physique**
+
+L'amplitude de l'airglow était bloquée par l'exposition fixe. L'adaptation l'a
+débloquée : le plancher d'adaptation **est** la luminance de l'airglow, et la
+couleur peinte a disparu.
+
+| Sonde de nuit | Peinte | Calculée |
+| --- | --- | --- |
+| zénith | 3,4,10 | **3,3,3** |
+| vers le Soleil, 30° | 5,7,14 | **5,5,5** |
+
+### La vision scotopique était indispensable
+
+L'airglow est physiquement **verdâtre** (raie à 557,7 nm). Le brancher tel quel
+donnait un ciel vert — non parce que le calcul est faux, mais parce que **l'œil
+ne voit pas les couleurs à ces luminances** : les bâtonnets ne portent qu'un
+pigment. C'est de l'anatomie, pas une approximation.
+
+### ⚠️ Deux erreurs sur la bascule
+
+**Locale, non globale** : employer la moyenne du ciel grisait la bande orange de
+l'horizon (`220,220,220`), alors que la dominance des cônes dépend de
+l'éclairement **local** — c'est pourquoi on voit la couleur d'un feu la nuit.
+
+**Logarithmique, non linéaire** : à 1,8 cd/m², l'interpolation linéaire donnait
+34 % de bâtonnets ; en décades, 2,3 %. Bande orange rétablie à **238,217,152**.
+
+### ⚠️ Restent
+
+Décalage de Purkinje (faute de `V'(λ)` — la nuit sort grise, non gris-bleu) ;
+lueur lunaire et halo urbain toujours peints.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1548,3 +1582,4 @@ rompu. Quatrième fois de la session ; le rendu n'a été en cause aucune.
 | 2026-08-27 | Phase 20 — 60 fps mesurés ; blocage de 124 ms supprimé ; mesure ratée en rendu logiciel, corrigée ; **646 contrôles** |
 | 2026-08-29 | Dette du socle nocturne — airglow calculé, dégradé émergent ; l'amplitude reste bloquée par l'exposition fixe ; **658 contrôles** |
 | 2026-08-29 | Dette de l'exposition — adaptation visuelle ; exposant dérivé, pas choisi ; le crépuscule existe enfin ; **670 contrôles** |
+| 2026-08-29 | Passe globale — socle nocturne entièrement physique ; désaturation scotopique locale et logarithmique ; **675 contrôles** |

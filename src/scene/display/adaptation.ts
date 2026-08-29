@@ -137,6 +137,45 @@ export function adaptiveWhiteLuminance(meanSkyLuminanceCdPerM2: number): number 
 }
 
 /**
+ * Luminance sous laquelle la vision est entierement assuree par les batonnets.
+ *
+ * Les valeurs 0,01 et 3 cd/m² bornent le domaine **mesopique**, ou cones et
+ * batonnets fonctionnent ensemble. Ce sont des bornes d'usage en photometrie, et
+ * elles sont solides — bien plus que les details de la transition entre elles.
+ */
+export const SCOTOPIC_CEILING = 0.01
+export const PHOTOPIC_FLOOR = 3
+
+/**
+ * Part de la vision assuree par les batonnets, de 0 a 1.
+ *
+ * **Les batonnets sont monochromatiques.** Ce n'est pas une approximation : ils
+ * ne portent qu'un seul pigment, et aucune comparaison entre types de recepteurs
+ * n'est possible. Sous 0,01 cd/m², l'oeil ne distingue donc **aucune couleur** —
+ * un fait que chacun verifie en regardant un paysage au clair de lune.
+ *
+ * C'est ce qui interdit d'afficher un ciel nocturne colore. L'airglow est
+ * physiquement verdatre — sa raie a 557,7 nm domine — mais personne ne voit ce
+ * vert : a ces luminances, il n'y a plus de vision des couleurs du tout.
+ *
+ * ⚠️ **La desaturation est le seul effet scotopique modelise.** Le decalage de
+ * Purkinje — la sensibilite qui glisse vers le bleu, 507 nm au lieu de 555 —
+ * demanderait la courbe `V'(λ)`, que le moteur n'embarque pas. Le ciel nocturne
+ * est donc rendu **gris** la ou un observateur le percoit legerement bleute.
+ *
+ * La transition est interpolee en logarithme de la luminance, l'oeil travaillant
+ * en decades ; sa forme exacte n'est pas mesuree, ses bornes le sont.
+ */
+export function scotopicWeight(luminanceCdPerM2: number): number {
+  const l = Math.max(1e-12, luminanceCdPerM2)
+  if (l <= SCOTOPIC_CEILING) return 1
+  if (l >= PHOTOPIC_FLOOR) return 0
+  const t = Math.log10(l / SCOTOPIC_CEILING) / Math.log10(PHOTOPIC_FLOOR / SCOTOPIC_CEILING)
+  // Lissage cubique : une rampe lineaire laisserait un coude visible au passage.
+  return 1 - t * t * (3 - 2 * t)
+}
+
+/**
  * Facteur a appliquer a une radiance sRGB lineaire pour l'afficher.
  *
  * Meme relation qu'a exposition fixe — `683·R/L_blanc` — mais avec un blanc qui

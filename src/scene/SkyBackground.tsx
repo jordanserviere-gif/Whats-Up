@@ -7,6 +7,7 @@ import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { spectralToLinearSrgb } from '@/atmosphere/spectral/SpectralSensor'
 import { aerialUniforms, applyAerialUniforms, useAerialLut } from './useAerialLut'
+import { PHOTOPIC_FLOOR, SCOTOPIC_CEILING } from './display/adaptation'
 import { setRefractionEnabled } from '@/atmosphere/refraction/refractionTable'
 import { refractionSite } from './refractionTexture'
 import { DOME_RADIUS } from './sceneMath'
@@ -96,6 +97,9 @@ function buildSkyMaterial(): ShaderMaterial {
     uniform vec3 uAirglowZenith;
     uniform float uAirglowRadiusRatio;
     uniform float uSkyExposure;
+    uniform float uScotopic;
+    uniform float uScotopicCeiling;
+    uniform float uPhotopicFloor;
 
     void main() {
       vec3 dir = normalize(vDir);
@@ -131,38 +135,63 @@ function buildSkyMaterial(): ShaderMaterial {
       // La transmittance employee est celle que la table de perspective avait
       // deja calculee pour le fond de ciel, et que ce nuanceur jetait.
       //
-      // ⚠️ **L'amplitude, elle, reste un choix d'affichage.** L'airglow reel vaut
-      // 3,7e-5 cd/m² au zenith, soit 4e-10 du blanc d'affichage : rigoureusement
-      // invisible a exposition fixe. C'est la raison pour laquelle ce socle
-      // etait peint, et elle ne disparaitra qu'avec un modele d'adaptation —
-      // l'oeil couvre six ordres de grandeur entre le jour et la nuit, une
-      // exposition fixe n'en couvre aucun.
-      //
-      // Ce qui change ici : la **forme** vient desormais de la geometrie de la
-      // couche et de l'extinction. Seule l'amplitude est encore posee.
+      // **L'amplitude est desormais physique aussi.** Elle ne l'etait pas tant
+      // que l'exposition restait fixe : l'airglow vaut 3,7e-5 cd/m² au zenith,
+      // soit 4e-10 d'un blanc ancre a 86 302. Depuis que l'exposition suit la
+      // luminance du ciel, le plancher d'adaptation est precisement cette
+      // valeur, et l'airglow retrouve sa place — la couleur peinte a disparu.
       float h = clamp(dir.y, -1.0, 1.0);
       float sinZ = sqrt(max(0.0, 1.0 - h * h));
       float shell = uAirglowRadiusRatio * sinZ;
       float vanRhijn = inversesqrt(max(1e-6, 1.0 - shell * shell));
+      vec3 airglow = uAirglowZenith * vanRhijn * transmittanceToSpace * uAerialExposure;
 
-      // Profil normalise au zenith : la transmittance verticale y vaut celle du
-      // texel du haut de la table, que l'on retrouve en visant le zenith.
-      vec3 zenithTransmittance;
-      aerialPerspectiveToSpace(vec3(0.0, 1.0, 0.0), zenithTransmittance);
-      vec3 shape = (vanRhijn * transmittanceToSpace) / max(vec3(1e-6), zenithTransmittance);
-      vec3 night = uNight * shape;
-
-      // --- Ce qui reste entierement peint -------------------------------------
+      // --- Ce qui reste peint ---------------------------------------------------
       // La lueur lunaire est de la diffusion, exactement comme le ciel de jour :
       // sa place est dans le transport, avec la Lune pour source. Le halo urbain
       // est une emission renvoyee par l'atmosphere, que decrit le modele de
       // Garstang (1989). Ni l'un ni l'autre n'est encore calcule.
       float toMoon = max(0.0, dot(dir, normalize(uMoonDir)));
-      vec3 painted = night + uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
+      vec3 painted = uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
       float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
       painted += uPollution * (0.3 + 0.7 * lowSky);
 
-      gl_FragColor = vec4(radianceFromDisplay(painted) + scattered, 1.0);
+      vec3 total = radianceFromDisplay(painted) + scattered + airglow;
+
+      // --- Vision scotopique : les batonnets ne voient pas les couleurs ---------
+      //
+      // Sous 0,01 cd/m² l'oeil ne distingue plus aucune teinte : les batonnets
+      // ne portent qu'un pigment, et aucune comparaison entre recepteurs n'est
+      // possible. L'airglow est physiquement verdatre — sa raie a 557,7 nm
+      // domine — mais personne ne voit ce vert.
+      //
+      // **La bascule est locale, non globale.** Une premiere version employait
+      // la luminance moyenne du ciel et grisait donc tout, y compris la bande
+      // orange de l'horizon au crepuscule nautique — qui rendait un 220,220,220
+      // absurde alors qu'elle est la chose la plus lumineuse du ciel.
+      //
+      // C'est faux : l'adaptation est globale, mais la dominance des cones
+      // depend de l'eclairement retinien **local**. C'est pourquoi on voit la
+      // couleur d'un feu la nuit pendant que le reste du paysage reste gris.
+      //
+      // ⚠️ Seule la desaturation est modelisee. Le decalage de Purkinje, qui
+      // ferait tirer la nuit vers le bleu, demanderait la courbe V'(lambda) que
+      // le moteur n'embarque pas : le ciel nocturne sort donc **gris**.
+      float lum = dot(total, vec3(0.2126, 0.7152, 0.0722));
+      // Retour en candelas par metre carre : total est une radiance deja
+      // multipliee par l'exposition, et la luminance vaut 683 fois la luma.
+      float localCdM2 = (683.0 * lum) / max(1e-9, uAerialExposure);
+      // **En logarithme, non en lineaire.** L'oeil travaille en decades, et le
+      // domaine mesopique en couvre deux et demie. Interpole lineairement, un
+      // ciel a 1,8 cd/m² se retrouvait a 34 % de vision batonnets alors qu'il
+      // est presque photopique — la bande orange du crepuscule nautique en
+      // ressortait grise.
+      float decades = log2(max(1e-9, localCdM2) / uScotopicCeiling) /
+                      log2(uPhotopicFloor / uScotopicCeiling);
+      float rods = 1.0 - smoothstep(0.0, 1.0, decades);
+      total = mix(total, vec3(lum), rods * uScotopic);
+
+      gl_FragColor = vec4(total, 1.0);
     }
   `
 
@@ -180,6 +209,16 @@ function buildSkyMaterial(): ShaderMaterial {
       uAirglowZenith: { value: new Vector3() },
       /** `R/(R+h)` pour la couche d'airglow — le seul terme du facteur van Rhijn. */
       uAirglowRadiusRatio: { value: 0 },
+      /**
+       * Interrupteur global de la desaturation scotopique.
+       *
+       * Il ne porte que l'extinction du calque atmosphere : la bascule
+       * elle-meme se fait **par pixel**, sur la luminance locale.
+       */
+      uScotopic: { value: 0 },
+      /** Bornes du domaine mesopique, cd/m². */
+      uScotopicCeiling: { value: SCOTOPIC_CEILING },
+      uPhotopicFloor: { value: PHOTOPIC_FLOOR },
       /** Exposition d'affichage, partagee avec la diffusion. */
       uSkyExposure: { value: 0 },
       uMoonDir: { value: new Vector3(0, -1, 0) },
@@ -302,6 +341,9 @@ export function SkyBackground({
     )
     u.uAirglowRadiusRatio.value = AIRGLOW_RADIUS_RATIO
     u.uSkyExposure.value = skyExposure
+    // La desaturation suit la luminance du ciel reellement affiche, la meme qui
+    // pilote l'exposition. Sans atmosphere, la question ne se pose pas.
+    u.uScotopic.value = atmosphereEnabled ? 1 : 0
 
     const malt = (moonAltitude * Math.PI) / 180
     const maz = (moonAzimuth * Math.PI) / 180
