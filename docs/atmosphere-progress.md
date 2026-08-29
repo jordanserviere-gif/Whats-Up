@@ -1479,6 +1479,46 @@ basse d'un facteur cinq, non corrigée ; et une troisième mesure ratée
 
 ---
 
+## Dette — adaptation visuelle · **RÉSOLUE**
+
+`scene/display/adaptation.ts` : l'exposition suit la luminance moyenne du ciel,
+**mesurée sur la table qui s'affiche**.
+
+L'exposant n'est pas choisi — `1 − décades_écran/décades_scène` = **0,747**, une
+adaptation à 75 %. Le seul choix est de consacrer **deux décades** d'écran à
+l'écart jour/nuit, et la validation en mesure la conséquence exacte.
+
+La continuité de midi est **exacte au bit près**. Dix-neuf sondes ont dérivé,
+toutes vers le crépuscule :
+
+| Sonde | Fixe | Adaptative |
+| --- | --- | --- |
+| coucher / zénith | 18,24,37 | **62,79,103** |
+| crépuscule civil / vers le Soleil 30° | 7,9,17 | **57,88,140** |
+
+**Le crépuscule existe enfin.**
+
+### ⚠️ Deux erreurs de pondération, attrapées par le recoupement
+
+La moyenne de la table doit égaler celle du solveur. Le jacobien omettait son
+`cos(hauteur)` (**24,6 %** d'écart), puis la pondération en **cosinus** — qui est
+l'éclairement d'une surface, non ce que voit l'œil — faisait saturer l'horizon
+crépusculaire à `254,246,194`. Corrigé en moyenne d'**angle solide** : **1,2 %**.
+
+### ⚠️ Ce qui reste
+
+Adaptation **instantanée** ; vision **scotopique** absente (`V'(λ)` non
+embarquée) ; et la **courbe de tonalité** devient le facteur limitant — la bande
+claire de l'horizon vaut jusqu'à 37× la moyenne et l'ACES approché l'écrête.
+
+### ⚠️ Une quatrième mesure ratée
+
+`import()` dynamique depuis la page créait une **seconde instance** du module
+après rechargement à chaud — je lisais des zéros et j'ai conclu à un câblage
+rompu. Quatrième fois de la session ; le rendu n'a été en cause aucune.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1507,3 +1547,4 @@ basse d'un facteur cinq, non corrigée ; et une troisième mesure ratée
 | 2026-08-27 | Phase 19 — ozone et distance solaire câblés ; crépuscule 61 % plus bleu aux hautes latitudes ; registre des incertitudes ; **645 contrôles** |
 | 2026-08-27 | Phase 20 — 60 fps mesurés ; blocage de 124 ms supprimé ; mesure ratée en rendu logiciel, corrigée ; **646 contrôles** |
 | 2026-08-29 | Dette du socle nocturne — airglow calculé, dégradé émergent ; l'amplitude reste bloquée par l'exposition fixe ; **658 contrôles** |
+| 2026-08-29 | Dette de l'exposition — adaptation visuelle ; exposant dérivé, pas choisi ; le crépuscule existe enfin ; **670 contrôles** |

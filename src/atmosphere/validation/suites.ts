@@ -39,6 +39,7 @@ import { atmosphereStateSuite } from '../state/AtmosphereState.validation'
 import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.validation'
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
 import { displayTransformSuite } from './display.validation'
+import { adaptationSuite } from '@/scene/display/adaptation.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -60,6 +61,8 @@ export function allSuites(): SuiteResult[] {
     rayleighSuite(),
     // Phase 0.5 — chaine d'affichage lineaire.
     displayTransformSuite(),
+    // Dette : adaptation visuelle — l'exposition suit le ciel.
+    adaptationSuite(),
     // Phase 4 — transport direct.
     slantPathSuite(),
     directSolarSuite(),

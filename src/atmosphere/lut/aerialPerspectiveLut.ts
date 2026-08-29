@@ -83,6 +83,15 @@ export interface AerialLut {
   readonly scattered: Float32Array
   /** Transmittance du rayon primaire, `RGBA` — l'alpha est inutilise. */
   readonly transmittance: Float32Array
+  /**
+   * Luminance moyenne du ciel, ponderee par le cosinus zenithal, cd/m².
+   *
+   * C'est `E_diffus/π` : la luminance a laquelle un observateur qui regarde le
+   * ciel s'adapte. Elle est calculee **pendant** le remplissage de la tranche
+   * lointaine, a partir des valeurs qu'on y ecrit deja — elle ne coute donc
+   * rien, et elle est par construction celle du ciel reellement affiche.
+   */
+  meanSkyLuminanceCdPerM2: number
 }
 
 export interface AerialLutOptions extends SingleScatteringOptions {
@@ -105,7 +114,50 @@ export function createAerialLut(options: AerialLutOptions = {}): AerialLut {
     depth,
     scattered: new Float32Array(size),
     transmittance: new Float32Array(size),
+    meanSkyLuminanceCdPerM2: 0,
   }
+}
+
+/**
+ * Luminance moyenne du ciel portee par la tranche lointaine, cd/m².
+ *
+ * **Moyenne en angle solide, non ponderee par le cosinus.** La distinction n'est
+ * pas academique :
+ *
+ * - `∫L·cos z dω` est l'**eclairement** sur une surface horizontale. Le zenith y
+ *   pese le plus, l'horizon presque rien.
+ * - `∫L dω` est la luminance moyenne **de ce qu'on voit**, et c'est a elle que
+ *   l'oeil s'adapte.
+ *
+ * Au crepuscule les deux different enormement : le zenith est sombre, l'horizon
+ * brille. Employer l'eclairement fait alors s'adapter l'oeil au zenith, et la
+ * bande claire de l'horizon **sature** — le banc rendait un `254,246,194` blanc
+ * au crepuscule nautique, ce qu'aucun observateur ne voit.
+ *
+ * La parametrisation etant `hauteur = (π/2)v²`, la mesure d'angle solide vaut
+ * `dµ = cos(hauteur)·π·v·dv`.
+ */
+export function measureMeanSkyLuminance(lut: AerialLut): number {
+  const { width, height, depth, scattered } = lut
+  let total = 0
+  let weightTotal = 0
+  for (let y = 0; y < height; y++) {
+    const v = height > 1 ? y / (height - 1) : 0
+    const altitudeDeg = skyViewAltitudeDeg(v)
+    const altitudeRad = (altitudeDeg * Math.PI) / 180
+    // Jacobien de la parametrisation, et rien d'autre : c'est une moyenne en
+    // angle solide. Le `cos(hauteur)` n'est pas un detail — l'oublier
+    // surpondere le zenith, ou le parametrage s'etire.
+    const weight = Math.cos(altitudeRad) * Math.max(1e-6, v)
+    for (let x = 0; x < width; x++) {
+      const i = (((depth - 1) * height + y) * width + x) * 4
+      // La ligne Y de la matrice sRGB : la luminance vaut `683 × Y`.
+      const y709 = 0.2126 * scattered[i] + 0.7152 * scattered[i + 1] + 0.0722 * scattered[i + 2]
+      total += Math.max(0, y709) * weight
+      weightTotal += weight
+    }
+  }
+  return weightTotal > 0 ? (683 * total) / weightTotal : 0
 }
 
 const solarRgbCache = new Map<string, LinearRgb>()

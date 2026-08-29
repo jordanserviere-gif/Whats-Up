@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 658 contrôles, 30 suites, aucun échec.**
+**État : 670 contrôles, 31 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2919,6 +2919,113 @@ de la phase 20.
 
 ---
 
+## L'adaptation visuelle — dette du registre
+
+### Le probleme, chiffre
+
+Le ciel couvre **huit decades** de luminance entre un midi (3 863 cd/m² en
+moyenne) et un ciel sans Lune (3,7·10⁻⁵). Un ecran en couvre deux ou trois.
+
+Une exposition **fixe** doit donc choisir. Le moteur avait choisi le jour, et
+c'est pourquoi tout le reste etait peint : le socle nocturne, et un crepuscule
+qui rendait `4,6,13` — invisible.
+
+### L'exposant n'est pas choisi, il se deduit
+
+```
+L_blanc = L_ref · (L_ciel / L_ref)^p        p = 1 − décades_écran / décades_scène
+```
+
+`p = 1` serait une adaptation totale : plus de jour ni de nuit. `p = 0`
+redonnerait l'exposition fixe. Entre les deux, la dynamique restituee vaut
+`decades_scene × (1 − p)` — et on veut qu'elle soit celle que l'ecran peut
+montrer.
+
+**Aucun des deux nombres n'est esthetique** : le premier est une propriete de
+l'ecran, le second une mesure du moteur. L'exposant en sort — **0,747**, une
+adaptation a 75 %, les 25 % restants portant toute la sensation de jour et de
+nuit.
+
+Le seul choix est `DISPLAY_DECADES = 2` : combien de la dynamique de l'ecran
+consacrer a l'ecart jour/nuit plutot qu'au contraste **a l'interieur** d'une
+image. Il est enonce en termes de ce qu'un ecran peut faire, non en candelas
+arbitraires, et la validation en mesure la consequence exacte.
+
+### Le ciel decide de sa propre exposition
+
+La luminance d'adaptation est **mesuree sur la table de ciel elle-meme**, en
+moyennant sa tranche lointaine — pas lue dans une table d'ancres exterieure. Elle
+ne coute rien : les valeurs sont deja ecrites.
+
+Recoupement : cette moyenne doit egaler celle qu'obtient le solveur en
+echantillonnant l'hemisphere. **1,2 % d'ecart**, par deux parcours sans rien de
+commun.
+
+### ⚠️ Angle solide, et non eclairement — la distinction n'est pas academique
+
+Une premiere version ponderait la moyenne par `cos z`, ce qui donne
+l'**eclairement** sur une surface horizontale. Au crepuscule, le zenith est
+sombre et l'horizon brille : l'oeil s'adaptait donc au zenith, et la bande claire
+de l'horizon **saturait** — le banc rendait un `254,246,194` blanc au crepuscule
+nautique.
+
+L'oeil s'adapte a ce qu'il **voit**, donc a la moyenne en **angle solide**. Le
+changement a resorbe la saturation et modifie l'ancre de 3 039 a 3 863 cd/m².
+
+Une seconde erreur avait precede : le jacobien de la parametrisation verticale
+`hauteur = (π/2)v²` omettait son `cos(hauteur)`, ce qui surponderait le zenith et
+donnait **24,6 %** d'ecart au solveur. Corrige : 1,2 %.
+
+### Ce que cela change
+
+La continuite de midi est **exacte** — a la luminance de reference, l'exposition
+adaptative vaut la fixe au bit pres, comme en phase 0.5. Tout l'ecart se voit
+ailleurs :
+
+| Sonde | Fixe | Adaptative |
+| --- | --- | --- |
+| coucher / zénith | 18,24,37 | **62,79,103** |
+| coucher / perpendiculaire 30° | 31,38,49 | **99,114,130** |
+| crépuscule civil / zénith | 4,6,13 | **14,25,51** |
+| crépuscule civil / vers le Soleil 30° | 7,9,17 | **57,88,140** |
+| nuit / vers le Soleil, horizon | 3,1,0 | 31,8,0 |
+
+Dix-neuf sondes ont derive, toutes vers le crepuscule et le coucher. **Le
+crepuscule existe enfin** : la ou le ciel rendait `4,6,13`, il montre desormais
+un degrade complet du bleu profond au rouge de l'horizon.
+
+### ⚠️ Ce que ce module ne fait pas
+
+**L'adaptation est instantanee.** L'oeil met des secondes a des minutes ; ici le
+changement suit la scene sans retard. C'est le bon choix pour une application ou
+l'on fait defiler le temps, mais ce n'est pas ce que vit un observateur.
+
+**La vision scotopique n'est pas modelisee.** Sous 0,01 cd/m² les batonnets
+prennent le relais : la couleur disparait, la sensibilite se decale vers le bleu,
+l'acuite s'effondre. Le rendre demanderait la courbe `V'(λ)`, que le moteur
+n'embarque pas — c'est pourquoi le ciel nocturne garde ses couleurs photopiques,
+ce qu'aucun observateur ne verrait.
+
+**La courbe de tonalite devient le facteur limitant.** Au crepuscule, la bande
+claire de l'horizon vaut seize a trente-sept fois la moyenne du ciel, et l'ACES
+approche du moteur l'ecrete. Ce n'etait pas visible tant que rien n'etait clair a
+ces heures-la. La courbe et son `DISPLAY_SATURATION = 1,4` sont deja au registre
+comme parametres choisis ; ils y montent d'un cran.
+
+### ⚠️ Une quatrieme mesure ratee
+
+Pour verifier le cablage, je lisais `aerialTextures` depuis la page par un
+`import()` dynamique — et j'obtenais des valeurs nulles. J'en ai conclu que le
+cablage etait rompu. C'etait faux : apres un rechargement a chaud, Vite sert le
+module sous une autre URL, et `import()` en creait une **seconde instance**. Le
+rayon de l'observateur valait 6 371 000 au lieu de 6 371 035, ce qui l'a trahi.
+
+Quatrieme fois de cette session qu'une mesure mal conditionnee donne un resultat
+aberrant, apres le banc GPU de la phase 0, le rendu logiciel de la phase 20 et le
+`getImageData` de l'airglow. **Le rendu n'a ete en cause aucune de ces fois.**
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -2957,7 +3064,7 @@ en est.
 
 | | |
 | --- | --- |
-| **Ancre d'exposition** | `86 302 cd/m²` est l'ancre de **continuité**, choisie pour que le refactor ne change rien. L'ancre photographique serait 34 377. La vraie réponse est un **modèle d'adaptation** piloté par l'éclairement de la scène, que le moteur calcule déjà. |
+| **Ancre d'exposition** | **résolue** : l'exposition suit désormais la luminance moyenne du ciel, mesurée sur la table qui s'affiche. `86 302 cd/m²` n'est plus qu'un point d'ancrage de continuité pour un midi. Restent l'adaptation **instantanée** et l'absence de vision **scotopique**. |
 | **Nœud à 5° de `SOLAR_ANCHORS`** | incompatible avec ses propres voisins ; écarté de la validation avec sa justification depuis la phase 8. Trancher demanderait un jeu **BSRN** ou **IDMP/CIE**. |
 | **Socle nocturne** | **forme désormais calculée** (van Rhijn × extinction) ; l'**amplitude** reste posée tant que l'exposition est fixe — l'airglow réel vaut 4·10⁻¹⁰ du blanc d'affichage. Lueur lunaire et halo urbain restent entièrement peints. |
 | **Transmittance spectrale réduite à trois nombres** | exacte pour un spectre solaire seulement. Limite de la chaîne RGB, pas du transport. |

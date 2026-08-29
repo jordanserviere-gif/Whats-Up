@@ -58,6 +58,7 @@ import {
   AERIAL_LUT_WIDTH,
   createAerialLut,
   fillAerialRows,
+  measureMeanSkyLuminance,
   type AerialLut,
 } from '@/atmosphere/lut/aerialPerspectiveLut'
 import {
@@ -68,6 +69,8 @@ import {
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
+import { adaptiveSkyExposure } from './display/adaptation'
+import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
 
 /**
  * Grille spectrale du transport.
@@ -183,6 +186,13 @@ export interface AerialTextures {
   size: Vector3
   /** Distance du centre de la Terre a l'observateur, metres. */
   observerRadiusM: number
+  /**
+   * Luminance moyenne du ciel, cd/m² — ce a quoi l'oeil s'adapte.
+   *
+   * Mesuree sur la table elle-meme, donc sur le ciel reellement affiche. C'est
+   * elle qui pilote l'exposition, et non une table d'ancres exterieure.
+   */
+  meanSkyLuminanceCdPerM2: number
 }
 
 /**
@@ -200,6 +210,7 @@ export const aerialTextures: AerialTextures = {
   transmittance: null,
   size: new Vector3(AERIAL_LUT_WIDTH, AERIAL_LUT_HEIGHT, AERIAL_LUT_DEPTH),
   observerRadiusM: EARTH_MEAN_RADIUS_M,
+  meanSkyLuminanceCdPerM2: 0,
 }
 
 /**
@@ -238,7 +249,22 @@ export function applyAerialUniforms(
   uniforms.uAerialScattered.value = aerialTextures.scattered
   uniforms.uAerialTransmittance.value = aerialTextures.transmittance
   uniforms.uAerialSunDir.value.set(sunDirection[0], sunDirection[1], sunDirection[2])
-  uniforms.uAerialExposure.value = exposure
+
+  // --- L'adaptation entre ici, et une seule fois --------------------------
+  //
+  // `exposure` porte ce que l'appelant sait et que ce module ignore :
+  // l'attenuation d'eclipse, et l'extinction du calque atmosphere. Rapportee a
+  // l'exposition fixe, elle en devient un simple facteur multiplicatif.
+  //
+  // L'adaptation, elle, se calcule a partir de la luminance moyenne du ciel
+  // **mesuree sur la table qui va s'afficher**. Aucune table d'ancres exterieure
+  // n'intervient : le ciel decide de sa propre exposition.
+  //
+  // La centraliser ici garantit que le fond de ciel, les corps du systeme
+  // solaire et les avions s'adaptent ensemble. Les laisser calculer chacun la
+  // leur les ferait deriver.
+  const dimming = exposure / SKY_DISPLAY_EXPOSURE
+  uniforms.uAerialExposure.value = adaptiveSkyExposure(aerialTextures.meanSkyLuminanceCdPerM2) * dimming
   uniforms.uAerialObserverRadius.value = aerialTextures.observerRadiusM
 }
 
@@ -396,6 +422,10 @@ export function useAerialLut(
         // continue d'afficher la precedente.
         scatteredData.set(pending.scattered)
         transmittanceData.set(pending.transmittance)
+        // La luminance moyenne est relevee **au moment de la publication**, sur
+        // la table complete : elle decrit donc exactement le ciel qui va
+        // s'afficher, pas celui d'avant ni un a moitie construit.
+        aerialTextures.meanSkyLuminanceCdPerM2 = measureMeanSkyLuminance(pending)
         scattered.needsUpdate = true
         transmittance.needsUpdate = true
         current.altitude = current.pendingAltitude
