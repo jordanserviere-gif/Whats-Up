@@ -65,7 +65,7 @@ aucune réorganisation.
 | **13** | Atmosphère 3D | **VALIDATED** | équation eikonale · 0,044″ contre l'intégrale 1D · le rayon se retourne au-dessus d'une route chaude |
 | **14** | Inversions thermiques et mirages | **VALIDATED** | transfert non monotone · 2 images · inversée 0,270° · non rendue |
 | **15** | Turbulence | **VALIDATED** | HV 5/7 rend 4,961 cm et 6,903 µrad · seeing du sol, scintillation d'altitude |
-| **16** | Optique ondulatoire | **TODO** | |
+| **16** | Optique ondulatoire | **VALIDATED** | le 1,22 trouvé, pas écrit · couronnes émergentes de Mie à 1 % · l'œil nu est limité par sa pupille |
 | **17** | Seeing et scintillation | **TODO** | |
 | **18** | Microphysique | **TODO** | non prioritaire |
 | **19** | Fine tuning scientifique | **TODO** | |
@@ -1255,6 +1255,60 @@ d'étoiles.
 
 ---
 
+## Phase 16 — Optique ondulatoire · VALIDATED
+
+### Livré
+
+- `wave/diffraction.ts` — fonction de Bessel `J₁`, tache d'Airy, critère de
+  Rayleigh, arbitrage diffraction / seeing, pupille de l'œil.
+- `wave/corona.ts` — couronnes calculées par le solveur de Mie de la phase 6,
+  moyennées sur une distribution de tailles de gouttelettes.
+
+### Le 1,22 est trouvé, pas écrit
+
+Premier zéro de `J₁` par dichotomie : **3,8317059703** contre 3,8317059702
+tabulé. Le critère de Rayleigh en découle.
+
+### La question que l'application posait
+
+Le seeing vaut 2,00″, mais la pupille diurne est limitée à **58,4″** par sa
+propre diffraction — un facteur **29**. **L'œil nu ne peut pas voir le flou
+atmosphérique**, alors qu'il voit parfaitement la scintillation, qui est une
+variation d'intensité et non de forme.
+
+### Le croisement retrouve `r₀`
+
+Diamètre au-delà duquel l'atmosphère l'emporte : **5,8 cm** par la tache d'Airy,
+contre **5,6 cm** pour le paramètre de Fried obtenu par une intégrale de `C_n²`.
+Deux chemins sans rien de commun.
+
+### Les couronnes émergent de Mie
+
+| Gouttelette | Mie | Diffraction | Écart |
+| --- | --- | --- | --- |
+| 5 µm | 3,703° | 3,844° | −3,7 % |
+| 20 µm | 0,951° | 0,961° | **−1,0 %** |
+
+Colorée dans le bon sens : bleu à 1,551°, rouge à 2,234°, rapport 1,4409 pour
+1,4444 attendu. Et la lecture inverse redonne 8,17 µm pour 8,00 réels.
+
+### ⚠️ Une assertion fausse, corrigée par la physique
+
+J'affirmais qu'à 3 µm la prédiction par diffraction « cessait de valoir », sur un
+écart de 43 %. C'était la **structure de résonances** d'une gouttelette unique
+que la détection prenait pour l'anneau. Un nuage réel n'est jamais monodisperse,
+et la dispersion des tailles lisse ces résonances — c'est pour cela que les
+couronnes observées ont des anneaux nets. Moyenner sur 5 % de dispersion n'était
+pas un lissage de confort, **c'était ce qui manquait au modèle** : l'écart tombe
+de 43 % à 4,4 %.
+
+### ⚠️ Rien à l'écran
+
+Aucune couronne : le transport suppose une atmosphère **claire**, sans nuage ni
+gouttelette. La limite de diffraction, elle, sert dès maintenant.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1278,3 +1332,4 @@ d'étoiles.
 | 2026-08-27 | Phase 13 — champ 3D et équation eikonale ; 0,044″ contre l'intégrale 1D ; bug d'origine de couche révélé par le mirage ; **555 contrôles** |
 | 2026-08-27 | Phase 14 — mirages ; transfert non monotone, 2 images ; deux erreurs de repère attrapées par le raccord ; **566 contrôles** |
 | 2026-08-27 | Phase 15 — turbulence ; HV 5/7 se valide lui-même ; seeing du sol et scintillation d'altitude émergent des poids ; **591 contrôles** |
+| 2026-08-27 | Phase 16 — optique ondulatoire ; couronnes émergentes de Mie ; assertion fausse corrigée par la dispersion des tailles ; **611 contrôles** |

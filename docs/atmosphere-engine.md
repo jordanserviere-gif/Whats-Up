@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 591 contrôles, 26 suites, aucun échec.**
+**État : 611 contrôles, 27 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2555,6 +2555,115 @@ scintillation un clignotement.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 15 (sauf 2 partielle) ; le ciel
+## L'optique ondulatoire — phase 16
+
+### Ce que le moteur avait deja, et ce qui manquait
+
+La theorie de Mie de la phase 6 **est** de l'optique ondulatoire : elle resout
+les equations de Maxwell autour d'une sphere, sans approximation. Ce qui
+manquait, c'est l'autre bout de la chaine — ce que devient un front d'onde en
+entrant dans une **ouverture**, oeil compris.
+
+### Le 1,22 n'est pas une constante du moteur
+
+C'est le premier zero de la fonction de Bessel `J₁`, divise par π. La validation
+le **trouve par dichotomie** plutot que de le supposer : `3,8317059703` contre
+`3,8317059702` tabule, soit `1,219670` apres division. Si l'implementation de
+Bessel derive, le critere de Rayleigh derive avec elle, et le controle le voit.
+
+### La question que l'application posait sans le savoir
+
+Le seeing vaut deux secondes d'arc (phase 15). **Pourquoi les etoiles ne
+paraissent-elles pas floues a l'oeil nu ?**
+
+| Ouverture | Diffraction | Limitée par | Tache réelle |
+| --- | --- | --- | --- |
+| pupille jour, 2 mm | **58,4″** | diffraction | 58,4″ |
+| pupille nuit, 7 mm | 16,7″ | diffraction | 16,8″ |
+| jumelles 50 mm | 2,33″ | diffraction | 3,07″ |
+| télescope 200 mm | 0,58″ | **atmosphère** | 2,08″ |
+| télescope 1 m | 0,12″ | atmosphère | 2,00″ |
+
+**L'oeil nu est limite par sa propre diffraction, d'un facteur 29.** Il ne *peut
+pas* voir le flou atmospherique. Il voit en revanche parfaitement la
+scintillation, qui est une variation d'intensite et non de forme.
+
+Ce n'est ecrit nulle part : c'est la comparaison de deux grandeurs calculees
+separement, l'une par une tache d'Airy, l'autre par une integrale de `C_n²`.
+
+### Le croisement retrouve le parametre de Fried
+
+Le diametre au-dela duquel l'atmosphere l'emporte vaut **5,8 cm**, calcule ici a
+partir de la tache d'Airy et du seeing. Le parametre de Fried de la phase 15,
+obtenu par une integrale de `C_n²` sur vingt-cinq kilometres, vaut **5,6 cm**.
+
+Deux chemins sans rien de commun, 4 % d'ecart — et c'est la **definition
+physique** de `r₀`, retrouvee au lieu d'etre posee.
+
+### Les couronnes ne sont ecrites nulle part
+
+Le module ne dessine aucun anneau et n'en connait aucun rayon. Il calcule la
+fonction de phase de Mie d'une gouttelette de nuage — le solveur de la phase 6,
+sans un coefficient de plus — et **cherche ou elle a des minima**.
+
+| Gouttelette | Premier minimum de Mie | Prédiction par diffraction | Écart |
+| --- | --- | --- | --- |
+| 3 µm | 6,689° | 6,406° | +4,4 % |
+| 5 µm | 3,703° | 3,844° | −3,7 % |
+| 10 µm | 1,885° | 1,922° | −1,9 % |
+| 20 µm | 0,951° | 0,961° | **−1,0 %** |
+
+L'accord **s'ameliore avec la taille**, comme une asymptotique le doit : la
+prediction traite la gouttelette comme un disque opaque, le solveur resout
+Maxwell autour d'une sphere transparente.
+
+La couronne est **coloree, et dans le bon sens** : 1,551° a 450 nm contre 2,234°
+a 650 nm, soit un rapport de 1,4409 pour 1,4444 attendu. Bleu a l'interieur,
+rouge a l'exterieur — l'inverse d'un arc-en-ciel, ou commande la dispersion et
+non la diffraction.
+
+Et la lecture inverse marche : un anneau de 2,352° redonne une gouttelette de
+8,17 µm pour 8,00 reels. C'est **l'usage historique** des couronnes — avant les
+sondages, mesurer le rayon d'une couronne lunaire estimait la taille des
+gouttelettes d'un nuage.
+
+### ⚠️ Une assertion fausse, corrigee par la physique
+
+Un premier controle affirmait qu'a 3 µm la prediction par diffraction « cessait
+de valoir », sur la foi d'un ecart de **43 %**. C'etait faux, et pour une raison
+instructive.
+
+La fonction de phase d'une sphere **transparente** de grand parametre de taille
+porte une structure fine de **resonances** — les modes propres de la
+gouttelette — superposee a l'enveloppe de diffraction. La detection du premier
+minimum prenait une ondulation pour l'anneau.
+
+Or un nuage reel n'est **jamais monodisperse**, et la dispersion des tailles
+lisse ces resonances en laissant l'enveloppe intacte. C'est precisement pour cela
+que les couronnes observees ont des anneaux nets, et qu'une couronne bien marquee
+signale un nuage a distribution etroite.
+
+Moyenner sur 5 % de dispersion n'etait donc pas un lissage de confort : **c'etait
+ce qui manquait au modele**. L'ecart a 3 µm tombe de 43 % a 4,4 %, et celui a
+20 µm de 2,8 % a 1,0 %. Le controle a ete reecrit sur l'enonce correct — l'accord
+se degrade vers les petites tailles, sans rupture.
+
+| | Gouttelette unique | 5 % de dispersion |
+| --- | --- | --- |
+| Écart à 10 µm | 4,5 % | **1,3 %** |
+
+### ⚠️ Ce qui n'arrive pas a l'ecran
+
+Aucune couronne. Le voile atmospherique du moteur suppose une **atmosphere
+claire** : ni nuage, ni gouttelette. Poser une couronne demanderait une couche de
+nuage dans le transport, qui n'existe pas.
+
+Le calcul est ici parce que la physique y est, mesurable et verifiable — et parce
+que la limite de diffraction, elle, sert des maintenant a repondre a une question
+que l'application posait.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 16 (sauf 2 partielle) ; le ciel
 physique, les objets et la courbure des rayons sont a l'ecran ; champ 3D,
-mirages et turbulence sont valides et attendent leur rendu.*
+mirages, turbulence et optique ondulatoire sont valides et attendent leur rendu.*
