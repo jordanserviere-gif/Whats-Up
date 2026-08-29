@@ -1454,6 +1454,31 @@ par seconde. La mesure dit qu'il n'y a rien à acheter.
 
 ---
 
+## Dette — socle nocturne · **forme calculée**
+
+`emission/airglow.ts` : couche émissive à 90 km, facteur de van Rhijn, spectre de
+raies normalisé sur `AIRGLOW_LUX`.
+
+Le dégradé nocturne **émerge** du produit van Rhijn × extinction — maximum de
+**2,18× à 15°**, effondrement à **0,175× à 1°** — là où un `smoothstep` peint
+l'imitait. Van Rhijn seul croît encore à 1° : c'est l'extinction qui retourne la
+courbe.
+
+Dix-huit sondes ont dérivé : le ciel nocturne **s'assombrit** désormais vers
+l'horizon. C'est correct — la lumière naturelle traverse toute l'atmosphère ; ce
+qui éclaire un horizon nocturne est la pollution lumineuse, terme séparé.
+
+⚠️ **L'amplitude ne peut pas être physique à exposition fixe** : l'airglow vaut
+4·10⁻¹⁰ du blanc d'affichage. **Cette dette ne peut donc pas être soldée avant
+celle de l'exposition** — l'ordre que j'avais annoncé était faux, et la mesure l'a
+montré.
+
+⚠️ Bandes de OH retirées plutôt que repondérées ; ancre `AIRGLOW_LUX` signalée
+basse d'un facteur cinq, non corrigée ; et une troisième mesure ratée
+(`getImageData` sur canevas WebGL) prise pour une régression.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1481,3 +1506,4 @@ par seconde. La mesure dit qu'il n'y a rien à acheter.
 | 2026-08-27 | Phase 17 — scintillation **au rendu** ; les planètes ne scintillent pas, par un rapport de longueurs ; seeing écarté sur mesure ; **629 contrôles** |
 | 2026-08-27 | Phase 19 — ozone et distance solaire câblés ; crépuscule 61 % plus bleu aux hautes latitudes ; registre des incertitudes ; **645 contrôles** |
 | 2026-08-27 | Phase 20 — 60 fps mesurés ; blocage de 124 ms supprimé ; mesure ratée en rendu logiciel, corrigée ; **646 contrôles** |
+| 2026-08-29 | Dette du socle nocturne — airglow calculé, dégradé émergent ; l'amplitude reste bloquée par l'exposition fixe ; **658 contrôles** |

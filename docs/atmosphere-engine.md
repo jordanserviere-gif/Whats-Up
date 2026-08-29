@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 646 contrôles, 29 suites, aucun échec.**
+**État : 658 contrôles, 30 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2822,6 +2822,103 @@ porter ; et la dependance en **longitude**, l'ozone suivant les ondes planetaire
 
 ---
 
+## Le socle nocturne — dette du registre
+
+### Ce qui etait peint
+
+Airglow, lueur lunaire et halo urbain etaient trois couleurs choisies, posees
+par-dessus le transport. Le degrade nocturne — `mix(nuit × 1,6, nuit, smoothstep)`
+— etait plus clair pres de l'horizon parce que c'est ce qu'on observe. **Il avait
+la bonne forme pour la mauvaise raison.**
+
+### L'airglow est une emission reelle
+
+Le rayonnement ultraviolet dissocie l'oxygene de la haute atmosphere le jour ;
+la nuit, les atomes se recombinent et rendent cette energie en raies. C'est de la
+**chimiluminescence**, dans une couche mince a **quatre-vingt-dix kilometres** —
+et c'est pourquoi le ciel nocturne n'est jamais noir, meme sans Lune, sans etoile
+et sans ville.
+
+### Le degrade sort de deux fonctions dont aucune n'en decrit un
+
+Une couche mince vue obliquement est traversee plus longuement — facteur de **van
+Rhijn**, `1/√(1 − [R/(R+h)]²sin²z)`, qui atteint **6,01** a l'horizon. Mais cette
+lumiere doit ensuite traverser toute l'atmosphere, et une visee rasante y perd
+presque tout.
+
+| Hauteur | van Rhijn | Après extinction |
+| --- | --- | --- |
+| 90° | 1,00 | 1,00 |
+| 30° | 1,92 | 1,68 |
+| **15°** | 3,28 | **2,18** ← maximum |
+| 5° | 5,34 | 1,63 |
+| 1° | 5,98 | **0,175** |
+
+Le maximum a quinze degres et l'effondrement au ras de l'horizon **emergent** du
+produit. Van Rhijn, seul, croit encore a un degre — c'est l'extinction qui
+retourne la courbe.
+
+La transmittance employee est celle que la table de perspective calculait deja
+pour le fond de ciel, et que le nuanceur jetait.
+
+### Ce que cela change a l'ecran
+
+Dix-huit sondes ont derive, et la plus parlante est `nuit/antisoleil-horizon` :
+`5,6,15 → 3,1,0`. **Le ciel nocturne s'assombrit desormais vers l'horizon au lieu
+de s'y eclaircir.**
+
+C'est correct. La lumiere naturelle du ciel — airglow comme lumiere stellaire —
+traverse toute l'atmosphere, et une visee rasante en perd l'essentiel, le bleu
+d'abord. Ce qui eclaire reellement un horizon nocturne, c'est la **pollution
+lumineuse**, emise depuis le sol : elle reste un terme separe, et elle continue
+de s'eclaircir vers le bas.
+
+### ⚠️ L'amplitude ne peut pas encore etre physique
+
+L'airglow reel vaut **3,7·10⁻⁵ cd/m²** au zenith, soit **4·10⁻¹⁰ du blanc
+d'affichage** ancre a 86 302 cd/m². A exposition fixe, il est rigoureusement
+invisible.
+
+**C'est la raison pour laquelle ce socle etait peint**, et elle ne disparaitra
+qu'avec un modele d'adaptation : l'oeil couvre six ordres de grandeur entre le
+jour et la nuit, une exposition fixe n'en couvre aucun.
+
+Ce qui change ici est donc la **forme**, desormais calculee ; l'**amplitude**
+reste posee.
+
+> **Cette dette ne peut pas etre soldee avant celle de l'exposition.** L'ordre
+> que j'avais annonce etait faux, et c'est la mesure qui l'a montre.
+
+### ⚠️ Ce que la validation signale
+
+L'ancre `AIRGLOW_LUX = 2·10⁻⁴` lux donne **23,66 mag/arcsec²** au zenith, quand
+le ciel nocturne naturel observe vaut 21,8 a 22,3. Une partie de l'ecart est
+legitime — ce module ne represente ni la lumiere zodiacale ni la lumiere
+stellaire integree — mais l'ancre parait basse d'un facteur cinq. **Signale, non
+corrige** : y toucher decalerait tout le calcul de magnitude limite.
+
+Les **poids des raies** ne viennent d'aucune mesure. Ce qui est verifie est leur
+consequence : la teinte est verdatre, `(0,440 · 0,558)`, la raie de l'oxygene a
+557,7 nm dominant le signal photopique.
+
+Les **bandes de OH** ont ete retirees. Elles portent l'essentiel de l'energie,
+mais une premiere version les incluait et rendait une chromaticite orangee. Deux
+raisons de les oter plutot que d'ajuster leur poids : elles sont centrees au-dela
+de 700 nm, hors de ce qu'un ecran montre, et a 4·10⁻⁵ cd/m² l'oeil est en vision
+**scotopique**, dont la sensibilite s'effondre passe 650 nm. Retirer une
+composante est plus honnete que lui inventer un poids correcteur.
+
+### ⚠️ Une mesure ratee, encore
+
+Mon premier controle du ciel nocturne lisait le canevas par `getImageData` et
+rendait **du noir partout** — j'en ai conclu a une regression. C'etait faux : sans
+`preserveDrawingBuffer`, le tampon WebGL est efface apres composition, et il faut
+passer par une capture d'ecran. **Troisieme fois** qu'une mesure mal conditionnee
+donne un resultat aberrant, apres le banc GPU de la phase 0 et le rendu logiciel
+de la phase 20.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -2862,7 +2959,7 @@ en est.
 | --- | --- |
 | **Ancre d'exposition** | `86 302 cd/m²` est l'ancre de **continuité**, choisie pour que le refactor ne change rien. L'ancre photographique serait 34 377. La vraie réponse est un **modèle d'adaptation** piloté par l'éclairement de la scène, que le moteur calcule déjà. |
 | **Nœud à 5° de `SOLAR_ANCHORS`** | incompatible avec ses propres voisins ; écarté de la validation avec sa justification depuis la phase 8. Trancher demanderait un jeu **BSRN** ou **IDMP/CIE**. |
-| **Socle nocturne** | airglow, lueur lunaire et halo urbain restent des couleurs peintes. Ce sont de vraies sources d'émission, et leur place est dans l'équation du transfert. |
+| **Socle nocturne** | **forme désormais calculée** (van Rhijn × extinction) ; l'**amplitude** reste posée tant que l'exposition est fixe — l'airglow réel vaut 4·10⁻¹⁰ du blanc d'affichage. Lueur lunaire et halo urbain restent entièrement peints. |
 | **Transmittance spectrale réduite à trois nombres** | exacte pour un spectre solaire seulement. Limite de la chaîne RGB, pas du transport. |
 | **Trou d'ozone antarctique** | anthropique et non stationnaire ; une chronologie, pas une formule. |
 | **Rendu des mirages** | la physique est validée ; un maillage ne peut être qu'à un endroit, et le Soleil « vase étrusque » demande que le disque soit rendu *à travers* la fonction de transfert. |

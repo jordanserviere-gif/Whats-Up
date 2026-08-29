@@ -30,6 +30,7 @@ import { turbulenceSuite } from '../turbulence/turbulence.validation'
 import { waveOpticsSuite } from '../wave/wave.validation'
 import { scintillationSuite } from '../turbulence/scintillation.validation'
 import { calibrationSuite } from '../absorption/ozoneClimatology.validation'
+import { airglowSuite } from '../emission/airglow.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
@@ -87,6 +88,8 @@ export function allSuites(): SuiteResult[] {
     scintillationSuite(),
     // Phase 19 — calage scientifique.
     calibrationSuite(),
+    // Dette : socle nocturne — l'airglow devient une emission calculee.
+    airglowSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),

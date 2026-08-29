@@ -2,6 +2,10 @@ import { useMemo } from 'react'
 import { BackSide, Color, ShaderMaterial, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
+import { AIRGLOW_LAYER_ALTITUDE_M, airglowZenithRadiance } from '@/atmosphere/emission/airglow'
+import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
+import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
+import { spectralToLinearSrgb } from '@/atmosphere/spectral/SpectralSensor'
 import { aerialUniforms, applyAerialUniforms, useAerialLut } from './useAerialLut'
 import { setRefractionEnabled } from '@/atmosphere/refraction/refractionTable'
 import { refractionSite } from './refractionTexture'
@@ -49,6 +53,24 @@ import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
  * Son disque solaire est retire — la scene rend le sien, a sa distance, faute
  * de quoi la Lune ne pourrait pas l'occulter.
  */
+/**
+ * Radiance de l'airglow au zenith, sRGB lineaire.
+ *
+ * Calculee une fois : elle ne depend ni de l'heure, ni du lieu, ni de la
+ * direction. Le bleu en ressort **negatif** — une emission quasi monochromatique
+ * a 557,7 nm sort du triangle sRGB — et l'ecretage de la chaine d'affichage s'en
+ * charge, comme pour toute couleur hors gamut.
+ *
+ * Trente-deux bandes plutot que seize : trois raies etroites sur une grille
+ * large donnent une chromaticite qui depend des bords de bande, et la mesure
+ * montre qu'elle se stabilise a partir de trente-deux.
+ */
+const AIRGLOW_GRID = uniformSpectralGrid(360, 830, 32)
+const AIRGLOW_ZENITH = spectralToLinearSrgb(AIRGLOW_GRID, airglowZenithRadiance(AIRGLOW_GRID))
+
+/** `R/(R+h)` de la couche d'airglow — le seul terme du facteur van Rhijn. */
+const AIRGLOW_RADIUS_RATIO = EARTH_MEAN_RADIUS_M / (EARTH_MEAN_RADIUS_M + AIRGLOW_LAYER_ALTITUDE_M)
+
 function buildSkyMaterial(): ShaderMaterial {
   const vertexShader = /* glsl */ `
     varying vec3 vDir;
@@ -71,6 +93,9 @@ function buildSkyMaterial(): ShaderMaterial {
     uniform float uMoonFactor;
     uniform vec3 uMoonGlow;
     uniform vec3 uPollution;
+    uniform vec3 uAirglowZenith;
+    uniform float uAirglowRadiusRatio;
+    uniform float uSkyExposure;
 
     void main() {
       vec3 dir = normalize(vDir);
@@ -84,25 +109,60 @@ function buildSkyMaterial(): ShaderMaterial {
       //
       // Le fond de ciel n'a rien devant lui : il lit donc la tranche a l'infini,
       // et jette la transmittance. Un astre lit la meme tranche et la garde.
-      vec3 ignoredTransmittance;
+      vec3 transmittanceToSpace = vec3(1.0);
       vec3 scattered = dir.y < 0.0
         ? vec3(0.0)
-        : aerialPerspectiveToSpace(dir, ignoredTransmittance);
+        : aerialPerspectiveToSpace(dir, transmittanceToSpace);
 
-      // --- Socle nocturne : encore peint, encore a remplacer ------------------
-      // Airglow, lueur lunaire et halo urbain restent des couleurs choisies. Ce
-      // sont de vraies sources d'emission, et elles ont leur place dans
-      // l'equation du transfert, pas par-dessus — phase 11.
+      // --- Le socle nocturne : forme calculee, amplitude encore choisie -------
+      //
+      // La haute atmosphere brille d'elle-meme : le rayonnement ultraviolet
+      // dissocie l'oxygene le jour, les atomes se recombinent la nuit et rendent
+      // cette energie en raies. C'est de la chimiluminescence, dans une couche
+      // mince a quatre-vingt-dix kilometres.
+      //
+      // Vue obliquement, cette couche est traversee plus longuement — facteur de
+      // van Rhijn, qui atteint six a l'horizon. Mais la lumiere doit ensuite
+      // traverser toute l'atmosphere, et une visee rasante y perd presque tout.
+      // Leur produit donne un maximum vers dix a quinze degres puis un
+      // effondrement au ras de l'horizon : c'est ce qu'on observe, et le
+      // smoothstep d'autrefois l'imitait sans le calculer.
+      //
+      // La transmittance employee est celle que la table de perspective avait
+      // deja calculee pour le fond de ciel, et que ce nuanceur jetait.
+      //
+      // ⚠️ **L'amplitude, elle, reste un choix d'affichage.** L'airglow reel vaut
+      // 3,7e-5 cd/m² au zenith, soit 4e-10 du blanc d'affichage : rigoureusement
+      // invisible a exposition fixe. C'est la raison pour laquelle ce socle
+      // etait peint, et elle ne disparaitra qu'avec un modele d'adaptation —
+      // l'oeil couvre six ordres de grandeur entre le jour et la nuit, une
+      // exposition fixe n'en couvre aucun.
+      //
+      // Ce qui change ici : la **forme** vient desormais de la geometrie de la
+      // couche et de l'extinction. Seule l'amplitude est encore posee.
       float h = clamp(dir.y, -1.0, 1.0);
-      vec3 night = mix(uNight * 1.6, uNight, smoothstep(0.0, 0.45, h));
+      float sinZ = sqrt(max(0.0, 1.0 - h * h));
+      float shell = uAirglowRadiusRatio * sinZ;
+      float vanRhijn = inversesqrt(max(1e-6, 1.0 - shell * shell));
 
+      // Profil normalise au zenith : la transmittance verticale y vaut celle du
+      // texel du haut de la table, que l'on retrouve en visant le zenith.
+      vec3 zenithTransmittance;
+      aerialPerspectiveToSpace(vec3(0.0, 1.0, 0.0), zenithTransmittance);
+      vec3 shape = (vanRhijn * transmittanceToSpace) / max(vec3(1e-6), zenithTransmittance);
+      vec3 night = uNight * shape;
+
+      // --- Ce qui reste entierement peint -------------------------------------
+      // La lueur lunaire est de la diffusion, exactement comme le ciel de jour :
+      // sa place est dans le transport, avec la Lune pour source. Le halo urbain
+      // est une emission renvoyee par l'atmosphere, que decrit le modele de
+      // Garstang (1989). Ni l'un ni l'autre n'est encore calcule.
       float toMoon = max(0.0, dot(dir, normalize(uMoonDir)));
-      night += uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
-
+      vec3 painted = night + uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
       float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
-      night += uPollution * (0.3 + 0.7 * lowSky);
+      painted += uPollution * (0.3 + 0.7 * lowSky);
 
-      gl_FragColor = vec4(radianceFromDisplay(night) + scattered, 1.0);
+      gl_FragColor = vec4(radianceFromDisplay(painted) + scattered, 1.0);
     }
   `
 
@@ -110,6 +170,18 @@ function buildSkyMaterial(): ShaderMaterial {
     name: 'SkyBackgroundMaterial',
     uniforms: {
       ...aerialUniforms(),
+      /**
+       * Radiance de l'airglow au zenith, sRGB lineaire.
+       *
+       * Calculee par `atmosphere/emission/airglow.ts` et normalisee sur
+       * `AIRGLOW_LUX`, l'ancre que le moteur portait deja. Le nuanceur n'ajoute
+       * que la geometrie.
+       */
+      uAirglowZenith: { value: new Vector3() },
+      /** `R/(R+h)` pour la couche d'airglow — le seul terme du facteur van Rhijn. */
+      uAirglowRadiusRatio: { value: 0 },
+      /** Exposition d'affichage, partagee avec la diffusion. */
+      uSkyExposure: { value: 0 },
       uMoonDir: { value: new Vector3(0, -1, 0) },
       uMoonFactor: { value: 0 },
       uNight: { value: new Color('#03040a') },
@@ -218,6 +290,18 @@ export function SkyBackground({
       [Math.cos(alt) * Math.sin(az), Math.sin(alt), -Math.cos(alt) * Math.cos(az)],
       skyExposure,
     )
+
+    // L'airglow ne depend ni de l'heure ni de la direction du Soleil : sa
+    // radiance zenithale est une constante, et le nuanceur n'y ajoute que la
+    // geometrie de la couche. Il s'eteint avec le calque atmosphere — sans
+    // atmosphere, pas de couche emissive.
+    ;(u.uAirglowZenith.value as Vector3).set(
+      atmosphereEnabled ? AIRGLOW_ZENITH[0] : 0,
+      atmosphereEnabled ? AIRGLOW_ZENITH[1] : 0,
+      atmosphereEnabled ? AIRGLOW_ZENITH[2] : 0,
+    )
+    u.uAirglowRadiusRatio.value = AIRGLOW_RADIUS_RATIO
+    u.uSkyExposure.value = skyExposure
 
     const malt = (moonAltitude * Math.PI) / 180
     const maz = (moonAzimuth * Math.PI) / 180
