@@ -44,7 +44,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { ClampToEdgeWrapping, DataTexture, FloatType, LinearFilter, RGBAFormat, Vector3 } from 'three'
 import { useFrame } from '@react-three/fiber'
-import { buildColumnLut, type ColumnLut } from '@/atmosphere/lut/transmittanceLut'
+import { createColumnLut, fillColumnLutRows, type ColumnLut } from '@/atmosphere/lut/transmittanceLut'
 import {
   CONTINENTAL_AEROSOL,
   aerosolOptics,
@@ -101,8 +101,43 @@ const sharedAerosolOptics = (turbidity: number): AerosolOptics => {
  * paresseusement pour ne pas peser sur le premier affichage.
  */
 let columnLut: ColumnLut | null = null
+let columnRowsDone = 0
+
+/**
+ * Lignes de table de colonne construites par image.
+ *
+ * Mesure : la table entiere coute **124 ms dans le navigateur**, et elle etait
+ * construite paresseusement au premier besoin, donc **dans une image**. C'etait
+ * le plus gros blocage du moteur — tout le reste etait deja etale.
+ *
+ * Huit lignes sur soixante-quatre font 15 ms : huit images pour une table
+ * complete, et plus aucun a-coup a l'ouverture. Rien de la physique ne change,
+ * chaque entree etant independante des autres.
+ */
+const COLUMN_ROWS_PER_FRAME = 8
+
+/** La table est-elle utilisable ? */
+const columnLutReady = (): boolean => columnLut !== null && columnRowsDone >= columnLut.height
+
+/** Avance la construction d'une tranche. */
+const advanceColumnLut = (): void => {
+  if (!columnLut) {
+    columnLut = createColumnLut()
+    columnRowsDone = 0
+  }
+  if (columnRowsDone >= columnLut.height) return
+  const to = Math.min(columnLut.height, columnRowsDone + COLUMN_ROWS_PER_FRAME)
+  fillColumnLutRows(columnLut, columnRowsDone, to, {
+    aerosolScaleHeightM: CONTINENTAL_AEROSOL.scaleHeightM,
+  })
+  columnRowsDone = to
+}
+
 const sharedColumnLut = (): ColumnLut => {
-  if (!columnLut) columnLut = buildColumnLut({ aerosolScaleHeightM: CONTINENTAL_AEROSOL.scaleHeightM })
+  if (!columnLut) {
+    columnLut = createColumnLut()
+    columnRowsDone = 0
+  }
   return columnLut
 }
 
@@ -295,6 +330,15 @@ export function useAerialLut(
 
   useFrame(() => {
     const current = state.current
+
+    // --- La table de colonne, avant tout le reste ---------------------------
+    // La perspective atmospherique et la diffusion multiple la lisent toutes
+    // deux : rien ne peut demarrer avant qu'elle soit complete. Elle est donc
+    // construite en premier, et par tranches, pour ne pas bloquer une image.
+    if (enabled && !columnLutReady()) {
+      advanceColumnLut()
+      return
+    }
 
     if (!enabled) {
       // Une table neutre plutot qu'un drapeau dans le nuanceur : la vue depuis

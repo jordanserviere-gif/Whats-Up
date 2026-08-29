@@ -170,19 +170,43 @@ export interface ColumnLutOptions {
  * le profil (phases 13 et 14), et il faudra alors la reconstruire quand cet
  * etat change — pas a chaque image.
  */
-export function buildColumnLut(options: ColumnLutOptions = {}): ColumnLut {
+export function createColumnLut(options: ColumnLutOptions = {}): ColumnLut {
   const {
     width = 256,
     height = 64,
-    steps = 128,
     ozoneColumnDobsonUnits = DEFAULT_OZONE_COLUMN_DU,
-    aerosolScaleHeightM = 1200,
   } = options
-  const column = new Float32Array(width * height)
-  const ozone = new Float32Array(width * height)
-  const aerosol = new Float32Array(width * height)
+  return {
+    width,
+    height,
+    column: new Float32Array(width * height),
+    ozone: new Float32Array(width * height),
+    aerosol: new Float32Array(width * height),
+    ozoneColumnDobsonUnits,
+  }
+}
 
-  for (let y = 0; y < height; y++) {
+/**
+ * Remplit une **tranche de lignes** de la table.
+ *
+ * Mesure : la construction complete coute **124 ms dans le navigateur**, et elle
+ * se faisait paresseusement au premier besoin — c'est-a-dire **dans une image**.
+ * C'etait le plus gros blocage du moteur, et le seul qui se voie : tout le reste
+ * est deja etale.
+ *
+ * Rien de la physique ne change. Chaque entree est independante des autres, ce
+ * que la validation verifie en decoupant a un pas qui ne divise pas la largeur.
+ */
+export function fillColumnLutRows(
+  lut: ColumnLut,
+  fromRow: number,
+  toRow: number,
+  options: ColumnLutOptions = {},
+): void {
+  const { steps = 128, aerosolScaleHeightM = 1200 } = options
+  const { width, height, column, ozone, aerosol, ozoneColumnDobsonUnits } = lut
+
+  for (let y = Math.max(0, fromRow); y < Math.min(height, toRow); y++) {
     const v = (y + 0.5) / height
     for (let x = 0; x < width; x++) {
       const u = (x + 0.5) / width
@@ -193,8 +217,13 @@ export function buildColumnLut(options: ColumnLutOptions = {}): ColumnLut {
       aerosol[y * width + x] = columns.aerosolShape
     }
   }
+}
 
-  return { width, height, column, ozone, aerosol, ozoneColumnDobsonUnits }
+/** Table complete, d'un seul tenant — pour la validation et les mesures. */
+export function buildColumnLut(options: ColumnLutOptions = {}): ColumnLut {
+  const lut = createColumnLut(options)
+  fillColumnLutRows(lut, 0, lut.height, options)
+  return lut
 }
 
 /**

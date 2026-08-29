@@ -69,7 +69,7 @@ aucune réorganisation.
 | **17** | Seeing et scintillation | **VALIDATED** | **au rendu** · les étoiles scintillent, les planètes non · facteur 76, émergent |
 | **18** | Microphysique | **TODO** | non prioritaire · sautée au profit de la 19, aucun consommateur au rendu |
 | **19** | Fine tuning scientifique | **VALIDATED** | ozone et distance solaire câblés · registre des incertitudes |
-| **20** | Optimisation GPU | **TODO** | |
+| **20** | Optimisation GPU | **VALIDATED** | 60 fps mesurés · blocage de 124 ms supprimé · 11 % mesurés et non pris, avec la raison |
 
 ---
 
@@ -1402,6 +1402,58 @@ mirages.
 
 ---
 
+## Phase 20 — Optimisation · VALIDATED
+
+### La mesure d'abord, et une ratée
+
+La première mesure donnait **146 ms par image — 7 fps**. Faux : Chromium sans
+argument tourne en **rendu logiciel**. C'est l'erreur de la phase 0 qui se
+répète. Avec le GPU activé :
+
+| Cadence | Médiane | p99 |
+| --- | --- | --- |
+| temps réel | **16,60 ms** | 23,4 |
+| ×86400 | 18,10 | 31,7 |
+
+L'application est verrouillée sur la synchro verticale, à 60 images par seconde.
+
+### Où passe le temps
+
+Une reconstruction coûte 74 ms : **23,4 ms d'exponentielles** — l'intégrale du
+transfert radiatif, deux millions d'`exp(−τ)`, incompressible — 8,1 de géométrie,
+7,6 de colonnes solaires, 11 de conversions.
+
+### Corrigé : le seul blocage visible
+
+La table de colonne coûtait **124 ms** et se construisait **dans une image**.
+Elle est désormais étalée par tranches de huit lignes, validée à **égalité
+stricte** avec un pas de découpe qui ne divise pas la hauteur.
+
+Somme des images de plus de 40 ms au démarrage : **1214 → 1076 ms**.
+
+### ⚠️ Ce que la mesure a contredit
+
+Je croyais les blocages du démarrage imputables au moteur. **Ils ne le sont
+pas** : il restait 422, 349 et 103 ms, et ils viennent de l'amorçage de
+l'application — React, three.js, catalogues. Le moteur n'y comptait que pour 124
+sur 1214.
+
+### Une optimisation mesurée et **non prise**
+
+La géométrie d'un rayon ne dépend que de la **hauteur** de visée, pas de son
+azimut : elle est recalculée 64 fois par ligne. La corriger est exact et
+économiserait **11 %**. Non prise : ces 74 ms sont déjà étalées, l'application
+tient 60 fps, et il faudrait refactoriser le chemin dont dépendent quatre cents
+contrôles. Le chiffre est noté ; la décision est de ne pas payer ce prix
+maintenant.
+
+### Refusé
+
+Réduire les pas ou les bandes serait troquer de la précision contre des images
+par seconde. La mesure dit qu'il n'y a rien à acheter.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1428,3 +1480,4 @@ mirages.
 | 2026-08-27 | Phase 16 — optique ondulatoire ; couronnes émergentes de Mie ; assertion fausse corrigée par la dispersion des tailles ; **611 contrôles** |
 | 2026-08-27 | Phase 17 — scintillation **au rendu** ; les planètes ne scintillent pas, par un rapport de longueurs ; seeing écarté sur mesure ; **629 contrôles** |
 | 2026-08-27 | Phase 19 — ozone et distance solaire câblés ; crépuscule 61 % plus bleu aux hautes latitudes ; registre des incertitudes ; **645 contrôles** |
+| 2026-08-27 | Phase 20 — 60 fps mesurés ; blocage de 124 ms supprimé ; mesure ratée en rendu logiciel, corrigée ; **646 contrôles** |

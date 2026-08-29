@@ -25,6 +25,8 @@ import { skyRadiance } from '../transport/singleScattering'
 import {
   buildColumnLut,
   columnLutParams,
+  createColumnLut,
+  fillColumnLutRows,
   columnLutUv,
   fromTexelRange,
   sampleColumnLut,
@@ -225,6 +227,33 @@ export function columnLutSuite(): SuiteResult {
         2e-3,
         ' m⁻²',
       )
+
+      // --- Construction par tranches (phase 20) ------------------------------
+      // La table entiere coute 124 ms dans le navigateur, et elle etait
+      // construite paresseusement au premier besoin — donc **dans une image**.
+      // C'etait le plus gros blocage du moteur. Elle est desormais etalee, et la
+      // seule chose a prouver est que cela ne change **rien** au resultat.
+      //
+      // Le pas de 7 ne divise pas la hauteur de 64 : les coupes tombent donc a
+      // des endroits que la boucle d'origine ne connaissait pas, ce qui est
+      // precisement le cas qu'une reprise mal ecrite raterait.
+      const sliced = createColumnLut()
+      for (let row = 0; row < sliced.height; row += 7) {
+        fillColumnLutRows(sliced, row, Math.min(sliced.height, row + 7))
+      }
+      const whole = buildColumnLut()
+      // Une visee qui rencontre la Terre porte `Infinity` : c'est ce qui produit
+      // l'ombre terrestre. Comparer deux infinis par soustraction donnerait
+      // `NaN`, ce qui masquerait l'egalite au lieu de l'etablir.
+      const identical = (a: number, b: number): boolean =>
+        a === b || (!Number.isFinite(a) && !Number.isFinite(b) && Math.sign(a) === Math.sign(b))
+      let differences = 0
+      for (let i = 0; i < whole.column.length; i++) {
+        if (!identical(sliced.column[i], whole.column[i])) differences++
+        if (!identical(sliced.ozone[i], whole.ozone[i])) differences++
+        if (!identical(sliced.aerosol[i], whole.aerosol[i])) differences++
+      }
+      t.check('construction par tranches identique a la construction entiere', differences, 0, 0)
     },
   )
 }

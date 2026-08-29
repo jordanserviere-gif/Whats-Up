@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 645 contrôles, 29 suites, aucun échec.**
+**État : 646 contrôles, 29 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2870,7 +2870,109 @@ en est.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 17 et 19 (sauf 2 partielle, 18 non
+## L'optimisation — phase 20
+
+### La regle, d'abord
+
+> *Ne remplace jamais silencieusement un modele physique par une astuce
+> artistique pour gagner des FPS.*
+
+Cette phase commence donc par **mesurer**, et n'optimise que ce que la mesure
+designe. Elle refuse aussi, explicitement, ce que la mesure ne justifie pas.
+
+### ⚠️ La mesure ratee, et la lecon qui se repete
+
+La premiere mesure de temps par image donnait **146 ms — sept images par
+seconde**. Invraisemblable sur cette machine, et faux : Chromium sans argument
+tourne en **rendu logiciel**. C'est exactement l'erreur de la phase 0, ou le banc
+GPU avait ete lance dans l'onglet de l'application.
+
+Avec `--use-gl=angle --use-angle=d3d11 --enable-gpu`, la carte apparait — et
+l'application aussi :
+
+| Cadence | Médiane | p95 | p99 | max |
+| --- | --- | --- | --- | --- |
+| temps réel | **16,60 ms** | 22,1 | 23,4 | 23,6 |
+| ×600 | 16,70 | 22,0 | 22,9 | 28,2 |
+| ×86400 (1 jour/s) | 18,10 | 25,8 | **31,7** | 108 |
+
+Seize virgule six millisecondes : l'application est **verrouillee sur la synchro
+verticale**, a soixante images par seconde. La seule pression est l'avance
+rapide, ou la mediane glisse de 1,5 ms.
+
+### Ou passe le temps, reellement
+
+Une reconstruction de la table de perspective coute **74 ms**, et le profil la
+decompose sans ambiguite :
+
+| | Coût | Nature |
+| --- | --- | --- |
+| Boucle 16 bandes avec exponentielle | **23,4 ms** | l'intégrale du transfert radiatif |
+| Géométrie du rayon | 8,1 ms | **indépendante de l'azimut** |
+| Colonnes solaires | 7,6 ms | dépend du Soleil |
+| Conversions spectre → sRGB | 11 ms | dont la moitié pour la transmittance |
+| Fonction de phase des aérosols | 0,6 ms | |
+
+Deux millions d'exponentielles par reconstruction. **C'est l'equation du
+transfert elle-meme**, et elle n'est pas compressible : `exp(−τ)` par bande et
+par pas est ce que le modele calcule.
+
+### Ce qui a ete corrige, et ce que cela a coute en physique : rien
+
+La table de colonne coutait **124 ms dans le navigateur**, et elle etait
+construite **paresseusement au premier besoin — donc dans une image**. C'etait le
+plus gros blocage du moteur, et le seul qui se voie : tout le reste etait deja
+etale.
+
+Elle est desormais construite par tranches de huit lignes, comme les autres. La
+validation le controle a **egalite stricte**, avec un pas de decoupe qui ne
+divise pas la hauteur — les coupes tombent donc a des endroits que la boucle
+d'origine ne connaissait pas.
+
+Mesure, somme des images de plus de 40 ms au demarrage : **1214 ms → 1076 ms**,
+soit exactement les 124 ms retires.
+
+### ⚠️ Ce que la mesure a contredit
+
+Je pensais que les blocages du demarrage etaient ceux du moteur. **Ils ne le sont
+pas.** Apres correction, il reste 422, 349 et 103 ms — et ils viennent de
+l'amorcage de l'application : React, three.js, les catalogues. Le moteur
+atmospherique n'y contribuait que pour 124 ms sur 1214.
+
+C'est hors du perimetre de cette phase, et c'est dit plutot que suppose.
+
+### Une optimisation mesuree, et **non prise**
+
+La geometrie d'un rayon — altitudes, densites, colonnes primaires accumulees — ne
+depend que de la **hauteur** de visee, pas de son azimut : le trajet est le meme
+pour les soixante-quatre azimuts d'une ligne. Elle est pourtant recalculee
+soixante-quatre fois.
+
+La corriger est **exact**, fonde sur une symetrie, et economiserait **8 ms sur
+74, soit 11 %**.
+
+Elle n'a pas ete prise. Le raisonnement est explicite : ces 74 ms sont deja
+etalees sur seize images, l'application tient soixante images par seconde, et le
+gain porterait le p99 de l'avance rapide de 31,7 a peut-etre 30 ms. Contre cela,
+il faudrait refactoriser le chemin le plus valide du moteur — celui dont
+dependent quatre cents controles.
+
+Le chiffre est mesure et note ; la decision est de ne pas payer ce prix
+maintenant.
+
+### Ce qui n'a pas ete fait, et pourquoi
+
+**Reduire le nombre de pas ou de bandes** economiserait proportionnellement, et
+serait un troc de precision contre des images par seconde. La mesure dit qu'il
+n'y a rien a acheter : le moteur tient deja la cadence.
+
+**Le noyau GPU**, lui, est a **0,04 ns/pixel** depuis la phase 9 — 0,31 ms a
+1920×1080@dpr2, soit 2 % d'une image, contre 44 % pour l'ancien noyau
+analytique. Il n'y a rien a y gagner.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 17, 19 et 20 (sauf 2 partielle, 18 non
 prioritaire) ; le ciel physique, les objets, la courbure des rayons et la
 scintillation sont a l'ecran ; champ 3D, mirages et couronnes sont valides et
 attendent leur rendu.*
