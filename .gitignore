@@ -7,3 +7,4 @@ scripts/.cache
 
 # Cache de compilation incrementale TypeScript
 tsconfig.tsbuildinfo
+docs/captures/

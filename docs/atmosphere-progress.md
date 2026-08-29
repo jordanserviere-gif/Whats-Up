@@ -64,7 +64,7 @@ aucune réorganisation.
 | **12** | Phénomènes émergents de réfraction | **VALIDATED** | cinq couches câblées d'un coup · GPU/CPU à 2,6″ · Soleil ovale 27,6′ × 32,0′ |
 | **13** | Atmosphère 3D | **VALIDATED** | équation eikonale · 0,044″ contre l'intégrale 1D · le rayon se retourne au-dessus d'une route chaude |
 | **14** | Inversions thermiques et mirages | **VALIDATED** | transfert non monotone · 2 images · inversée 0,270° · non rendue |
-| **15** | Turbulence | **TODO** | |
+| **15** | Turbulence | **VALIDATED** | HV 5/7 rend 4,961 cm et 6,903 µrad · seeing du sol, scintillation d'altitude |
 | **16** | Optique ondulatoire | **TODO** | |
 | **17** | Seeing et scintillation | **TODO** | |
 | **18** | Microphysique | **TODO** | non prioritaire |
@@ -1198,6 +1198,63 @@ changement de rendu distinct, et le faire à moitié serait pire.
 
 ---
 
+## Phase 15 — Turbulence · VALIDATED
+
+### Livré
+
+- `turbulence/structureConstant.ts` — fonction de structure de Kolmogorov,
+  spectres de Kolmogorov et de von Kármán, lien `C_T² → C_n²` par la
+  thermodynamique.
+- `turbulence/turbulenceProfile.ts` — profil de Hufnagel-Valley, moments de
+  `C_n²`, paramètre de Fried, seeing, angle isoplanétique, indice de
+  scintillation, fréquence de Greenwood, vent de Bufton.
+
+### Le modèle porte son nom
+
+HV 5/7 est nommé d'après ce qu'il doit produire : **`r₀ = 4,961 cm`** contre 5
+attendus, **`θ₀ = 6,903 µrad`** contre 7. Une constante mal recopiée les ferait
+manquer — le modèle se valide lui-même.
+
+Seeing 2,04″, Greenwood 72 Hz : un site ordinaire, ce que HV 5/7 décrit.
+
+### Les lois d'échelle sont exactes
+
+`r₀ ∝ λ^(6/5)` et `∝ (cos ζ)^(3/5)` vérifiées à **4·10⁻¹⁶** — ce sont des
+identités algébriques, pas des mesures. L'exposant 2/3 de la fonction de
+structure aussi.
+
+### Un recoupement gratuit
+
+La refractivité à **un seul terme** de la littérature turbulente,
+`79·10⁻⁶ P/T`, retombe sur les quinze constantes de Ciddor à **0,018 %**.
+
+### Ce qui émerge
+
+| Couche | Part de `r₀` | Part de la scintillation |
+| --- | --- | --- |
+| 0 – 100 m | **49,2 %** | 4,4 % |
+| 5 – 15 km | 5,7 % | **49,5 %** |
+
+**Le seeing vient du sol, la scintillation de la haute troposphère.** Rien ne
+l'écrit : c'est la différence des poids en altitude, `h⁰` contre `h^(5/6)`.
+
+### ⚠️ Deux limites
+
+**L'échelle externe** reste la grandeur la plus mal contrainte du domaine —
+quelques mètres à plusieurs centaines selon le site. Vivable parce que `r₀` n'en
+dépend pas du tout.
+
+**La scintillation n'est valable qu'en régime faible.** À 70° de distance
+zénithale le modèle rend σ_I² = 1,67, déjà hors du domaine où la théorie de
+perturbation s'applique. Signalé, non corrigé.
+
+### Rien à l'écran
+
+La phase 15 fournit les grandeurs ; la **phase 17** les appliquera aux images
+d'étoiles.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1220,3 +1277,4 @@ changement de rendu distinct, et le faire à moitié serait pire.
 | 2026-08-27 | Phase 12 — réfraction câblée aux cinq couches ; GPU/CPU à 2,6″ ; le Soleil se couche après s'être couché ; **541 contrôles** |
 | 2026-08-27 | Phase 13 — champ 3D et équation eikonale ; 0,044″ contre l'intégrale 1D ; bug d'origine de couche révélé par le mirage ; **555 contrôles** |
 | 2026-08-27 | Phase 14 — mirages ; transfert non monotone, 2 images ; deux erreurs de repère attrapées par le raccord ; **566 contrôles** |
+| 2026-08-27 | Phase 15 — turbulence ; HV 5/7 se valide lui-même ; seeing du sol et scintillation d'altitude émergent des poids ; **591 contrôles** |

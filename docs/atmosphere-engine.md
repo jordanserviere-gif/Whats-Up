@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 566 contrôles, 25 suites, aucun échec.**
+**État : 591 contrôles, 26 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2439,6 +2439,122 @@ faire a moitie que de deplacer le Soleil sur une seule branche.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 14 (sauf 2 partielle) ; le ciel
-physique, les objets et la courbure des rayons sont a l'ecran ; le champ 3D et la
-fonction de transfert des mirages sont valides et attendent leur rendu.*
+## La turbulence optique — phase 15
+
+### Une seule grandeur
+
+L'air n'est pas homogene : le brassage turbulent mele en permanence des parcelles
+a des temperatures legerement differentes, donc a des indices legerement
+differents. Un front d'onde qui traverse ce milieu en ressort froisse — et c'est
+**toute** l'origine du scintillement des etoiles, du seeing des telescopes et du
+tremblement de l'air au-dessus d'une route.
+
+Tout tient dans la **constante de structure de l'indice**, definie par la
+fonction de structure de Kolmogorov :
+
+```
+D_n(r) = ⟨[n(x) − n(x+r)]²⟩ = C_n² · r^(2/3)
+```
+
+L'exposant 2/3 n'est pas ajustable : il sort de l'analyse dimensionnelle de la
+cascade turbulente. Mesure : **0,666667**, a 10⁻¹⁶ pres.
+
+### Le lien avec le reste du moteur
+
+Ce ne sont pas les fluctuations d'indice qui existent en premier, ce sont celles
+de **temperature** :
+
+```
+n − 1 ≈ 79·10⁻⁶ · P/T      dn/dT = −79·10⁻⁶ · P/T²      C_n = |dn/dT|·C_T
+```
+
+Cette forme a **un seul terme** est celle qu'emploie toute la litterature de la
+turbulence, la ou la phase 10 en emploie une quinzaine. Elles doivent decrire le
+meme air — et elles s'accordent a **0,018 %**.
+
+Le signe negatif de `dn/dT` est le meme que celui qui produit les mirages : l'air
+chaud est moins dense, donc moins refringent.
+
+### Le modele porte son nom
+
+**Hufnagel-Valley 5/7** tire son nom de ce qu'il doit produire : `r₀ = 5 cm` et
+`θ₀ = 7 µrad` a 500 nm au zenith. Ce ne sont pas des valeurs a comparer a une
+table exterieure — ce sont celles qui **definissent** le jeu de parametres, et
+une constante mal recopiee les ferait manquer.
+
+| | Modèle | Attendu |
+| --- | --- | --- |
+| `r₀` à 500 nm, zénith | **4,961 cm** | 5 cm |
+| `θ₀` | **6,903 µrad** | 7 µrad |
+| Seeing | 2,04″ | site ordinaire |
+| Fréquence de Greenwood | 72 Hz | quelques dizaines |
+
+### Les lois d'echelle sont des identites
+
+`r₀ ∝ λ^(6/5)` et `r₀ ∝ (cos ζ)^(3/5)` sortent directement de la definition de
+Fried. Elles sont donc verifiees a **4·10⁻¹⁶** — la precision machine — et non a
+quelques pour cent : ce sont des identites algebriques, pas des mesures.
+
+Consequence immediate : le seeing varie en `λ^(−1/5)`. Il **s'ameliore vers
+l'infrarouge, mais lentement** — 2,04″ a 500 nm contre 1,51″ a 2,2 µm, soit un
+facteur 1,34 pour un rapport de longueur d'onde de 4,4.
+
+### Ce qui emerge : deux couches, deux phenomenes
+
+Chaque grandeur observable est un moment de `C_n²` le long de la visee, et
+**chacune pese l'altitude differemment**. C'est tout ce qui les separe, et cela
+suffit :
+
+| Couche | Part de `r₀` (poids `h⁰`) | Part de la scintillation (poids `h^(5/6)`) |
+| --- | --- | --- |
+| 0 – 100 m | **49,2 %** | 4,4 % |
+| 100 m – 1 km | 35,6 % | 14,9 % |
+| 1 – 5 km | 8,7 % | 21,7 % |
+| **5 – 15 km** | 5,7 % | **49,5 %** |
+| 15 – 25 km | 0,7 % | 9,5 % |
+
+**Le seeing vient du sol, la scintillation de la haute troposphere.** Rien ne
+l'ecrit : c'est la difference des poids. C'est aussi pourquoi une turbulence de
+surface brouille l'image sans faire scintiller, et pourquoi les etoiles basses
+scintillent — l'indice croit en `sec^(11/6) ζ`, de 0,234 au zenith a 1,672 a 70°
+de distance zenithale.
+
+### Le spectre, et pourquoi il en faut deux
+
+Le spectre de **Kolmogorov**, `Φ_n(κ) = 0,033·C_n²·κ^(−11/3)`, diverge aux deux
+bouts : c'est le signe qu'il extrapole la cascade au-dela du domaine ou elle
+existe. Celui de **von Karman** la borne par les deux echelles reelles.
+
+Mesure : les deux se confondent a **0,5 %** dans le domaine inertiel (κ = 5 a
+50 m⁻¹), et divergent aux bords — rapport 0,66 a κ = 0,5 m⁻¹ ou l'echelle externe
+mord, 0,84 a κ = 500 m⁻¹ ou la viscosite dissipe. C'est exactement le
+comportement voulu.
+
+### ⚠️ L'echelle externe reste la grandeur mal contrainte
+
+Les mesures vont de **quelques metres a plusieurs centaines** selon le site, la
+methode et l'altitude. Vingt-cinq metres est une valeur d'usage pour
+l'atmosphere libre.
+
+Ce qui rend cette incertitude vivable : **`r₀` n'en depend pas du tout** dans la
+theorie de Kolmogorov, et les grandeurs qui en dependent le font en puissance
+fractionnaire. L'echelle interne, elle, est mieux cernee — quelques
+millimetres — parce que fixee par la viscosite.
+
+### ⚠️ La scintillation n'est valable qu'en regime faible
+
+Au-dela de `σ_I² ≈ 1`, la theorie de perturbation qui donne l'expression cesse
+d'etre valable et l'indice **sature**. A 70° de distance zenithale le modele rend
+1,67, donc deja hors du domaine. La formule le signale, elle ne le corrige pas.
+
+### Ce qui n'arrive pas a l'ecran
+
+Rien, encore. La phase 15 fournit les grandeurs ; **la phase 17 les appliquera
+aux images d'etoiles** — c'est la que le seeing devient une tache et la
+scintillation un clignotement.
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 15 (sauf 2 partielle) ; le ciel
+physique, les objets et la courbure des rayons sont a l'ecran ; champ 3D,
+mirages et turbulence sont valides et attendent leur rendu.*
