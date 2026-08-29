@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 629 contrôles, 28 suites, aucun échec.**
+**État : 645 contrôles, 29 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -2767,6 +2767,110 @@ vision **scotopique** — celle dont on regarde les etoiles.
 
 ---
 
-*Derniere mise a jour : phases 0, 0.5, 1 a 17 (sauf 2 partielle) ; le ciel
-physique, les objets, la courbure des rayons et la scintillation des etoiles sont
-a l'ecran ; champ 3D, mirages et couronnes sont valides et attendent leur rendu.*
+## Le calage scientifique — phase 19
+
+### Deux grandeurs que le transport attendait
+
+Le solveur savait depuis longtemps prendre en compte la distance du Soleil et la
+colonne d'ozone. **Personne ne les lui donnait.** Les brancher n'ajoute aucune
+physique : cela cesse d'en soustraire.
+
+**La distance du Soleil** vient desormais de l'ephemeride, non d'un `1` suppose.
+Elle va de 0,983 ua au perihelie de debut janvier a 1,017 a l'aphelie de debut
+juillet, soit **6,91 %** d'ecart en eclairement — mesure exactement egal a
+`(1,0167/0,9833)²`. Ce n'est pas ce qui fait les saisons, mais c'est reel.
+
+**La colonne d'ozone** dependait d'une constante unique, 300 DU, employee partout
+et en toute saison. Elle depend maintenant du lieu et de la date.
+
+### Ce que l'ozone change, et pourquoi cela se voit
+
+L'ozone est ce qui rend le crepuscule **bleu** — bande de Chappuis, phase 7. Sa
+colonne en decide donc la profondeur :
+
+| Colonne | Luminance | Bleu/rouge |
+| --- | --- | --- |
+| 245 DU (tropiques) | 20,2 cd/m² | **1,60** |
+| 300 DU (l'ancienne constante) | 17,9 | 1,91 |
+| 400 DU (haute latitude, printemps) | 14,7 | **2,57** |
+
+**Soixante et un pour cent d'ecart sur le rapport bleu/rouge.** Un observateur
+norvegien en avril et un observateur equatorial ne voient pas le meme crepuscule,
+et c'est en grande partie pour cette raison.
+
+### ⚠️ La parametrisation de l'ozone est une interpolation, pas une climatologie
+
+Les coefficients ne viennent d'aucune publication. Ils sont choisis pour que le
+modele reproduise les **bornes observees** et la forme qualitative, qui elle est
+solide :
+
+| Fait d'observation | Modèle |
+| --- | --- |
+| Plage hors trou antarctique, 240 à 450 DU | **245 à 413 DU** |
+| Colonne équatoriale invariante | **0 DU** de variation |
+| Croissance vers les pôles | vérifiée, monotone |
+| Maximum printanier | 368 DU en avril contre 265 en octobre, à 60°N |
+| Hémisphères en opposition de phase | à 6,5·10⁻⁴ près |
+
+**La reference a adopter est van Heuklon (1979)**, *Estimating atmospheric ozone
+for solar radiation models*, Solar Energy 22, 63–68. La brancher ne demanderait
+aucun changement de structure — seulement les bons coefficients.
+
+Ne sont pas representes : le **trou d'ozone antarctique**, phenomene anthropique
+dont l'amplitude varie d'une decennie a l'autre et qu'une formule ne saurait
+porter ; et la dependance en **longitude**, l'ozone suivant les ondes planetaires.
+
+---
+
+## Registre des incertitudes scientifiques
+
+Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
+seul endroit, parce que « fini et valide » veut dire savoir exactement ou l'on
+en est.
+
+### Mesure, et recoupe par un chemin independant
+
+| Grandeur | Recoupement | Écart |
+| --- | --- | --- |
+| Atmosphère US1976 | tables normatives | 4,4·10⁻⁵ |
+| Section efficace de Rayleigh | Mie × facteur de King | 4·10⁻⁴ |
+| Indice de Ciddor | Peck & Reeder | 3,5·10⁻⁵ |
+| Réfraction à 45° | Astronomical Almanac | 0,4 % |
+| Traceur 3D | intégrale 1D de l'invariant | 0,044″ |
+| Invariant de Bouguer | conservation le long du rayon | 1,6·10⁻⁷ |
+| HV 5/7 | ses propres valeurs de définition | 0,8 % et 1,4 % |
+| Anneaux de couronne | prédiction par diffraction | 1,0 % à 20 µm |
+| Ouverture de croisement | paramètre de Fried | 4 % |
+| Bilan d'éclairement | paliers de `photometry.ts` | 1–6 % |
+
+### Choisi, et signale comme tel
+
+| Paramètre | Valeur | Ce qu'il faudrait |
+| --- | --- | --- |
+| Indice complexe des aérosols | `n = 1,53`, `k = 0,008` | **OPAC** (Hess, Koepke & Schult 1998) |
+| Rayon médian des aérosols | 0,05 µm, calé sur α = 1,29 | mesure AERONET du site |
+| Coefficients d'ozone climatologique | interpolation aux bornes | **van Heuklon (1979)** |
+| Échelle externe de turbulence | 25 m | mesure du site ; `r₀` n'en dépend pas |
+| Fréquence de fusion rétinienne | 20 Hz | dépend de la luminance |
+| Indice de l'eau liquide | 1,333 | **Hale & Querry (1973)** |
+| `DISPLAY_SATURATION` | 1,4 | un modèle d'apparence |
+| Atténuation d'éclipse | `√(1 − obs + 8·10⁻⁴)` | transport horizontal depuis la pénombre |
+
+### Manquant, et nomme
+
+| | |
+| --- | --- |
+| **Ancre d'exposition** | `86 302 cd/m²` est l'ancre de **continuité**, choisie pour que le refactor ne change rien. L'ancre photographique serait 34 377. La vraie réponse est un **modèle d'adaptation** piloté par l'éclairement de la scène, que le moteur calcule déjà. |
+| **Nœud à 5° de `SOLAR_ANCHORS`** | incompatible avec ses propres voisins ; écarté de la validation avec sa justification depuis la phase 8. Trancher demanderait un jeu **BSRN** ou **IDMP/CIE**. |
+| **Socle nocturne** | airglow, lueur lunaire et halo urbain restent des couleurs peintes. Ce sont de vraies sources d'émission, et leur place est dans l'équation du transfert. |
+| **Transmittance spectrale réduite à trois nombres** | exacte pour un spectre solaire seulement. Limite de la chaîne RGB, pas du transport. |
+| **Trou d'ozone antarctique** | anthropique et non stationnaire ; une chronologie, pas une formule. |
+| **Rendu des mirages** | la physique est validée ; un maillage ne peut être qu'à un endroit, et le Soleil « vase étrusque » demande que le disque soit rendu *à travers* la fonction de transfert. |
+| **Nuages** | le transport suppose une atmosphère claire. Sans eux, ni couronne, ni gloire, ni iridescence. |
+
+---
+
+*Derniere mise a jour : phases 0, 0.5, 1 a 17 et 19 (sauf 2 partielle, 18 non
+prioritaire) ; le ciel physique, les objets, la courbure des rayons et la
+scintillation sont a l'ecran ; champ 3D, mirages et couronnes sont valides et
+attendent leur rendu.*

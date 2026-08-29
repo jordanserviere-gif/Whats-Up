@@ -137,6 +137,10 @@ export interface SkyBackgroundProps {
   moonGlowColor: string
   /** Altitude de l'observateur, m — la table de ciel en depend. */
   observerElevationM: number
+  /** Distance Terre-Soleil, ua — l'eclairement varie en `1/d²`. */
+  sunDistanceAu: number
+  /** Colonne d'ozone, DU — ce qui rend le crepuscule bleu. */
+  ozoneColumnDu: number
   /** Le calque « atmosphere » est-il actif ? Faux = vue depuis l'espace. */
   atmosphereEnabled: boolean
   /**
@@ -173,6 +177,8 @@ export function SkyBackground({
   nightColor,
   moonGlowColor,
   observerElevationM,
+  sunDistanceAu,
+  ozoneColumnDu,
   atmosphereEnabled,
   aerosolTurbidity,
   skyExposure,
@@ -185,7 +191,14 @@ export function SkyBackground({
   // se met a jour par `useFrame`, et les rappels de react-three-fiber ne sont
   // disponibles que la. C'est aussi la bonne place du point de vue des
   // responsabilites — le materiau du ciel possede la table qu'il echantillonne.
-  useAerialLut(sunAltitude, observerElevationM, aerosolTurbidity, atmosphereEnabled)
+  useAerialLut(
+    sunAltitude,
+    observerElevationM,
+    aerosolTurbidity,
+    atmosphereEnabled,
+    sunDistanceAu,
+    ozoneColumnDu,
+  )
 
   // Le fond de ciel publie l'etat de l'atmosphere pour toutes les couches : les
   // corps, les etoiles, le ciel profond et les constellations lisent la meme

@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-08-27T17:59:05.953Z",
+  "recordedAt": "2026-08-29T12:46:52.031Z",
   "environment": {
     "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl2": true,
@@ -13,225 +13,225 @@
       "phase": "baseline",
       "measurements": {
         "1440x900": {
-          "nsPerPixel": 1.0436972059665612,
-          "minNsPerPixel": 0.9624756335358294,
-          "maxNsPerPixel": 1.0640025990978828,
-          "spread": 0.09727626459249726,
-          "msPerPass": 1.3526315789326635,
-          "reps": 19,
+          "nsPerPixel": 1.0300925921326802,
+          "minNsPerPixel": 0.9182098764282318,
+          "maxNsPerPixel": 1.1728395064027957,
+          "spread": 0.24719101168117757,
+          "msPerPass": 1.3349999994039536,
+          "reps": 20,
           "samples": 9
         },
         "720x450": {
-          "nsPerPixel": 1.0068811981333166,
-          "minNsPerPixel": 0.9562841530007523,
-          "maxNsPerPixel": 1.0321797207231598,
-          "spread": 0.07537688444586337,
-          "msPerPass": 0.32622950819519453,
-          "reps": 61,
+          "nsPerPixel": 1.0841049380416488,
+          "minNsPerPixel": 0.8834876545509438,
+          "maxNsPerPixel": 1.1689814813665034,
+          "spread": 0.2633451954672229,
+          "msPerPass": 0.3512499999254942,
+          "reps": 80,
           "samples": 9
         },
         "360x225": {
-          "nsPerPixel": 1.11652156803505,
-          "minNsPerPixel": 1.05257980423525,
-          "maxNsPerPixel": 1.1952191235197185,
-          "spread": 0.127753303982741,
-          "msPerPass": 0.09043824701083905,
-          "reps": 251,
+          "nsPerPixel": 1.0123456784604508,
+          "minNsPerPixel": 0.8827160491987511,
+          "maxNsPerPixel": 1.3024691354345392,
+          "spread": 0.4146341463857857,
+          "msPerPass": 0.08199999995529651,
+          "reps": 200,
           "samples": 9
         }
       },
-      "nsPerPixel": 1.0436972059665612,
-      "spread": 0.09727626459249726,
+      "nsPerPixel": 1.0300925921326802,
+      "spread": 0.24719101168117757,
       "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 1.3526315789326635,
-        "1440x900@dpr2": 5.410526315730654,
-        "1920x1080@dpr2": 8.656842105169044
+        "1440x900@dpr1": 1.3349999994039536,
+        "1440x900@dpr2": 5.339999997615815,
+        "1920x1080@dpr2": 8.543999996185303
       }
     },
     "lecture de la table de perspective atmospherique (phase 9)": {
       "phase": "9",
       "measurements": {
         "1440x900": {
-          "nsPerPixel": 0.042507577437502005,
-          "minNsPerPixel": 0.040659421897162,
-          "maxNsPerPixel": 0.04782102461786211,
-          "spread": 0.1684782608754796,
-          "msPerPass": 0.055089820359002596,
+          "nsPerPixel": 0.042969616343564485,
+          "minNsPerPixel": 0.039273305241369114,
+          "maxNsPerPixel": 0.05174835512091397,
+          "spread": 0.2903225800249257,
+          "msPerPass": 0.05568862278125957,
           "reps": 334,
           "samples": 9
         },
         "720x450": {
-          "nsPerPixel": 0.049900199599937786,
-          "minNsPerPixel": 0.042507577438577776,
-          "maxNsPerPixel": 0.05452058845616664,
-          "spread": 0.24074074079663285,
-          "msPerPass": 0.016167664670379844,
-          "reps": 334,
+          "nsPerPixel": 0.04349677009208036,
+          "minNsPerPixel": 0.04118311217521084,
+          "maxNsPerPixel": 0.062468765617191405,
+          "spread": 0.4893617019590182,
+          "msPerPass": 0.014092953509834038,
+          "reps": 667,
           "samples": 9
         },
         "360x225": {
-          "nsPerPixel": 0.05555555554980665,
-          "minNsPerPixel": 0.046296296296296294,
-          "maxNsPerPixel": 0.08024691358312136,
-          "spread": 0.6111111112260892,
-          "msPerPass": 0.004499999999534338,
-          "reps": 400,
+          "nsPerPixel": 0.04197530871556129,
+          "minNsPerPixel": 0.04074074070394775,
+          "maxNsPerPixel": 0.07530864190172266,
+          "spread": 0.823529409444456,
+          "msPerPass": 0.003400000005960464,
+          "reps": 1000,
           "samples": 9
         }
       },
-      "nsPerPixel": 0.042507577437502005,
-      "spread": 0.1684782608754796,
+      "nsPerPixel": 0.042969616343564485,
+      "spread": 0.2903225800249257,
       "samples": 9,
       "fillRateBound": true,
       "projectedMs": {
-        "1440x900@dpr1": 0.055089820359002596,
-        "1440x900@dpr2": 0.22035928143601038,
-        "1920x1080@dpr2": 0.3525748502976166
+        "1440x900@dpr1": 0.05568862278125957,
+        "1440x900@dpr2": 0.22275449112503828,
+        "1920x1080@dpr2": 0.35640718580006125
       }
     }
   },
   "probes": {
     "midi": {
       "time": "2026-06-21T12:00:00Z",
-      "sunAltitude": 64.5361320534411,
+      "sunAltitude": 64.54367365797758,
       "directions": {
         "zenith": [
-          139,
-          171,
-          213
+          136,
+          169,
+          211
         ],
         "vers-soleil-30": [
-          158,
-          190,
+          156,
+          189,
           226
         ],
         "vers-soleil-horizon": [
-          225,
-          228,
-          231
+          224,
+          227,
+          230
         ],
         "perpendiculaire-30": [
-          109,
-          159,
-          215
+          107,
+          157,
+          214
         ],
         "antisoleil-30": [
-          89,
-          146,
-          210
+          88,
+          144,
+          209
         ],
         "antisoleil-horizon": [
-          210,
-          219,
-          227
+          209,
+          218,
+          226
         ]
       }
     },
     "apres-midi": {
       "time": "2026-06-21T16:00:00Z",
-      "sunAltitude": 35.727907095350375,
+      "sunAltitude": 35.7498695066071,
       "directions": {
         "zenith": [
-          78,
-          122,
-          183
+          77,
+          120,
+          181
         ],
         "vers-soleil-30": [
-          200,
-          217,
-          235
+          198,
+          216,
+          234
         ],
         "vers-soleil-horizon": [
           242,
           241,
-          238
+          237
         ],
         "perpendiculaire-30": [
-          90,
-          143,
-          203
+          89,
+          142,
+          202
         ],
         "antisoleil-30": [
-          83,
-          142,
-          204
+          81,
+          140,
+          203
         ],
         "antisoleil-horizon": [
-          214,
-          220,
-          224
+          212,
+          219,
+          223
         ]
       }
     },
     "soleil-bas": {
       "time": "2026-06-21T18:45:00Z",
-      "sunAltitude": 9.34211536110358,
+      "sunAltitude": 9.433806659281156,
       "directions": {
         "zenith": [
-          39,
-          73,
-          116
+          38,
+          72,
+          115
         ],
         "vers-soleil-30": [
-          159,
-          177,
-          191
+          157,
+          175,
+          190
         ],
         "vers-soleil-horizon": [
-          249,
+          248,
           245,
-          230
+          229
         ],
         "perpendiculaire-30": [
-          61,
-          106,
-          149
+          60,
+          104,
+          147
         ],
         "antisoleil-30": [
-          75,
-          127,
-          171
+          73,
+          125,
+          169
         ],
         "antisoleil-horizon": [
-          203,
-          199,
-          160
+          202,
+          197,
+          159
         ]
       }
     },
     "coucher": {
       "time": "2026-06-21T19:52:00Z",
-      "sunAltitude": -0.07186923330731076,
+      "sunAltitude": 0.4029691484576414,
       "directions": {
         "zenith": [
           18,
-          25,
+          24,
           37
         ],
         "vers-soleil-30": [
-          62,
-          59,
-          67
+          61,
+          58,
+          66
         ],
         "vers-soleil-horizon": [
-          219,
-          128,
+          217,
+          126,
           0
         ],
         "perpendiculaire-30": [
-          30,
-          37,
-          48
+          29,
+          36,
+          47
         ],
         "antisoleil-30": [
-          42,
-          51,
-          61
+          41,
+          50,
+          60
         ],
         "antisoleil-horizon": [
-          91,
+          89,
           27,
           0
         ]
@@ -239,7 +239,7 @@
     },
     "crepuscule-civil": {
       "time": "2026-06-21T20:40:00Z",
-      "sunAltitude": -5.940394620784744,
+      "sunAltitude": -5.391881930019669,
       "directions": {
         "zenith": [
           4,
@@ -275,7 +275,7 @@
     },
     "crepuscule-nautique": {
       "time": "2026-06-21T21:30:00Z",
-      "sunAltitude": -11.023564922266502,
+      "sunAltitude": -10.475052231501428,
       "directions": {
         "zenith": [
           4,
@@ -311,7 +311,7 @@
     },
     "nuit": {
       "time": "2026-06-21T23:30:00Z",
-      "sunAltitude": -17.534103772234374,
+      "sunAltitude": -16.9855910814693,
       "directions": {
         "zenith": [
           3,
@@ -382,7 +382,7 @@
         ],
         "couronne": [
           255,
-          254,
+          253,
           0
         ]
       }

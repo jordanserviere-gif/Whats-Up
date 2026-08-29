@@ -67,8 +67,8 @@ aucune réorganisation.
 | **15** | Turbulence | **VALIDATED** | HV 5/7 rend 4,961 cm et 6,903 µrad · seeing du sol, scintillation d'altitude |
 | **16** | Optique ondulatoire | **VALIDATED** | le 1,22 trouvé, pas écrit · couronnes émergentes de Mie à 1 % · l'œil nu est limité par sa pupille |
 | **17** | Seeing et scintillation | **VALIDATED** | **au rendu** · les étoiles scintillent, les planètes non · facteur 76, émergent |
-| **18** | Microphysique | **TODO** | non prioritaire |
-| **19** | Fine tuning scientifique | **TODO** | |
+| **18** | Microphysique | **TODO** | non prioritaire · sautée au profit de la 19, aucun consommateur au rendu |
+| **19** | Fine tuning scientifique | **VALIDATED** | ozone et distance solaire câblés · registre des incertitudes |
 | **20** | Optimisation GPU | **TODO** | |
 
 ---
@@ -1360,6 +1360,48 @@ perturbation surestime et la scintillation réelle sature. Le plafond de 0,5 —
 
 ---
 
+## Phase 19 — Calage scientifique · VALIDATED · **AU RENDU**
+
+### Livré
+
+- `absorption/ozoneClimatology.ts` — colonne d'ozone selon la latitude et la
+  saison, en remplacement d'une constante unique.
+- Distance du Soleil et colonne d'ozone **câblées** jusqu'à la table de ciel :
+  le transport savait les prendre en compte, personne ne les lui donnait.
+- **Registre des incertitudes** dans `docs/atmosphere-engine.md` — ce qui est
+  mesuré, ce qui est choisi, ce qui manque.
+
+### Ce que ça change
+
+| Colonne d'ozone | Luminance du crépuscule | Bleu/rouge |
+| --- | --- | --- |
+| 245 DU (tropiques) | 20,2 cd/m² | **1,60** |
+| 400 DU (haute latitude, printemps) | 14,7 | **2,57** |
+
+**61 % d'écart sur le rapport bleu/rouge** : un observateur norvégien en avril et
+un observateur équatorial ne voient pas le même crépuscule.
+
+Distance solaire : **6,91 %** d'écart périhélie/aphélie, exactement
+`(1,0167/0,9833)²`.
+
+### ⚠️ La paramétrisation de l'ozone est une interpolation
+
+Les coefficients ne viennent d'aucune publication. Ils reproduisent les bornes
+observées (245–413 DU contre 240–450) et la forme qualitative — invariance
+équatoriale, croissance vers les pôles, maximum printanier, hémisphères en
+opposition de phase à 6,5·10⁻⁴ près. **van Heuklon (1979)** est la référence à
+adopter. Le trou d'ozone antarctique n'est pas représenté : c'est une chronologie,
+pas une formule.
+
+### Le registre
+
+Trois tableaux : dix grandeurs **mesurées et recoupées** par un chemin
+indépendant, huit paramètres **choisis et signalés**, sept manques **nommés** —
+dont l'ancre d'exposition, le nœud à 5°, le socle nocturne peint et le rendu des
+mirages.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1385,3 +1427,4 @@ perturbation surestime et la scintillation réelle sature. Le plafond de 0,5 —
 | 2026-08-27 | Phase 15 — turbulence ; HV 5/7 se valide lui-même ; seeing du sol et scintillation d'altitude émergent des poids ; **591 contrôles** |
 | 2026-08-27 | Phase 16 — optique ondulatoire ; couronnes émergentes de Mie ; assertion fausse corrigée par la dispersion des tailles ; **611 contrôles** |
 | 2026-08-27 | Phase 17 — scintillation **au rendu** ; les planètes ne scintillent pas, par un rapport de longueurs ; seeing écarté sur mesure ; **629 contrôles** |
+| 2026-08-27 | Phase 19 — ozone et distance solaire câblés ; crépuscule 61 % plus bleu aux hautes latitudes ; registre des incertitudes ; **645 contrôles** |

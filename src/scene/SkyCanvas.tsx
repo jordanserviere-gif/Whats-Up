@@ -5,6 +5,7 @@ import { DisplayEffect } from './display/DisplayEffect'
 import { RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
 import { HalfFloatType, Matrix4, NoToneMapping } from 'three'
 import { BODIES } from '@/astro/bodies'
+import { ozoneColumnDu as ozoneColumnDuFor } from '@/atmosphere/absorption/ozoneClimatology'
 import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
 import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
 import {
@@ -181,6 +182,30 @@ export function SkyCanvas() {
    * revolution.
    */
   const eclipseDimming = Math.sqrt(1 - sky.obscuration + 8e-4 * sky.obscuration)
+
+  /**
+   * Distance Terre-Soleil, ua — prise de l'ephemeride, non supposee unitaire.
+   *
+   * Elle varie de 0,983 au perihelie a 1,017 a l'aphelie : l'eclairement, en
+   * `1/d²`, varie donc de 6,9 % sur l'annee. Le transport savait deja le prendre
+   * en compte, personne ne le lui donnait.
+   */
+  const sunDistanceAu = bodies.find((b) => b.id === 'sun')?.distanceAu ?? 1
+
+  /**
+   * Colonne d'ozone du lieu et de la saison, DU.
+   *
+   * L'ozone est ce qui rend le crepuscule bleu, et sa colonne va de 245 DU sous
+   * les tropiques a plus de 400 aux hautes latitudes au printemps. Le moteur
+   * employait 300 partout — voir `atmosphere/absorption/ozoneClimatology.ts`,
+   * dont la parametrisation est signalee comme une interpolation et non une
+   * climatologie publiee.
+   */
+  const ozoneColumnDu = useMemo(
+    () => ozoneColumnDuFor(location.latitude, date),
+    [location.latitude, date],
+  )
+
 
   /**
    * Exposition d'affichage du ciel physique — voir `display/exposure.ts`.
@@ -516,6 +541,8 @@ export function SkyCanvas() {
         <SkyBackground
           skyExposure={skyExposure}
           observerElevationM={location.elevation}
+          sunDistanceAu={sunDistanceAu}
+          ozoneColumnDu={ozoneColumnDu}
           atmosphereEnabled={layers.atmosphere}
           aerosolTurbidity={aerosolTurbidity}
           sunAltitude={sky.sunAltitude}

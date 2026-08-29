@@ -219,6 +219,25 @@ export function useAerialLut(
   observerElevationM: number,
   aerosolTurbidity: number,
   enabled: boolean,
+  /**
+   * Distance Terre-Soleil, en unites astronomiques.
+   *
+   * Elle varie de 0,983 au perihelie (debut janvier) a 1,017 a l'aphelie (debut
+   * juillet) : l'eclairement, en `1/d²`, varie donc de **6,9 %** sur l'annee.
+   * Ce n'est pas ce qui fait les saisons — l'inclinaison de l'axe s'en charge,
+   * et dans l'autre sens pour l'hemisphere nord — mais c'est mesurable, et le
+   * transport savait deja le prendre en compte sans que personne ne le lui
+   * donne.
+   */
+  sunDistanceAu = 1,
+  /**
+   * Colonne d'ozone, en unites Dobson.
+   *
+   * L'ozone est ce qui rend le crepuscule bleu. Le moteur employait 300 DU —
+   * la moyenne globale — partout et en toute saison ; voir
+   * `absorption/ozoneClimatology.ts`.
+   */
+  ozoneColumnDobsonUnits = 300,
 ): AerialTextures {
   const rows = AERIAL_LUT_HEIGHT * AERIAL_LUT_DEPTH
 
@@ -255,6 +274,8 @@ export function useAerialLut(
     pendingAltitude: 0,
     pendingElevation: 0,
     pendingTurbidity: 1,
+    pendingDistanceAu: 1,
+    pendingOzoneDu: 300,
     /** Entree suivante de diffusion multiple, ou −1 si cette table est a jour. */
     pendingMsEntry: -1,
   })
@@ -318,6 +339,8 @@ export function useAerialLut(
       const to = Math.min(AERIAL_LUT_HEIGHT, current.pendingRow + ROWS_PER_FRAME)
       fillAerialRows(pending, GRID, current.pendingAltitude, current.pendingRow, to, {
         observerElevationM: current.pendingElevation,
+        distanceAu: current.pendingDistanceAu,
+        ozoneColumnDobsonUnits: current.pendingOzoneDu,
         columnLut: sharedColumnLut(),
         aerosols: sharedAerosolOptics(current.pendingTurbidity),
         multipleScattering: multipleScattering ?? undefined,
@@ -358,6 +381,12 @@ export function useAerialLut(
     current.pendingAltitude = sunAltitudeDeg
     current.pendingElevation = observerElevationM
     current.pendingTurbidity = aerosolTurbidity
+    // Ces deux-la n'ont pas besoin de declencher une reconstruction : la
+    // distance solaire varie de 7 % sur une **annee**, la colonne d'ozone sur
+    // une **saison**, quand le Soleil franchit le quart de degre en une minute.
+    // Ils sont simplement pris a leur valeur du moment.
+    current.pendingDistanceAu = sunDistanceAu
+    current.pendingOzoneDu = ozoneColumnDobsonUnits
     current.pendingRow = 0
   })
 

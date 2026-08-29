@@ -29,6 +29,7 @@ import { mirageSuite } from '../field/mirageTransfer.validation'
 import { turbulenceSuite } from '../turbulence/turbulence.validation'
 import { waveOpticsSuite } from '../wave/wave.validation'
 import { scintillationSuite } from '../turbulence/scintillation.validation'
+import { calibrationSuite } from '../absorption/ozoneClimatology.validation'
 import { aerosolSuite, mieSuite } from '../mie/mie.validation'
 import { columnLutSuite } from '../lut/transmittanceLut.validation'
 import { skyViewLutSuite } from '../lut/skyViewLut.validation'
@@ -84,6 +85,8 @@ export function allSuites(): SuiteResult[] {
     waveOpticsSuite(),
     // Phase 17 — seeing et scintillation.
     scintillationSuite(),
+    // Phase 19 — calage scientifique.
+    calibrationSuite(),
     // Infrastructure — tables precalculees.
     columnLutSuite(),
     skyViewLutSuite(),
