@@ -10,3 +10,4 @@ tsconfig.tsbuildinfo
 docs/captures/
 .playwright-mcp/
 shots/
+scripts/.*.mjs
