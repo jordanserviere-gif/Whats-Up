@@ -96,7 +96,31 @@ export function displayTransformSuite(): SuiteResult {
         const mapped = displayTransform(radianceFromDisplay(c))
         t.checkRelative(`la luminance survit a la re-saturation (${c.join(', ')})`, luma(mapped), luma(c), 1e-9)
       }
-      t.check('facteur de re-saturation', DISPLAY_SATURATION, 1.4, 0)
+      // ⚠️ **Ce controle epinglait 1,4**, la valeur heritee de l'atmosphere
+      // artistique. Elle envoyait un canal sous zero sur 3,7 % du ciel a dix
+      // degres de depression solaire et jusqu'a 12,9 % a quatorze — la bande de
+      // l'horizon devenait un aplat sans degrade. Voir `tonemap.ts` pour la
+      // mesure complete.
+      //
+      // Ce qui est epingle maintenant n'est plus une valeur mais une
+      // **propriete** : la chaine d'affichage ne retouche pas la saturation.
+      // Toute valeur superieure a un reintroduirait le meme ecretage.
+      t.check('la chaine d’affichage ne retouche pas la saturation', DISPLAY_SATURATION, 1, 0)
+
+      // Et la propriete qui le justifie : aucune couleur affichable ne doit
+      // pouvoir sortir du domaine par la seule re-saturation.
+      let worstNegative = 0
+      for (let r = 0; r <= 1.0001; r += 0.1) {
+        for (let g = 0; g <= 1.0001; g += 0.1) {
+          for (let b = 0; b <= 1.0001; b += 0.1) {
+            const luminance = luma([r, g, b])
+            for (const v of [r, g, b]) {
+              worstNegative = Math.min(worstNegative, luminance + (v - luminance) * DISPLAY_SATURATION)
+            }
+          }
+        }
+      }
+      t.check('aucun canal ne sort du domaine par la re-saturation', worstNegative, 0, 0)
 
       // --- Regime des faibles valeurs -----------------------------------------
       // Aux faibles radiances la courbe est quasi lineaire, de pente 0,03/0,14.

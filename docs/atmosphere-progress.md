@@ -1989,6 +1989,39 @@ niveau.
 
 ---
 
+## ⚠️ La re-saturation detruisait le degrade du crepuscule
+
+Signale au Ventoux : « une transition tres bizarre entre le halo jaune qui est
+intense, et la nuit noire ».
+
+La physique etait juste — 0,428 lx a −8,5°, 0,041 a −10,3°, l'echelle de la
+litterature — et aucun bleu negatif ne sortait du solveur. C'est la chaine
+d'affichage qui cassait.
+
+`DISPLAY_SATURATION` valait **1,4**, valeur heritee de l'atmosphere artistique
+et appliquee **apres** la courbe de rendu. Elle envoie un canal sous zero des que
+son ecart a la luminance depasse `luma/(S−1)` : au ras de l'horizon crepusculaire
+le bleu ressortait a **−0,134**, ecrete a zero, et la bande devenait un aplat
+orange sans degrade.
+
+| Soleil | part du ciel ecretee | ecart introduit |
+| --- | --- | --- |
+| +30° | 0,0 % | 25 niveaux |
+| 0° | 1,0 % | **127 niveaux** |
+| −14° | **12,9 %** | 79 niveaux |
+
+Borner la saturation au gamut ne suffisait pas : la borne vaut 1,13 en ce point,
+et le bleu y ressort encore a zero. **`DISPLAY_SATURATION = 1`** : la chaine est
+ACES puis sRGB, sans retouche. Le bleu vaut 72 sur 255 et le degrade existe.
+
+Le controle qui epinglait 1,4 epingle maintenant la propriete qui l'interdit.
+
+⚠️ Le meme signalement disait « le halo reste longtemps » : c'est voulu, et c'est
+l'exposant d'adaptation — quarante fois moins de lumiere ne rend que 2,5 fois
+plus sombre, parce qu'un ecran ne montre que deux des huit decades de la scene.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2031,3 +2064,4 @@ niveau.
 | 2026-08-31 | Carte de sélection du lieu tirée du MNT, et hauteur au-dessus du sol |
 | 2026-08-31 | Un seul horizon pour les trois couches — la bande orpheline en altitude disparaît |
 | 2026-09-01 | Loi de distance globale — la rupture du voile à la rasance du globe disparaît |
+| 2026-09-01 | Re-saturation ramenée à 1 — le dégradé du crépuscule cesse d'être écrêté |

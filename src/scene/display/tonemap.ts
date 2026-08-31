@@ -48,10 +48,45 @@
 import { Color } from 'three'
 
 /**
- * Re-saturation post-courbe. Meme valeur que celle qui vivait dans
- * `scene/atmosphere.ts` sous le nom `ATMOSPHERE_SATURATION`.
+ * Re-saturation post-courbe.
+ *
+ * ## ⚠️ Elle valait 1,4, et c'etait un reste
+ *
+ * L'en-tete de cette constante disait tout : « meme valeur que celle qui vivait
+ * dans `scene/atmosphere.ts` sous le nom `ATMOSPHERE_SATURATION` ». Un
+ * multiplicateur de saturation herite de l'atmosphere artistique, applique
+ * **apres** la courbe de rendu, sans fondement colorimetrique ni physique — donc
+ * exactement le genre de reglage d'apparence que le projet s'interdit.
+ *
+ * Elle ne faisait pas que forcer le trait : elle **detruisait de l'information**.
+ * Ecrite `out = luma + (mapped − luma)·S`, elle envoie un canal sous zero des que
+ * son ecart a la luminance depasse `luma/(S−1)`. Le ciel crepusculaire, tres
+ * rouge pres de l'horizon, y tombait systematiquement :
+ *
+ * | Soleil | part du ciel avec un canal ecrete a zero | ecart introduit |
+ * | --- | --- | --- |
+ * | +30° | 0,0 % | 25 niveaux sur 255 |
+ * | 0° | 1,0 % | **127 niveaux** |
+ * | −10,3° | 3,7 % | 103 niveaux |
+ * | −14° | **12,9 %** | 79 niveaux |
+ *
+ * Au sommet du Ventoux, Soleil a −10,3°, une visee a un demi-degre au-dessus de
+ * l'horizon donnait `mapped = (0,80 · 0,54 · 0,065)` et `luma = 0,563` : le bleu
+ * ressortait a `0,563 + (0,065 − 0,563)·1,4 = −0,134`, ecrete a **zero**. La
+ * bande de l'horizon devenait un aplat orange sans degrade, et le bleu
+ * reapparaissait brutalement un degre plus haut. C'est la « transition bizarre »
+ * entre le halo et la nuit.
+ *
+ * Borner la saturation au gamut plutot que d'ecreter ne suffisait pas : la borne
+ * vaut 1,13 en ce point, et le bleu y ressort encore exactement a zero. Ce n'est
+ * pas l'ecretage qu'il fallait corriger, c'est la constante.
+ *
+ * A **1,0**, la chaine d'affichage est ACES puis sRGB, sans retouche. Le bleu de
+ * cette meme visee vaut 72 sur 255 et le degrade existe. Les couleurs de plein
+ * jour perdent environ 25 niveaux de saturation — c'est la mesure de ce que la
+ * constante ajoutait, et elle n'avait rien pour le justifier.
  */
-export const DISPLAY_SATURATION = 1.4
+export const DISPLAY_SATURATION = 1
 
 /** Coefficients de luminance sRGB — voir `atmosphere/spectral/SpectralSensor.ts`. */
 const LUMA = [0.2126, 0.7152, 0.0722] as const

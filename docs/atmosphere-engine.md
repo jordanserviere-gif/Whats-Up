@@ -4162,6 +4162,86 @@ le profil autour de l'ancienne rasance est plat.
 
 ---
 
+## ⚠️ La re-saturation detruisait le degrade du crepuscule
+
+Signale au sommet du Ventoux, le 31 aout a 21h16 : « une transition tres bizarre
+entre le halo jaune qui est intense, et la nuit noire ».
+
+### Ce que la physique disait
+
+Rien d'anormal. L'eclairement du ciel a 1910 metres tenait l'echelle de la
+litterature :
+
+| heure | Soleil | eclairement du ciel |
+| --- | --- | --- |
+| 21h05 | −8,48° | 0,428 lx |
+| 21h16 | −10,33° | 0,041 lx |
+| 21h30 | −12,63° | 0,0066 lx |
+
+Et aucun bleu negatif ne sortait du solveur : au ras de l'horizon la radiance
+valait `R = 2,76·10⁻³`, `B = 1,79·10⁻⁴`, tres rouge mais parfaitement positive.
+
+### Ce que la chaine d'affichage en faisait
+
+`DISPLAY_SATURATION` valait **1,4**, et son propre commentaire disait d'ou elle
+venait : « meme valeur que celle qui vivait dans `scene/atmosphere.ts` sous le
+nom `ATMOSPHERE_SATURATION` ». Un multiplicateur de saturation herite de
+l'atmosphere artistique, applique **apres** la courbe de rendu, sans fondement
+colorimetrique.
+
+Elle ne forcait pas seulement le trait, elle **detruisait de l'information** :
+
+    out = luma + (mapped − luma) · S
+
+envoie un canal sous zero des que son ecart a la luminance depasse `luma/(S−1)`.
+Au Ventoux, une visee un demi-degre au-dessus de l'horizon donnait
+`mapped = (0,80 · 0,54 · 0,065)` et `luma = 0,563` :
+
+    bleu = 0,563 + (0,065 − 0,563) · 1,4 = **−0,134**   →   ecrete a zero
+
+| Soleil | part du ciel avec un canal ecrete | ecart introduit |
+| --- | --- | --- |
+| +30° | 0,0 % | 25 niveaux sur 255 |
+| 0° | 1,0 % | **127 niveaux** |
+| −10,3° | 3,7 % | 103 niveaux |
+| −14° | **12,9 %** | 79 niveaux |
+
+La bande de l'horizon devenait un **aplat orange sans degrade**, et le bleu
+reapparaissait d'un coup un degre plus haut. C'etait la transition signalee.
+
+### Pourquoi borner au gamut ne suffisait pas
+
+La correction evidente est de reduire la saturation juste assez pour rester dans
+le domaine, au lieu d'ecreter. On l'a calculee : en ce point la borne vaut
+**1,13**, et le bleu y ressort encore **exactement a zero**. Ce n'etait pas
+l'ecretage qu'il fallait corriger, c'etait la constante.
+
+### La correction
+
+`DISPLAY_SATURATION = 1`. La chaine d'affichage est desormais ACES puis sRGB,
+sans retouche. Le bleu de cette meme visee vaut **72 sur 255**, et le degrade
+existe.
+
+Les couleurs de plein jour perdent environ **25 niveaux** de saturation. C'est
+exactement la mesure de ce que la constante ajoutait, et elle n'avait rien pour
+le justifier.
+
+Le controle qui epinglait la valeur 1,4 epingle maintenant une **propriete** :
+aucune couleur affichable ne doit pouvoir sortir du domaine par la seule
+re-saturation. Toute valeur superieure a un la violerait.
+
+### ⚠️ Ce qui n'etait pas un defaut
+
+Le meme signalement disait « le halo reste longtemps ». C'est vrai, et c'est
+**voulu** : l'exposition suit `L_blanc = L_ref·(L_ciel/L_ref)^p` avec
+`p = 1 − decades_ecran/decades_scene ≈ 0,75`. Une chute d'un facteur quarante de
+la luminance du ciel ne se traduit donc que par un facteur `40^0,25 = 2,5` a
+l'ecran — c'est le prix assume de faire tenir huit decades de scene dans les deux
+que montre un ecran. Le halo qui persiste est la trace de cette compression, pas
+une erreur.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
