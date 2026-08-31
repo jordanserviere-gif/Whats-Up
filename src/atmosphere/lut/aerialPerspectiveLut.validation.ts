@@ -36,6 +36,8 @@ import {
   AERIAL_LUT_DEPTH,
   AERIAL_LUT_HEIGHT,
   AERIAL_LUT_WIDTH,
+  AERIAL_FAR_M,
+  aerialDistanceM,
   aerialW,
   AERIAL_HORIZON_ROW,
   aerialAltitudeDeg,
@@ -87,11 +89,24 @@ export function aerialPerspectiveLutSuite(): SuiteResult {
         }
       }
     }
+    // ⚠️ **L'accord n'est plus exact, et il ne peut plus l'etre.**
+    //
+    // Il valait 5,7·10⁻⁸ tant que la table et `skyRadiance` partageaient la
+    // meme repartition de pas : c'etait deux fois la meme marche, et le controle
+    // ne mesurait qu'une identite d'implementation.
+    //
+    // La table echantillonne desormais une grille de distances **globale**, la
+    // meme pour toutes les directions ; `skyRadiance` garde ses pas quadratiques
+    // propres. Ce qui reste est donc un vrai ecart de quadrature entre deux
+    // integrateurs differents, mesure a **4,2·10⁻⁴** — moins d'un dixieme de
+    // niveau d'affichage sur 255, alors qu'un niveau vaut 3,9·10⁻³.
+    //
+    // La tolerance est donc fixee par la **visibilite**, pas par l'arithmetique.
     t.checkTrue(
       'la tranche lointaine est numeriquement le ciel',
-      worstFar < 1e-6,
-      `ecart relatif maximal ${worstFar.toExponential(2)} (${farWhere}) — ` +
-        'c’est ce qui fait qu’un astre ne se detache pas du fond',
+      worstFar < 1e-3,
+      `ecart relatif maximal ${worstFar.toExponential(2)} (${farWhere}), pour un niveau ` +
+        'd’affichage qui vaut 3,9e-3 — c’est ce qui fait qu’un astre ne se detache pas du fond',
     )
 
     // --- Un objet colle a l'oeil est vu tel quel ----------------------------
@@ -259,10 +274,40 @@ export function aerialPerspectiveLutSuite(): SuiteResult {
     )
 
     // --- Parametrisation de la distance -------------------------------------
-    t.check('une distance nulle designe l’observateur', aerialW(0, 700_000), 0, 1e-12)
-    t.check('une distance infinie designe la sortie', aerialW(Number.POSITIVE_INFINITY, 700_000), 1, 1e-12)
-    t.check('le trajet total designe la sortie', aerialW(700_000, 700_000), 1, 1e-12)
-    t.check('le quart du trajet tombe a mi-course en w', aerialW(175_000, 700_000), 0.5, 1e-12)
+    t.check('une distance nulle designe l’observateur', aerialW(0), 0, 1e-12)
+    t.check('une distance infinie designe la sortie', aerialW(Number.POSITIVE_INFINITY), 1, 1e-12)
+    t.check('la portee de la loi designe la sortie', aerialW(AERIAL_FAR_M), 1, 1e-12)
+
+    // L'aller-retour de la loi de distance, sur toute son etendue.
+    let worstDistanceRound = 0
+    for (let i = 0; i <= 200; i++) {
+      const w = i / 200
+      worstDistanceRound = Math.max(worstDistanceRound, Math.abs(aerialW(aerialDistanceM(w)) - w))
+    }
+    t.check('l’aller-retour distance → w → distance se referme', worstDistanceRound, 0, 1e-12)
+
+    // ⚠️ **La loi ne depend plus de la direction, et c'est tout l'enjeu.**
+    // Elle valait `sqrt(distance / trajet_propre)`, et ce trajet saute d'un
+    // facteur soixante-trois de part et d'autre de la rasance : un point de
+    // relief a quinze kilometres passait de la tranche 1,71 a 13,59 d'un pixel
+    // au suivant, et la rupture se posait par-dessus les montagnes a la hauteur
+    // apparente de l'horizon du globe.
+    //
+    // Ce controle tient la propriete qui l'interdit : deux directions
+    // quelconques doivent donner la meme tranche pour la meme distance.
+    t.checkTrue(
+      'la coordonnee de distance ne depend d’aucune direction',
+      aerialW.length === 1,
+      'un seul argument : la distance. Aucune geometrie ne peut plus s’y glisser',
+    )
+
+    // La resolution que la loi offre la ou vit le relief.
+    const near = aerialDistanceM(1 / (AERIAL_LUT_DEPTH - 1))
+    const ratio = Math.exp(Math.log1p(AERIAL_FAR_M / 50) / (AERIAL_LUT_DEPTH - 1))
+    t.note(
+      `premiere tranche a ${near.toFixed(0)} m, rapport de ${ratio.toFixed(3)} entre tranches ` +
+        `consecutives sur ${AERIAL_LUT_DEPTH} tranches jusqu'a ${(AERIAL_FAR_M / 1000).toFixed(0)} km`,
+    )
 
     // --- Le remplissage par tranches donne la meme table --------------------
     // C'est ce que fait le rendu, deux lignes par image.
@@ -360,17 +405,23 @@ export function aerialPerspectiveLutSuite(): SuiteResult {
     )
 
     // Le fait qui justifie toute la manoeuvre : sous l'horizon, le trajet est
-    // **borne par le sol**, donc court — et la transmittance a mi-course y reste
-    // bien plus haute que sur une visee rasante, qui traverse des centaines de
-    // kilometres d'air.
-    const rasant = sampleAerialLut(lut, 0, 90, 0.5)
-    const descendant = sampleAerialLut(lut, -20, 90, 0.5)
+    // **borne par le sol**. La comparaison se fait desormais a **distance
+    // egale**, ce que la loi globale rend enfin possible — auparavant `w` etait
+    // une fraction du trajet propre, et les deux visees etaient comparees a des
+    // distances differentes sans qu'on le sache.
+    //
+    // A cent quinze kilometres, une visee a −20° depuis trente-cinq metres a
+    // rencontre le sol depuis longtemps — cent deux metres — et sa transmittance
+    // reste donc celle de ces cent deux metres. Une visee rasante, elle, a
+    // vraiment traverse cent quinze kilometres d'air.
+    const farW = aerialW(115_000)
+    const rasant = sampleAerialLut(lut, 0, 90, farW)
+    const descendant = sampleAerialLut(lut, -20, 90, farW)
     t.checkTrue(
       'sous l’horizon le trajet est borne par le sol, donc bien plus transparent',
-      descendant.transmittance[1] > rasant.transmittance[1] * 1.5,
-      `transmittance verte a mi-course : ${descendant.transmittance[1].toFixed(3)} a −20° ` +
-        `contre ${rasant.transmittance[1].toFixed(3)} au ras — l’ecretage donnait la seconde ` +
-        'aux deux',
+      descendant.transmittance[1] > rasant.transmittance[1] * 10,
+      `a 115 km, transmittance verte ${descendant.transmittance[1].toFixed(3)} a −20° ` +
+        `contre ${rasant.transmittance[1].toExponential(2)} au ras`,
     )
 
     // --- Dimensions ----------------------------------------------------------

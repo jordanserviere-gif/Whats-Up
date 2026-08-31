@@ -170,12 +170,21 @@ const SUN_MOVEMENT_THRESHOLD_DEG = 0.25
 /**
  * Lignes de perspective atmospherique construites par image.
  *
- * Une ligne porte une hauteur de visee et ses seize distances, pour 2,9 ms —
- * les distances sortent d'une seule marche, c'est ce qui rend la table 3D a
- * peine plus chere que l'ancienne table 2D. Deux lignes tiennent dans le budget
- * d'une image a 60 Hz.
+ * Une ligne porte une hauteur de visee et ses **trente-deux** distances, pour
+ * 4,8 ms — les distances sortent d'une seule marche, c'est ce qui rend la table
+ * 3D a peine plus chere qu'une table 2D.
+ *
+ * Elle valait 2,9 ms avec seize distances placees en fractions du trajet propre
+ * a chaque direction. Ce decoupage rendait la coordonnee de distance
+ * discontinue a la rasance et posait une rupture visible par-dessus le relief ;
+ * la grille globale qui l'a remplace demande deux fois plus de points de
+ * controle pour tenir la meme resolution pres de l'observateur.
+ *
+ * Une seule ligne par image, donc : 4,8 ms tiennent dans le budget d'une image
+ * a 60 Hz, deux non. La table entiere se pose en soixante-cinq images, un peu
+ * plus d'une seconde — pendant lesquelles la precedente reste affichee.
  */
-const ROWS_PER_FRAME = 2
+const ROWS_PER_FRAME = 1
 
 /** Rayon de l'observateur et sommet de l'atmosphere, metres — pour le nuanceur. */
 export const AERIAL_TOP_RADIUS_M = EARTH_MEAN_RADIUS_M + ATMOSPHERE_TOP_M

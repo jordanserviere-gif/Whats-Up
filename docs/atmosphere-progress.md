@@ -1954,6 +1954,41 @@ precedent.
 
 ---
 
+## ⚠️ La coordonnee de distance prenait la rasance du globe pour une limite
+
+Signale trois fois, manque trois fois : une rupture nette du voile, a hauteur
+apparente fixe, posee **par-dessus le relief**.
+
+La coordonnee de distance valait `sqrt(distance / trajet_propre)`, et ce trajet
+bascule d'une branche a l'autre a la rasance du globe. A trente-cinq metres
+d'altitude, pour quatre milliemes de degre :
+
+| hauteur | trajet | tranche | relief a 15 km |
+| --- | --- | --- | --- |
+| −0,1879° | 1154 km | 1,71 | `26,42,75` |
+| −0,1919° | 18,3 km | 13,59 | `75,90,124` |
+
+Pourquoi trois enquetes l'ont manquee : elles mesuraient **depuis douze
+kilometres**, ou la rasance designe du terrain a plus de trois cents kilometres,
+la ou le voile est deja sature. Au sol, elle designe du relief a quinze
+kilometres, et l'ecart eclate.
+
+**La loi de distance est devenue globale** — logarithmique, la meme pour toutes
+les directions. Le melange des lignes redevient legitime, la coordonnee est
+continue, et le nuanceur ne connait plus la sphere : il ne peut plus prendre sa
+rasance pour une limite.
+
+Il a fallu **32 tranches au lieu de 16** (la loi globale n'adapte plus sa finesse
+a chaque rayon) et **4 pas par tranche** — deux auraient donne 0,199 % de
+quadrature contre 0,07 % a l'ancienne marche, et on ne degrade pas la quadrature
+pour economiser. Une ligne passe de 2,9 a 4,8 ms, une par image au lieu de deux.
+
+Apres : **un niveau d'ecart au lieu de quarante-neuf**. A l'ecran, au zoom le
+plus serre possible (0,0031°/pixel), le plus grand saut de l'image vaut 0,3
+niveau.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -1995,3 +2030,4 @@ precedent.
 | 2026-08-31 | Le sol peint devient un globe physique — dernière grande surface peinte du moteur |
 | 2026-08-31 | Carte de sélection du lieu tirée du MNT, et hauteur au-dessus du sol |
 | 2026-08-31 | Un seul horizon pour les trois couches — la bande orpheline en altitude disparaît |
+| 2026-09-01 | Loi de distance globale — la rupture du voile à la rasance du globe disparaît |

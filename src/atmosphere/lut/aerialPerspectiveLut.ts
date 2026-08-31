@@ -130,7 +130,26 @@ export const AERIAL_HORIZON_ROW = (AERIAL_LUT_HEIGHT - 1) / 2
  * directe a distance finie. La premiere tranche est l'observateur lui-meme —
  * transmittance unite, rien de diffuse — et sert d'ancrage exact a `d = 0`.
  */
-export const AERIAL_LUT_DEPTH = 16
+export const AERIAL_LUT_DEPTH = 32
+
+/**
+ * Distance de la premiere tranche utile, m — le grain du champ proche.
+ */
+export const AERIAL_NEAR_M = 50
+
+/**
+ * Portee de la coordonnee de distance, m.
+ *
+ * Ce n'est **pas** la longueur du rayon : c'est la distance au-dela de laquelle
+ * l'integrale n'accumule plus rien de mesurable. Une visee rasante depuis le sol
+ * parcourt onze cents kilometres, mais a huit cents elle est deja a quarante-six
+ * kilometres d'altitude, ou il ne reste rien a diffuser. Les tranches suivantes
+ * repetent donc la meme valeur, et `w = 1` designe toujours le ciel.
+ */
+export const AERIAL_FAR_M = 800_000
+
+/** Constante de la loi logarithmique, telle que `w = 1` donne `AERIAL_FAR_M`. */
+const AERIAL_K = Math.log1p(AERIAL_FAR_M / AERIAL_NEAR_M)
 
 export interface AerialLut {
   readonly width: number
@@ -326,7 +345,16 @@ export function fillAerialRows(
   // Le nombre de pas par tranche est choisi pour que la marche complete garde la
   // finesse validee du ciel : 15 intervalles x 4 pas = 60, contre 48 pour la
   // table de ciel d'origine. Plus fin, jamais moins.
+  // Quatre pas par tranche, mesures contre une marche seize fois plus fine :
+  //
+  //     2 pas -> 0,199 %     4 pas -> 0,050 %     8 pas -> 0,012 %
+  //
+  // Deux auraient tenu le meme cout qu'avant le changement de loi, mais a
+  // 0,199 % — trois fois pire que les 0,07 % de l'ancienne marche. On ne degrade
+  // pas la quadrature pour economiser : quatre pas la ramenent sous l'ancienne
+  // valeur, et le budget se rattrape sur le nombre de lignes par image.
   const stepsPerSlice = 4
+  const sliceDistancesM = aerialSliceDistancesM(depth)
 
   for (let y = Math.max(0, fromRow); y < Math.min(height, toRow); y++) {
     const altitudeDeg = aerialAltitudeDeg(height > 1 ? y / (height - 1) : 0)
@@ -336,6 +364,7 @@ export function fillAerialRows(
         ...options,
         slices: depth,
         stepsPerSlice,
+        sliceDistancesM,
         // Sous l'horizon, le trajet se termine au sol. C'est ce qui distingue
         // une surface — qui s'y trouve — du ciel, qui n'y est pas.
         stopAtGround: altitudeDeg < 0,
@@ -412,13 +441,59 @@ export function fillAerialRows(
 }
 
 /**
- * Coordonnee `w` d'une distance, pour une direction dont le trajet
- * atmospherique total est connu. `Infinity` rend exactement 1.
+ * Distance, en metres, d'une coordonnee `w`.
+ *
+ * ## ⚠️ Pourquoi cette loi ne depend plus de la direction
+ *
+ * La coordonnee valait autrefois `sqrt(distance / trajet_total)`, ou
+ * `trajet_total` etait la longueur du rayon **dans sa propre direction** : la
+ * sortie de l'atmosphere pour une visee montante, la rencontre du sol pour une
+ * visee descendante.
+ *
+ * Cette longueur est **discontinue**. De part et d'autre de la rasance — la
+ * direction ou le rayon effleure la sphere — elle passe du trajet vers l'espace
+ * a la distance du sol. Mesure a trente-cinq metres d'altitude, pour quatre
+ * milliemes de degre d'ecart : **1154 km d'un cote, 18,3 km de l'autre**, un
+ * facteur soixante-trois.
+ *
+ * Trois consequences, toutes visibles :
+ *
+ * - deux lignes voisines de la table echantillonnaient des distances sans
+ *   rapport, et les melanger n'avait aucun sens ;
+ * - le nuanceur calculait sa propre longueur par pixel, qui sautait au meme
+ *   endroit : un point de relief a quinze kilometres passait de la tranche
+ *   **1,71 a 13,59** d'un pixel a l'autre ;
+ * - la rupture se posait a une hauteur apparente fixe, celle de la rasance du
+ *   globe, **par-dessus le relief** — puisque cette longueur ignore
+ *   completement ce qui se trouve devant.
+ *
+ * La loi est donc devenue **globale** : la meme pour toutes les directions,
+ * logarithmique pour rester fine au premier plan sans renoncer au lointain.
+ *
+ *     d(w) = D0 · (exp(w · K) − 1)      K = ln(1 + D_max / D0)
+ *
+ * Toutes les lignes echantillonnent desormais les memes distances, leur melange
+ * redevient legitime, et la coordonnee est continue en direction. Le nuanceur
+ * n'a plus aucune geometrie a resoudre.
+ *
+ * Le prix est que chaque rayon ne remplit plus toutes ses tranches : celles qui
+ * depassent sa propre fin repetent la derniere valeur. C'est exactement ce qu'il
+ * faut — au-dela du sol, rien ne s'ajoute.
  */
-export const aerialW = (distanceM: number, totalPathM: number): number => {
-  if (!(totalPathM > 0)) return 1
+export const aerialDistanceM = (w: number): number =>
+  AERIAL_NEAR_M * Math.expm1(Math.max(0, Math.min(1, w)) * AERIAL_K)
+
+/** Coordonnee `w` d'une distance. `Infinity` rend exactement 1. */
+export const aerialW = (distanceM: number): number => {
   if (!Number.isFinite(distanceM)) return 1
-  return Math.min(1, Math.sqrt(Math.max(0, distanceM) / totalPathM))
+  return Math.max(0, Math.min(1, Math.log1p(Math.max(0, distanceM) / AERIAL_NEAR_M) / AERIAL_K))
+}
+
+/** Distances des tranches, en metres — le meme decoupage pour toute la table. */
+export function aerialSliceDistancesM(depth = AERIAL_LUT_DEPTH): Float64Array {
+  const out = new Float64Array(depth)
+  for (let k = 0; k < depth; k++) out[k] = aerialDistanceM(depth > 1 ? k / (depth - 1) : 1)
+  return out
 }
 
 /**
@@ -490,9 +565,6 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
   uniform vec3 uAerialSize;
   uniform vec3 uAerialSunDir;
   uniform float uAerialExposure;
-  uniform float uAerialObserverRadius;
-  uniform float uAerialTopRadius;
-  uniform float uAerialGroundRadius;
 
   /**
    * Longueur du trajet de l'observateur a la sortie de l'atmosphere, forme
@@ -500,21 +572,18 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
    * coordonnee de distance, et elle est recalculee ici plutot que tabulee :
    * une racine carree coute moins qu'une lecture de texture.
    */
-  float aerialTotalPath(vec3 dir) {
-    float r0 = uAerialObserverRadius;
-    float mu = clamp(dir.y, -1.0, 1.0);
-    float rt = uAerialTopRadius;
-    float rg = uAerialGroundRadius;
-
-    // Une visee descendante se termine **au sol**, pas dans l'espace. C'est la
-    // meme distinction que fait le solveur en remplissant la table : sans elle,
-    // la coordonnee de distance etait normalisee par un trajet qui n'existe pas,
-    // et tout objet vu vers le bas heritait du voile d'une visee rasante.
-    float groundDisc = r0 * r0 * mu * mu - (r0 * r0 - rg * rg);
-    if (mu < 0.0 && groundDisc >= 0.0) return -r0 * mu - sqrt(groundDisc);
-
-    return -r0 * mu + sqrt(max(0.0, r0 * r0 * mu * mu + rt * rt - r0 * r0));
+  /**
+   * Distance portee par la coordonnee \`w\`, metres.
+   *
+   * La meme loi pour toutes les directions — voir \`aerialDistanceM\` du cote
+   * TypeScript pour la mesure du defaut qui l'a imposee. Le nuanceur n'a plus
+   * aucune intersection a resoudre : il ne connait plus la sphere, donc il ne
+   * peut plus prendre la rasance du globe pour une limite.
+   */
+  float aerialW(float distanceM) {
+    return clamp(log(1.0 + max(0.0, distanceM) / ${AERIAL_NEAR_M}.0) / ${AERIAL_K.toFixed(9)}, 0.0, 1.0);
   }
+
 
   /**
    * Une tranche de la table, lue en coordonnees de texel.
@@ -558,8 +627,7 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
     float tv = sign(elevDeg) * sqrt(clamp(abs(elevDeg) / 90.0, 0.0, 1.0));
     float v = (tv + 1.0) * 0.5;
 
-    float total = aerialTotalPath(d);
-    float w = total > 0.0 ? clamp(sqrt(max(0.0, distanceM) / total), 0.0, 1.0) : 1.0;
+    float w = aerialW(distanceM);
 
     // Recentrage sur les texels, comme partout dans le moteur : sans lui,
     // l'interpolation extrapole a l'horizon et au zenith, la ou la table est

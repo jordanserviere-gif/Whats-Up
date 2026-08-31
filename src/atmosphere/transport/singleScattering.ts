@@ -189,6 +189,25 @@ export interface AerialPerspectiveOptions extends SingleScatteringOptions {
   slices?: number
   /** Pas de marche entre deux points de controle consecutifs. */
   stepsPerSlice?: number
+
+  /**
+   * Distances des points de controle, m — imposees de l'exterieur.
+   *
+   * Sans elles, la marche place ses tranches en fractions de **son propre**
+   * trajet. C'est commode, et cela rend chaque direction incomparable aux
+   * autres : deux lignes voisines de la table echantillonnent alors des
+   * distances sans rapport, et le nuanceur doit retrouver la longueur du rayon
+   * pour s'y adresser — une longueur **discontinue a la rasance**, ou elle passe
+   * du trajet vers l'espace a la distance du sol.
+   *
+   * En les imposant, toutes les directions partagent le meme decoupage : leur
+   * melange redevient legitime et la coordonnee de distance devient continue.
+   *
+   * Une tranche plus lointaine que la fin du rayon n'ajoute rien — sa valeur
+   * repete la precedente, ce qui est exactement le comportement physique
+   * au-dela du sol.
+   */
+  sliceDistancesM?: ArrayLike<number>
 }
 
 export interface AerialPerspectiveResult {
@@ -276,6 +295,7 @@ export function aerialPerspective(
     multipleScattering,
     columnLut,
     stopAtGround = false,
+    sliceDistancesM,
   } = options
 
   const bands = grid.count
@@ -361,8 +381,30 @@ export function aerialPerspective(
   const totalSteps = (sliceCount - 1) * stepsPerSlice
   let previousT = 0
   for (let i = 0; i < totalSteps; i++) {
-    // Pas quadratiques : resserres pres de l'observateur, ou vit la densite.
-    const tEnd = totalPath * ((i + 1) / totalSteps) ** 2
+    // --- Ou s'arrete ce pas ------------------------------------------------
+    //
+    // Deux regimes, selon que le decoupage est impose ou non.
+    //
+    // **Impose** — le cas de la table. Chaque tranche vise une distance fixee
+    // du dehors, la meme pour toutes les directions, et le pas subdivise
+    // l'intervalle. Une tranche plus lointaine que la fin du rayon est ramenee
+    // a cette fin : le pas devient nul, l'integrale n'avance plus, et les
+    // tranches suivantes repetent la derniere valeur. C'est exactement ce qui
+    // doit se passer au-dela du sol.
+    //
+    // **Libre** — le cas d'un appel direct. Les tranches se placent en
+    // fractions quadratiques du trajet propre, resserrees pres de l'observateur
+    // ou vit la densite.
+    let tEnd: number
+    if (sliceDistancesM) {
+      const slice = Math.floor(i / stepsPerSlice) + 1
+      const step = (i % stepsPerSlice) + 1
+      const from = Math.min(sliceDistancesM[slice - 1], totalPath)
+      const to = Math.min(sliceDistancesM[slice], totalPath)
+      tEnd = from + ((to - from) * step) / stepsPerSlice
+    } else {
+      tEnd = totalPath * ((i + 1) / totalSteps) ** 2
+    }
     const tMid = (previousT + tEnd) / 2
     const ds = tEnd - previousT
     previousT = tEnd

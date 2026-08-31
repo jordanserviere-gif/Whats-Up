@@ -4043,6 +4043,125 @@ au-dessus du sol, elle, reste ce que l'utilisateur decide.
 
 ---
 
+## ⚠️ La coordonnee de distance prenait la rasance du globe pour une limite
+
+Le defaut que trois hypotheses successives ont manque, et qui se voyait pourtant
+a tous les zooms.
+
+### Le symptome
+
+Une rupture nette du voile, a **hauteur apparente fixe**, posee **par-dessus le
+relief** — indifferente aux montagnes qui se trouvaient devant. Elle suivait
+l'horizon du globe et non celui du terrain.
+
+### La cause
+
+La coordonnee de distance de la table valait :
+
+    w = sqrt( distance / trajet_total )
+
+ou `trajet_total` etait la longueur du rayon **dans sa propre direction** : la
+sortie de l'atmosphere pour une visee montante, la rencontre du sol pour une
+visee descendante.
+
+Cette longueur est **discontinue**. De part et d'autre de la rasance — la
+direction ou le rayon effleure la sphere — elle bascule d'une branche a l'autre.
+Mesure a trente-cinq metres d'altitude, pour quatre milliemes de degre d'ecart :
+
+| hauteur | trajet total | tranche lue | relief a 15 km |
+| --- | --- | --- | --- |
+| −0,1879° | 1154 km | 1,71 | `26,42,75` |
+| −0,1919° | 18,3 km | 13,59 | `75,90,124` |
+
+**Un facteur soixante-trois sur la longueur, quarante-neuf niveaux d'affichage
+sur la couleur**, en moins d'un pixel.
+
+Trois consequences, toutes visibles :
+
+- deux lignes voisines de la table echantillonnaient des distances sans rapport,
+  et les melanger n'avait aucun sens ;
+- le nuanceur recalculait cette longueur **par pixel**, avec la meme
+  discontinuite ;
+- la rupture se posait a la hauteur de la rasance du globe, **quoi qu'il y ait
+  devant** — puisque cette longueur ne connait que la sphere.
+
+Pourquoi trois enquetes l'ont manquee : les mesures avaient ete faites **depuis
+douze kilometres**, ou la rasance tombe a −3,5° et designe du terrain a plus de
+trois cents kilometres — la ou le voile est deja sature, donc ou les deux
+tranches donnent presque la meme couleur. Au sol, la meme rasance designe du
+relief a **quinze kilometres**, ou le voile est encore mince et l'ecart eclate.
+
+### La correction : une loi globale
+
+La loi de distance ne depend plus d'aucune direction :
+
+    d(w) = D0 · (exp(w · K) − 1)      K = ln(1 + D_max / D0)
+    D0 = 50 m        D_max = 800 km
+
+Logarithmique pour rester fine au premier plan sans renoncer au lointain, et
+surtout **la meme pour toutes les directions** : le melange des lignes redevient
+legitime, la coordonnee est continue, et le nuanceur n'a plus aucune geometrie a
+resoudre — il ne connait plus la sphere, donc il ne peut plus prendre sa rasance
+pour une limite.
+
+`D_max` n'est pas la longueur d'un rayon mais la distance au-dela de laquelle
+l'integrale n'accumule plus rien : une visee rasante parcourt onze cents
+kilometres, mais a huit cents elle est deja a quarante-six kilometres d'altitude.
+Les tranches suivantes repetent la meme valeur, et `w = 1` designe toujours le
+ciel.
+
+Le prix est qu'un rayon ne remplit plus toutes ses tranches : celles qui
+depassent sa propre fin repetent la derniere valeur. C'est exactement le
+comportement physique au-dela du sol.
+
+### Ce qu'il a fallu ajuster
+
+**Trente-deux tranches au lieu de seize.** La loi globale ne peut plus adapter sa
+finesse a chaque rayon ; il faut donc plus de points de controle pour tenir la
+meme resolution pres de l'observateur. Le rapport entre tranches consecutives
+tombe a 1,37.
+
+**Quatre pas par tranche, et non deux.** Deux auraient tenu le cout d'avant, mais
+la quadrature se degradait :
+
+| pas par tranche | ecart a une marche seize fois plus fine |
+| --- | --- |
+| 2 | 0,199 % |
+| **4** | **0,050 %** |
+| 8 | 0,012 % |
+
+L'ancienne marche valait 0,07 %. Quatre pas passent dessous : on ne degrade pas
+la quadrature pour economiser. Une ligne de table passe de 2,9 a **4,8 ms**, et
+le budget se rattrape sur le nombre de lignes par image — une au lieu de deux,
+soit un peu plus d'une seconde pour la table entiere, pendant laquelle la
+precedente reste affichee.
+
+**Deux controles ont du etre reformules**, et il faut dire pourquoi :
+
+- *la tranche lointaine est numeriquement le ciel* passait a 5,7·10⁻⁸ tant que la
+  table et `skyRadiance` partageaient la meme repartition de pas — deux fois la
+  meme marche, et le controle ne mesurait qu'une identite d'implementation. Il
+  reste **4,2·10⁻⁴**, un vrai ecart de quadrature entre deux integrateurs
+  differents, pour un niveau d'affichage qui vaut 3,9·10⁻³. La tolerance est
+  desormais fixee par la **visibilite**.
+- *sous l'horizon le trajet est borne par le sol* comparait les deux visees a
+  `w = 0,5`, ce qui n'etait pas la meme distance pour l'une et pour l'autre. La
+  loi globale rend enfin la comparaison possible **a distance egale** : a cent
+  quinze kilometres, une visee a −20° garde la transmittance de ses cent deux
+  premiers metres, la rasante celle de cent quinze kilometres d'air.
+
+### La mesure d'apres
+
+Meme point de relief a quinze kilometres, de part et d'autre de l'ancienne
+rasance : `43,70,119` contre `42,69,118`. **Un niveau d'ecart au lieu de
+quarante-neuf**, et la variation redevient monotone avec la hauteur.
+
+A l'ecran, champ de 2,5° sur huit cents pixels — 0,0031° par pixel, le zoom le
+plus serre possible — le plus grand saut de toute l'image vaut **0,3 niveau**, et
+le profil autour de l'ancienne rasance est plat.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -4090,7 +4209,7 @@ en est.
 | **Nuages** | le transport suppose une atmosphère claire. Sans eux, ni couronne, ni gloire, ni iridescence. |
 | **Le sol** | **résolu**. Le relief est le modèle numérique de terrain réel à trente mètres, et au-delà de sa portée le globe est une sphère résolue par pixel. Les deux reçoivent la même équation du transfert que tout le reste : albédo, cosinus d'incidence, éclairement du ciel, extinction, voile. Plus une seule couleur d'interface sous l'horizon. |
 | **Un seul albédo pour tout le globe** | faute de couverture du sol, la mer, la forêt et le désert partagent `AtmosphereState.groundAlbedo` = 0,1. C'est au moins la valeur qui nourrit déjà la diffusion multiple : le sol qu'on voit et le sol qui éclaire le ciel sont d'accord. Une couverture ESA WorldCover à 10 m serait la suite. |
-| **Le ciel est calculé sur des rayons droits** | la réfraction n'entre pas dans l'intégrale de diffusion : le solveur marche en ligne droite dans une atmosphère sphérique. Nul au niveau de la mer, où le rayon rasant et le rayon courbe partent ensemble. **Croissant avec l'altitude** : visée à l'horizon apparent, le rayon droit passe à 456 m du sol à 3000 m d'altitude et à **1319 m à 12 000 m**, là où le rayon réel rase la surface à 5 m. Il compte donc **13,4 % d'air en trop peu** à douze kilomètres. Corollaire : la table borne les visées descendantes sur le rayon terrestre **vrai** quand le relief et le globe les placent sur le rayon **effectif** — les deux ne s'accordent pas sur où est le sol pour une direction donnée, même si la distance qu'on leur passe est respectée. |
+| **Le ciel est calculé sur des rayons droits** | la réfraction n'entre pas dans l'intégrale de diffusion : le solveur marche en ligne droite dans une atmosphère sphérique. Nul au niveau de la mer, où le rayon rasant et le rayon courbe partent ensemble. **Croissant avec l'altitude** : visée à l'horizon apparent, le rayon droit passe à 456 m du sol à 3000 m d'altitude et à **1319 m à 12 000 m**, là où le rayon réel rase la surface à 5 m. Il compte donc **13,4 % d'air en trop peu** à douze kilomètres. Le corollaire visible — une rupture du voile à la rasance du globe, posée par-dessus le relief — a été supprimé en rendant la coordonnée de distance globale ; il reste l'écart de colonne, invisible. |
 | **Résolution du relief proche** | la source est native à **trente mètres**. À cinq kilomètres, trente mètres sous-tendent 0,34°, soit une dizaine de pixels : le premier plan reste en blocs. Aucun choix de format ne le relève — seul un MNT national le ferait (RGE ALTI à 1 m, France seulement). |
 | **Bathymétrie écrêtée** | terrarium encode les fonds marins en négatif ; les prendre tels quels creuserait l'océan en cuvette. L'écrêtage à zéro met à plat les dépressions continentales — mer Morte à −430 m, vallée de la Mort à −86 m. Les distinguer demanderait un masque terre/eau. |
 | **Horizon du terrain** | le rayon terrestre effectif n'est plus le `k = 1/7` de la géodésie mais **l'inverse de la dépression que le moteur mesure**. C'est un calage sur une grandeur interne, valide à l'altitude du site ; le rapport `R_eff/R` dépend légèrement de l'altitude (1,204 à 35 m, 1,196 à 1 000 m) et n'est donc pas une constante universelle. |
