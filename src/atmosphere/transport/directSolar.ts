@@ -46,6 +46,8 @@ import {
   type Xyz,
 } from '../spectral/SpectralSensor'
 import { columnsToSpace } from './slantPath'
+import { EARTH_MEAN_RADIUS_M } from '../core/units'
+import { HORIZON_MARGIN_DEG, horizonMarginFade } from '../horizonMargin'
 import { ozoneCrossSectionOn } from '../absorption/ozone'
 import { type AerosolOptics } from '../mie/aerosol'
 
@@ -179,6 +181,28 @@ export function directSolar(
  * Ce qui est **deja physique** : le rapport entre les canaux, et la facon dont
  * l'ensemble faiblit quand le Soleil descend. Le disque rougit et s'eteint
  * parce que la colonne d'air s'allonge, sans qu'aucune couleur soit ecrite.
+ *
+ * ## Sous l'horizon : la colonne est bornee au rayon rasant
+ *
+ * `columnsToSpace` rend une colonne **infinie** des que le rayon **droit**
+ * plonge sous le sol, donc une transmittance nulle. Prise telle quelle, la
+ * teinte du disque tombait a zero exactement a la hauteur zero : le Soleil
+ * s'eteignait d'un coup au lieu de se coucher.
+ *
+ * C'est une limite du modele rectiligne, pas un fait : un Soleil de hauteur
+ * vraie −0,3° est **encore entierement visible**, la refraction valant 0,57°, et
+ * sa lumiere traverse une colonne parfaitement finie. Le modele droit se trompe
+ * precisement la ou la courbure compte.
+ *
+ * La colonne est donc bornee a celle du **rayon tangent**, la plus longue qu'un
+ * rayon puisse parcourir — meme borne que `AIRMASS_MAX` dans la photometrie, et
+ * pour la meme raison. La teinte cesse alors de s'effondrer : elle se fige a sa
+ * valeur rasante, ce qu'un Soleil au ras de l'horizon a bien.
+ *
+ * ⚠️ **Le fondu sur la marge, lui, n'est pas physique.** C'est le garde-fou qui
+ * empeche le disque de rester allume indefiniment sous le sol si la calotte est
+ * masquee. Il agit entierement **hors du champ visible** — voir
+ * `atmosphere/horizonMargin.ts`.
  */
 export function sunDiscTint(
   grid: SpectralGrid,
@@ -200,6 +224,17 @@ export function sunDiscTint(
   const zenithY = directSolar(grid, 90, { ...options, observerElevationM: 0 }).xyz[1]
   if (!(zenithY > 0)) return [0, 0, 0]
 
-  const rgb = directSolar(grid, altitudeDeg, options).linearSrgb
-  return [rgb[0] / zenithY, rgb[1] / zenithY, rgb[2] / zenithY]
+  // Hauteur du rayon tangent : l'abaissement de l'horizon, nul au niveau de la
+  // mer et de dix degres depuis le sommet de l'atmosphere. L'epsilon garde le
+  // test de `columnsToSpace` du cote fini malgre l'arrondi.
+  const r = EARTH_MEAN_RADIUS_M + (options.observerElevationM ?? 0)
+  const grazingDeg = -(Math.acos(Math.min(1, EARTH_MEAN_RADIUS_M / r)) * 180) / Math.PI + 1e-6
+  const fade = horizonMarginFade(Math.max(0, grazingDeg - altitudeDeg))
+  if (fade <= 0) return [0, 0, 0]
+
+  const rgb = directSolar(grid, Math.max(altitudeDeg, grazingDeg), options).linearSrgb
+  return [(rgb[0] * fade) / zenithY, (rgb[1] * fade) / zenithY, (rgb[2] * fade) / zenithY]
 }
+
+/** Profondeur sous l'horizon au-dela de laquelle le disque est eteint, degres. */
+export const SUN_DISC_MARGIN_DEG = HORIZON_MARGIN_DEG

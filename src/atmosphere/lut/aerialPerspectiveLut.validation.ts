@@ -31,14 +31,19 @@ import { rayleighCrossSection } from '../rayleigh/rayleigh'
 import { aerialPerspective, skyRadiance } from '../transport/singleScattering'
 import { columnsToSpace } from '../transport/slantPath'
 import { buildColumnLut } from './transmittanceLut'
-import { skyViewAltitudeDeg } from './skyViewLut'
+
 import {
   AERIAL_LUT_DEPTH,
   AERIAL_LUT_HEIGHT,
   AERIAL_LUT_WIDTH,
   aerialW,
+  AERIAL_HORIZON_ROW,
+  aerialAltitudeDeg,
+  aerialV,
   createAerialLut,
   fillAerialRows,
+  measureMeanSkyLuminance,
+  measureSkyIrradiance,
   sampleAerialLut,
 } from './aerialPerspectiveLut'
 
@@ -60,9 +65,12 @@ export function aerialPerspectiveLutSuite(): SuiteResult {
     // bilineaire, la meme que la table de ciel portait deja.
     let worstFar = 0
     let farWhere = ''
-    for (let y = 0; y < lut.height; y += 3) {
+    // ⚠️ **A partir de l'horizon seulement.** Depuis que la table descend sous
+    // l'horizon, sa moitie inferieure decrit un trajet qui se termine au sol :
+    // ce n'est plus du ciel, et l'y comparer n'aurait pas de sens.
+    for (let y = Math.ceil(AERIAL_HORIZON_ROW); y < lut.height; y += 3) {
       for (let x = 0; x < lut.width; x += 9) {
-        const altitudeDeg = skyViewAltitudeDeg(y / (lut.height - 1))
+        const altitudeDeg = aerialAltitudeDeg(y / (lut.height - 1))
         const azimuthDeg = (180 * x) / (lut.width - 1)
         const sky = skyRadiance(grid, altitudeDeg, azimuthDeg, SUN_ALTITUDE, {
           ...transport,
@@ -271,6 +279,99 @@ export function aerialPerspectiveLutSuite(): SuiteResult {
       )
     }
     t.check('construction par tranches identique a la construction entiere', worstSlice, 0, 0)
+
+    // --- L'eclairement diffus du ciel ----------------------------------------
+    //
+    // Il sert a **eclairer une surface**, ce que le moteur ne savait pas faire :
+    // il connaissait la radiance du ciel dans une direction, pas ce que le ciel
+    // entier depose sur un plan. C'est la moitie de l'eclairement d'un paysage,
+    // et la totalite a l'ombre.
+    //
+    // L'invariant qui le porte : un ciel de radiance **uniforme** `L` doit
+    // rendre exactement `π·L`. C'est la valeur de l'integrale de `cosθ` sur
+    // l'hemisphere, et elle ne depend d'aucun detail du modele — seulement de
+    // la ponderation. Une erreur de jacobien, ou l'oubli du cosinus, la
+    // manquerait aussitot.
+    const uniform = createAerialLut()
+    const UNIFORM_RADIANCE = 3.7
+    for (let i = 0; i < uniform.scattered.length; i++) uniform.scattered[i] = UNIFORM_RADIANCE
+    const flat = measureSkyIrradiance(uniform)
+    for (let c = 0; c < 3; c++) {
+      t.checkRelative(
+        `un ciel uniforme rend π·L — canal ${'RVB'[c]}`,
+        flat[c],
+        Math.PI * UNIFORM_RADIANCE,
+        0.02,
+      )
+    }
+
+    // Et sur le vrai ciel, l'eclairement doit rester **sous** `π·L_moyen` :
+    // le ciel est plus brillant pres de l'horizon, ou le cosinus le retient.
+    // C'est le sens meme de la distinction entre les deux mesures.
+    const irradiance = measureSkyIrradiance(lut)
+    const luminance = measureMeanSkyLuminance(lut)
+    const irradianceLux =
+      683 * (0.2126 * irradiance[0] + 0.7152 * irradiance[1] + 0.0722 * irradiance[2])
+    t.checkTrue(
+      'l’eclairement du vrai ciel reste sous π fois sa luminance moyenne',
+      irradianceLux < Math.PI * luminance && irradianceLux > 0.5 * Math.PI * luminance,
+      `${irradianceLux.toFixed(0)} lx contre ${(Math.PI * luminance).toFixed(0)} qu'un ciel ` +
+        'uniforme donnerait — l’ecart est la part que le cosinus retire a l’horizon, ' +
+        'la ou le ciel est justement le plus brillant',
+    )
+    t.checkTrue(
+      'et il est plus bleu que blanc',
+      irradiance[2] > irradiance[0],
+      `R ${irradiance[0].toFixed(2)} · B ${irradiance[2].toFixed(2)} — c'est pourquoi une ombre ` +
+        'au soleil est bleue : elle n’est eclairee que par le ciel',
+    )
+
+    // --- La moitie sous l'horizon --------------------------------------------
+    //
+    // Elle n'existait pas : le nuanceur ecretait toute visee descendante a la
+    // ligne rasante. Sans consequence tant que rien ne vivait sous l'horizon,
+    // faux des qu'une surface s'y trouve — le rayon rasant de la table ne
+    // rencontre **jamais** le sol, quand le vrai s'y arrete.
+    t.checkRelative('la ligne d’horizon tombe sur un texel', AERIAL_HORIZON_ROW % 1, 0, 1e-12)
+    t.checkRelative('et elle porte exactement zero degre', aerialAltitudeDeg(0.5), 0, 1e-12)
+    t.checkRelative('le bas de la table vise le nadir', aerialAltitudeDeg(0), -90, 1e-12)
+    t.checkRelative('le haut vise le zenith', aerialAltitudeDeg(1), 90, 1e-12)
+
+    // La parametrisation doit se refermer sur elle-meme, sinon le nuanceur et le
+    // remplissage designeraient des directions differentes.
+    let worstRound = 0
+    for (const a of [-90, -60, -12, -1.5, -0.2, 0, 0.2, 1.5, 12, 60, 90]) {
+      worstRound = Math.max(worstRound, Math.abs(aerialAltitudeDeg(aerialV(a)) - a))
+    }
+    t.checkTrue(
+      'l’aller-retour hauteur → coordonnee → hauteur se referme',
+      worstRound < 1e-9,
+      `ecart maximal ${worstRound.toExponential(2)}° sur onze hauteurs, des deux cotes`,
+    )
+
+    // La resolution **au-dessus** de l'horizon ne doit pas avoir ete divisee
+    // pour financer la moitie basse : c'est tout l'objet du nombre impair de
+    // lignes.
+    t.check(
+      'la resolution au-dessus de l’horizon est intacte',
+      lut.height - 1 - AERIAL_HORIZON_ROW,
+      32,
+      0,
+    )
+
+    // Le fait qui justifie toute la manoeuvre : sous l'horizon, le trajet est
+    // **borne par le sol**, donc court — et la transmittance a mi-course y reste
+    // bien plus haute que sur une visee rasante, qui traverse des centaines de
+    // kilometres d'air.
+    const rasant = sampleAerialLut(lut, 0, 90, 0.5)
+    const descendant = sampleAerialLut(lut, -20, 90, 0.5)
+    t.checkTrue(
+      'sous l’horizon le trajet est borne par le sol, donc bien plus transparent',
+      descendant.transmittance[1] > rasant.transmittance[1] * 1.5,
+      `transmittance verte a mi-course : ${descendant.transmittance[1].toFixed(3)} a −20° ` +
+        `contre ${rasant.transmittance[1].toFixed(3)} au ras — l’ecretage donnait la seconde ` +
+        'aux deux',
+    )
 
     // --- Dimensions ----------------------------------------------------------
     t.check('largeur de la table', lut.width, AERIAL_LUT_WIDTH, 0)

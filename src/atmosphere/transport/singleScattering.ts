@@ -174,6 +174,15 @@ export interface SkyRadianceResult {
  */
 export interface AerialPerspectiveOptions extends SingleScatteringOptions {
   /**
+   * Arreter la marche au sol plutot que d'y renoncer.
+   *
+   * Le ciel n'existe pas sous l'horizon et la marche y renonce. Une **surface**,
+   * elle, s'y trouve : le trajet est court mais reel, et c'est celui-la qu'il
+   * faut integrer.
+   */
+  stopAtGround?: boolean
+
+  /**
    * Nombre de points de controle en distance, le premier a l'observateur et le
    * dernier a la sortie de l'atmosphere.
    */
@@ -190,6 +199,23 @@ export interface AerialPerspectiveResult {
    * `scattered[slice * bands + band]`.
    */
   scattered: Float64Array
+  /**
+   * Part de `scattered` qui ne vient **pas** du rayon solaire direct, meme
+   * decoupage : `ambient[slice * bands + band]`.
+   *
+   * C'est l'integrale du seul terme de diffusion multiple — la lumiere que le
+   * point recoit du reste du ciel, et non du Soleil. Elle est donc ce qui
+   * subsiste quand quelque chose masque le Soleil **sans** masquer le ciel :
+   * un relief, un nuage, un mur.
+   *
+   * La separer ici plutot que dans le nuanceur est ce qui evite l'astuce : une
+   * ombre n'est pas un facteur d'attenuation appliquee au voile, c'est le
+   * remplacement d'un terme source par un autre.
+   *
+   * Vide si aucune table de diffusion multiple n'est fournie — il n'y a alors
+   * aucune source ambiante dans le modele, et l'ombre est bien totale.
+   */
+  ambient: Float64Array
   /**
    * Transmittance du **rayon primaire** seul, de l'observateur au point de
    * controle : `transmittance[slice * bands + band]`.
@@ -249,11 +275,13 @@ export function aerialPerspective(
     aerosols,
     multipleScattering,
     columnLut,
+    stopAtGround = false,
   } = options
 
   const bands = grid.count
   const sliceCount = Math.max(2, slices)
   const scattered = new Float64Array(sliceCount * bands)
+  const ambient = new Float64Array(sliceCount * bands)
   const transmittance = new Float64Array(sliceCount * bands)
   // Point de controle zero : l'observateur. Rien de diffuse, rien d'eteint.
   for (let b = 0; b < bands; b++) transmittance[b] = 1
@@ -289,16 +317,42 @@ export function aerialPerspective(
   // pas de ciel a integrer — la transmittance reste a 1 sur toutes les
   // tranches, l'objet est vu sans voile parce qu'il n'y a pas de trajet.
   const muView = view[1] // cos de l'angle zenithal de la visee, observateur sur +Y
-  if (muView < 0 && r0 * Math.sqrt(1 - muView * muView) < RADIUS) {
+
+  // --- Ou s'arrete le trajet ------------------------------------------------
+  //
+  // Deux fins possibles, et elles ne decrivent pas la meme question.
+  //
+  // Une visee qui **echappe** sort par le sommet de l'atmosphere : c'est le
+  // ciel, et c'est le cas par defaut.
+  //
+  // Une visee **descendante** rencontre le sol. Pour le ciel, il n'y a alors
+  // rien a voir et la fonction renonce — c'est ce que verifie le controle
+  // « aucune radiance sous l'horizon ». Mais pour une **surface** posee sur ce
+  // sol, le trajet existe, il est simplement court : c'est celui qu'il faut
+  // parcourir, et `stopAtGround` le demande.
+  //
+  // ⚠️ Sans cette distinction, tout objet vu sous l'horizon heritait de la
+  // colonne d'une visee rasante qui, elle, ne touche jamais le sol et monte
+  // indefiniment. Mesure de l'ecart sur la colonne moleculaire : **15 a 23 %**
+  // entre deux et vingt kilometres, la ou vit un premier plan.
+  const groundDiscriminant = r0 * r0 * muView * muView - (r0 * r0 - RADIUS * RADIUS)
+  const hitsGround = muView < 0 && groundDiscriminant >= 0
+  if (hitsGround && !stopAtGround) {
     for (let k = 1; k < sliceCount; k++) {
       for (let b = 0; b < bands; b++) transmittance[k * bands + b] = 1
     }
-    return { slices: sliceCount, bands, scattered, transmittance, totalPathM: 0, scatteringAngleDeg }
+    return { slices: sliceCount, bands, scattered, ambient, transmittance, totalPathM: 0, scatteringAngleDeg }
   }
   const discriminant = r0 * r0 * muView * muView + (TOP_RADIUS * TOP_RADIUS - r0 * r0)
-  const totalPath = -r0 * muView + Math.sqrt(Math.max(0, discriminant))
+  const totalPath = hitsGround
+    ? // Premiere intersection avec la Terre : la racine **negative** du
+      // discriminant, seule a etre devant l'observateur.
+      -r0 * muView - Math.sqrt(groundDiscriminant)
+    : -r0 * muView + Math.sqrt(Math.max(0, discriminant))
 
   const spectrum = new Float64Array(bands)
+  // Meme integrale, restreinte au terme source ambiant — voir `ambient`.
+  const ambientSpectrum = new Float64Array(bands)
   // Colonnes accumulees sur le rayon primaire, depuis l'observateur.
   let primaryAir = 0
   let primaryOzone = 0
@@ -343,22 +397,39 @@ export function aerialPerspective(
             aerosols?.scaleHeightM,
           )
 
-      // Le point dans l'ombre de la Terre ne diffuse rien, mais il eteint :
-      // ses colonnes primaires ont deja ete comptees ci-dessus.
-      if (Number.isFinite(secondary.air)) {
-        // Colonne d'aerosols du point vers le Soleil : la table ne porte que la
-        // forme geometrique, la densite la multiplie.
-        const secondaryAerosol = aerosols ? secondary.aerosolShape * aerosols.groundNumberDensity : 0
+      // ## Le Soleil se cache, le ciel non
+      //
+      // Un point dans l'ombre de la Terre ne recoit plus le rayon direct : sa
+      // source solaire disparait. Mais il continue de baigner dans la lumiere
+      // du reste du ciel, et c'est **elle** qui eclaire l'air au ras du sol
+      // pendant tout le crepuscule.
+      //
+      // ⚠️ Ce test coupait autrefois les deux sources d'un coup. L'air situe
+      // sous l'ombre de la Terre ne diffusait donc plus rien du tout : mesure a
+      // deux degres sous l'horizon, le voile a quinze kilometres valait
+      // **exactement zero**, et un relief lointain se decoupait en noir absolu
+      // sur un ciel encore clair.
+      const sunlit = Number.isFinite(secondary.air)
 
-        // Radiance isotrope de tous les ordres au-dela du premier, lue au point.
-        if (multipleScattering && msBuffer) {
-          sampleMultipleScattering(multipleScattering, altitude, cosSunAtPoint, msBuffer)
-        }
+      // Colonne d'aerosols du point vers le Soleil : la table ne porte que la
+      // forme geometrique, la densite la multiplie.
+      const secondaryAerosol = aerosols && sunlit ? secondary.aerosolShape * aerosols.groundNumberDensity : 0
 
+      // Radiance isotrope de tous les ordres au-dela du premier, lue au point.
+      // Elle ne depend pas de la visibilite du Soleil **depuis** le point : la
+      // table la donne pour tout cosinus solaire, y compris negatif.
+      if (multipleScattering && msBuffer) {
+        sampleMultipleScattering(multipleScattering, altitude, cosSunAtPoint, msBuffer)
+      }
+
+      if (sunlit || (multipleScattering && msBuffer)) {
         for (let b = 0; b < bands; b++) {
-          // --- Extinction : les trois especes, sur les deux trajets -----------
-          let tau = sigma[b] * (airHere + secondary.air) + sigmaOzone[b] * (ozoneHere + secondary.ozone)
-          if (aerosols) tau += aerosols.extinction[b] * (aerosolHere + secondaryAerosol)
+          // --- Extinction du rayon primaire, observateur → point -------------
+          // Elle s'applique aux **deux** sources : c'est le trajet que la
+          // lumiere parcourt une fois diffusee vers l'oeil.
+          let tauView = sigma[b] * airHere + sigmaOzone[b] * ozoneHere
+          if (aerosols) tauView += aerosols.extinction[b] * aerosolHere
+          const towardsEye = Math.exp(-tauView)
 
           // --- Diffusion : deux sources, deux fonctions de phase --------------
           // Chaque espece diffusante apporte son propre terme, avec sa section
@@ -368,12 +439,18 @@ export function aerialPerspective(
           // autour du Soleil.
           //
           // L'ozone n'apparait pas ici : il absorbe, il ne redirige rien.
-          let source = sigma[b] * phase[b] * density
-          if (aerosols && aerosolPhaseByBand) {
-            source += aerosols.scattering[b] * aerosolPhaseByBand[b] * aerosolDensity
+          //
+          // Le rayon solaire subit **en plus** l'extinction du trajet
+          // Soleil → point, qui n'est celle de personne d'autre.
+          if (sunlit) {
+            let source = sigma[b] * phase[b] * density
+            if (aerosols && aerosolPhaseByBand) {
+              source += aerosols.scattering[b] * aerosolPhaseByBand[b] * aerosolDensity
+            }
+            let tauSun = sigma[b] * secondary.air + sigmaOzone[b] * secondary.ozone
+            if (aerosols) tauSun += aerosols.extinction[b] * secondaryAerosol
+            spectrum[b] += incident[b] * source * Math.exp(-tauSun) * towardsEye * ds
           }
-
-          let radiance = incident[b] * source
 
           // --- Diffusion multiple : une source isotrope de plus ---------------
           // Elle ne porte **pas** de fonction de phase : c'est l'hypothese meme
@@ -381,12 +458,19 @@ export function aerialPerspective(
           // direction d'origine apres le second ordre. Elle est en revanche
           // proportionnelle au coefficient de **diffusion** local, comme toute
           // source diffusee.
+          //
+          // ⚠️ Elle n'est **pas** eteinte par le trajet Soleil → point. Ψ_ms est
+          // deja la radiance **au point**, et la traversee du Soleil jusqu'a lui
+          // est comptee dans sa propre construction (voir `multipleScattering`,
+          // le terme `S(x')` de `L_f`). L'y appliquer une seconde fois eteignait
+          // la source ambiante d'un facteur qui atteint la dizaine pres de
+          // l'horizon.
           if (multipleScattering && msBuffer) {
             const scattering = sigma[b] * density + (aerosols ? aerosols.scattering[b] * aerosolDensity : 0)
-            radiance += scattering * msBuffer[b]
+            const contribution = scattering * msBuffer[b] * towardsEye * ds
+            spectrum[b] += contribution
+            ambientSpectrum[b] += contribution
           }
-
-          spectrum[b] += radiance * Math.exp(-tau) * ds
         }
       }
     }
@@ -399,6 +483,7 @@ export function aerialPerspective(
       const base = slice * bands
       for (let b = 0; b < bands; b++) {
         scattered[base + b] = spectrum[b]
+        ambient[base + b] = ambientSpectrum[b]
         let tauView = sigma[b] * primaryAir + sigmaOzone[b] * primaryOzone
         if (aerosols) tauView += aerosols.extinction[b] * primaryAerosol
         transmittance[base + b] = Math.exp(-tauView)
@@ -406,7 +491,15 @@ export function aerialPerspective(
     }
   }
 
-  return { slices: sliceCount, bands, scattered, transmittance, totalPathM: totalPath, scatteringAngleDeg }
+  return {
+    slices: sliceCount,
+    bands,
+    scattered,
+    ambient,
+    transmittance,
+    totalPathM: totalPath,
+    scatteringAngleDeg,
+  }
 }
 
 /**

@@ -418,7 +418,7 @@ function Body({
     const trueRadius = sceneRadiusForBody(state.radiusKm, state.distanceKm)
     s.scale.setScalar(trueRadius * discScale)
 
-    const extinction = extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity)
+    const extinction = extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity, location.elevation)
 
     if (isSun) {
       // Teinte et eclat viennent tous deux du **spectre solaire transmis**,
@@ -661,9 +661,9 @@ function SaturnRings({
       m.quaternion.setFromRotationMatrix(basis.current)
     }
 
-    const tint = extinctionTint(state.horizontal.altitude)
+    const tint = extinctionTint(state.horizontal.altitude, location.elevation)
     ;(material.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-    material.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity) * 0.6)
+    material.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity, location.elevation) * 0.6)
     material.uniforms.uHasMap.value = texture ? 1 : 0
     material.uniforms.uMap.value = texture
   })

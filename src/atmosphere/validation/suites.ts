@@ -40,6 +40,7 @@ import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.va
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
 import { displayTransformSuite } from './display.validation'
 import { adaptationSuite } from '@/scene/display/adaptation.validation'
+import { terrainSuite } from '@/scene/terrain/terrain.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -98,5 +99,7 @@ export function allSuites(): SuiteResult[] {
     skyViewLutSuite(),
     // Phase 9 — perspective atmospherique sur les objets.
     aerialPerspectiveLutSuite(),
+    // Dette : le sol peint devient un globe, et le relief devient reel.
+    terrainSuite(),
   ]
 }

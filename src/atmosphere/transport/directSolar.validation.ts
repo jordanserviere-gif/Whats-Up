@@ -27,6 +27,7 @@ import { correlatedColourTemperature, linearSrgbToXyz } from '../spectral/Spectr
 import { molecularColumnAbove } from '../rayleigh/rayleigh'
 import { ATMOSPHERE_TOP_M, pathLengthToTop, relativeAirmass, slantColumn, slantColumnFromAltitude } from './slantPath'
 import { directSolar, sunDiscTint } from './directSolar'
+import { HORIZON_MARGIN_DEG } from '../horizonMargin'
 
 const grid = uniformSpectralGrid(360, 830, 64)
 const rad = (deg: number) => (deg * Math.PI) / 180
@@ -192,6 +193,50 @@ export function directSolarSuite(): SuiteResult {
       t.checkMonotonic('l’eclairement normal decroit quand le Soleil descend', normal, 'decroissant')
 
       t.check('aucune lumiere directe sous l’horizon', directSolar(grid, -1).normalIlluminanceLux, 0, 1e-12, ' lx')
+
+      // --- La teinte du disque, elle, ne s'effondre pas a la frontiere ---------
+      //
+      // `directSolar` a raison de rendre zero : c'est un eclairement, et le
+      // Soleil couche n'eclaire plus. Mais la **teinte du disque** en heritait
+      // une chute a pic — la colonne rectiligne devient infinie des la hauteur
+      // zero — et le disque s'eteignait d'un coup au lieu de se coucher.
+      //
+      // Or un Soleil de hauteur vraie −0,3° est encore entierement visible, la
+      // refraction valant 0,57°. Le modele droit se trompe precisement la ou la
+      // courbure compte, et la colonne est desormais bornee au rayon tangent.
+      //
+      // C'est le controle qui manquait.
+      const tintLuma = (a: number) => {
+        const [r, g, b] = sunDiscTint(grid, a)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+      }
+      // Les deux limites de part et d'autre de la frontiere, prises assez pres
+      // pour que la variation propre de la teinte — rapide a l'horizon, 5 % par
+      // vingtieme de degre — ne masque pas la marche qu'on cherche. Avant, la
+      // limite par la gauche valait **zero** : l'ecart etait de 100 %.
+      t.checkRelative(
+        'la teinte du disque traverse l’horizon sans marche',
+        tintLuma(-0.001),
+        tintLuma(0.001),
+        0.01,
+      )
+      t.checkTrue(
+        'et elle continue de faiblir dans la marge, au lieu de s’annuler',
+        tintLuma(-1) > 0 && tintLuma(-1) < tintLuma(-0.05),
+        `${tintLuma(-0.05).toExponential(2)} juste sous l’horizon, ${tintLuma(-1).toExponential(2)} ` +
+          'a un degre — la colonne bornee au rayon tangent, pas une colonne infinie',
+      )
+      t.checkMonotonic(
+        'la decroissance dans la marge est monotone',
+        [0.2, 0, -0.5, -1, -2, -2.9].map(tintLuma),
+        'decroissant',
+      )
+      t.check(
+        'et au-dela de la marge le disque est eteint',
+        tintLuma(-HORIZON_MARGIN_DEG - 0.01),
+        0,
+        0,
+      )
 
       // --- Altitude de l'observateur --------------------------------------------
       t.checkTrue(

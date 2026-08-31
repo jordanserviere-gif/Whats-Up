@@ -109,15 +109,14 @@ export function Starfield({
           uniform float uBaseSize;
           uniform float uExtinctionK;
 
-          // Masse d'air traversee (Pickering 2002), valable jusqu'a l'horizon.
-          // La hauteur est bornee a zero : en dessous, la formule diverge puis
-          // devient negative, et l'extinction se mettrait a amplifier l'eclat.
-          float airmass(float altDeg) {
-            float h = max(altDeg, 0.0);
-            float rad = 0.017453292519943295;
-            float am = 1.0 / sin((h + 244.0 / (165.0 + 47.0 * pow(h + 0.001, 1.1))) * rad);
-            return clamp(am, 1.0, 40.0);
-          }
+          // ⚠️ **La masse d'air ne se calcule plus ici.** Ce nuanceur portait sa
+          // propre formule de Pickering, bornee a zero degre — un second modele
+          // d'atmosphere dans la meme image, et celui-la ignorait que l'horizon
+          // descend avec l'observateur. Vue de dix kilometres, la masse d'air a
+          // moins trois degres vaut 219 : la formule bornee en donnait 39.
+          //
+          // Elle est desormais lue dans la table de refraction, canal vert, sur
+          // le meme domaine et pour le meme site — voir \`airmassAt\`.
 
           uniform float uScintillationZenith;
           uniform float uScintillationCeiling;
@@ -158,11 +157,14 @@ export function Starfield({
             // constellations. Sans cela une planete se detacherait de son champ
             // d'etoiles de plus d'un diametre lunaire pres de l'horizon.
             vec4 world = modelMatrix * vec4(position, 1.0);
+            // Hauteur **vraie**, prise avant le redressement : c'est l'abscisse
+            // de la table, qui porte refraction et masse d'air sur le meme axe.
+            float trueAltDeg = degrees(asin(clamp(normalize(world.xyz).y, -1.0, 1.0)));
             world.xyz = refractSceneDirection(world.xyz);
             vec3 dir = normalize(world.xyz);
             float altDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
 
-            float x = min(airmass(altDeg), 12.0);
+            float x = min(airmassAt(trueAltDeg), 12.0);
             float extinction = uExtinctionK * x;
 
             // Ecart a la magnitude limite, et rapport de flux correspondant :
@@ -188,7 +190,12 @@ export function Starfield({
             // C'est de la seule dependance a la hauteur que sort le fait
             // qu'une etoile basse scintille bien plus qu'une etoile au zenith.
             // Rien ne l'ecrit.
-            float secZ = 1.0 / max(0.05, sin(radians(max(altDeg, 0.0))));
+            // La secante de l'angle zenithal **est** l'approximation
+            // plan-parallele de la masse d'air : autant lire la vraie, qui
+            // connait la courbure et l'altitude du site plutot que de borner la
+            // hauteur a zero. Le plafond reste celui d'avant, pour ne pas
+            // changer ce que la scintillation vaut au niveau de la mer.
+            float secZ = min(airmassAt(trueAltDeg), 20.0);
             float variance = min(uScintillationCeiling,
                                  uScintillationZenith * pow(secZ, ${PERCEIVED_ZENITH_EXPONENT.toFixed(6)}));
             // Loi log-normale : « σ_lnI² = ln(1 + σ_I²) », et une magnitude

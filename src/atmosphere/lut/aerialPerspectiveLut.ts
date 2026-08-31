@@ -61,11 +61,68 @@ import { aerialPerspective, type SingleScatteringOptions } from '../transport/si
 import type { SpectralGrid } from '../spectral/SpectralGrid'
 import { spectralToLinearSrgb, type LinearRgb } from '../spectral/SpectralSensor'
 import { solarIrradianceOn } from '../spectral/SolarSpectrum'
-import { skyViewAltitudeDeg } from './skyViewLut'
+/**
+ * Hauteur de visee portee par la coordonnee verticale, degres.
+ *
+ * ## Pourquoi la table descend sous l'horizon
+ *
+ * Elle ne le faisait pas, et le nuanceur **ecretait** donc toute visee
+ * descendante a la ligne rasante. Sans consequence tant que rien n'existait sous
+ * l'horizon ; faux des qu'une surface s'y trouve, parce que le rayon rasant de
+ * la table ne rencontre **jamais** le sol et monte indefiniment, quand le vrai
+ * s'y arrete.
+ *
+ * Mesure de l'ecart sur la colonne moleculaire, observateur a trente-cinq
+ * metres :
+ *
+ * | visee | distance | colonne en trop |
+ * | --- | --- | --- |
+ * | −0,2° | 20 km | **23,5 %** |
+ * | −0,5° | 5 km | **16,5 %** |
+ * | −1,2° | 2 km | **15,8 %** |
+ * | −4° | 500 m | 0,17 % |
+ * | −30° | 60 m | 0,14 % |
+ *
+ * La repartition surprend et s'explique : sous forte depression le trajet est
+ * court et l'air homogene, l'erreur est nulle. C'est pres de l'horizon qu'elle
+ * eclate, parce que le vrai rayon **touche le sol** avant la distance visee.
+ *
+ * ## La forme
+ *
+ * Quadratique de part et d'autre, ce qui concentre les texels sur l'horizon des
+ * deux cotes — la ou la colonne d'air varie le plus vite. `v = 1/2` designe
+ * exactement l'horizon, et la table en porte un texel.
+ */
+export const aerialAltitudeDeg = (v: number): number => {
+  const t = 2 * v - 1
+  return 90 * t * Math.abs(t)
+}
+
+/** Coordonnee verticale portant une hauteur de visee donnee. */
+export const aerialV = (altitudeDeg: number): number => {
+  const a = Math.max(-90, Math.min(90, altitudeDeg))
+  const t = Math.sign(a) * Math.sqrt(Math.abs(a) / 90)
+  return (t + 1) / 2
+}
 
 /** Dimensions de la table. */
 export const AERIAL_LUT_WIDTH = 64
-export const AERIAL_LUT_HEIGHT = 32
+/**
+ * Lignes de visee, **des deux cotes de l'horizon**.
+ *
+ * Soixante-cinq et non soixante-quatre : il en faut un nombre **impair** pour
+ * que l'horizon tombe exactement sur un texel, au milieu. C'est la ligne la plus
+ * tendue de la table — celle ou la colonne d'air passe de quelques kilometres a
+ * plusieurs centaines — et l'interpoler entre deux voisins serait la seule
+ * erreur qu'on ne peut pas se permettre.
+ *
+ * Trente-deux lignes de chaque cote : la resolution **au-dessus** de l'horizon
+ * est donc exactement celle d'avant, et la moitie inferieure est un ajout, non
+ * un partage.
+ */
+export const AERIAL_LUT_HEIGHT = 65
+/** Indice de la ligne d'horizon. */
+export const AERIAL_HORIZON_ROW = (AERIAL_LUT_HEIGHT - 1) / 2
 /**
  * Tranches en distance.
  *
@@ -81,6 +138,14 @@ export interface AerialLut {
   readonly depth: number
   /** Radiance diffusee cumulee, sRGB lineaire, `RGBA` — l'alpha est inutilise. */
   readonly scattered: Float32Array
+  /**
+   * Part de `scattered` qui ne vient pas du rayon solaire direct, meme format.
+   *
+   * C'est ce que l'air renvoie encore lorsqu'un obstacle lui cache le Soleil
+   * sans lui cacher le ciel. Un relief interpose ne **multiplie** donc pas le
+   * voile par un facteur : il lui **substitue** cette table.
+   */
+  readonly ambient: Float32Array
   /** Transmittance du rayon primaire, `RGBA` — l'alpha est inutilise. */
   readonly transmittance: Float32Array
   /**
@@ -113,6 +178,7 @@ export function createAerialLut(options: AerialLutOptions = {}): AerialLut {
     height,
     depth,
     scattered: new Float32Array(size),
+    ambient: new Float32Array(size),
     transmittance: new Float32Array(size),
     meanSkyLuminanceCdPerM2: 0,
   }
@@ -141,14 +207,18 @@ export function measureMeanSkyLuminance(lut: AerialLut): number {
   const { width, height, depth, scattered } = lut
   let total = 0
   let weightTotal = 0
-  for (let y = 0; y < height; y++) {
+  // ⚠️ **A partir de la ligne d'horizon seulement.** Depuis que la table
+  // descend sous l'horizon, sa moitie inferieure decrit des surfaces au sol et
+  // non du ciel : l'y inclure ferait s'adapter l'oeil a un paysage plutot qu'a
+  // la voute, et l'exposition entiere avec lui.
+  for (let y = Math.ceil(AERIAL_HORIZON_ROW); y < height; y++) {
     const v = height > 1 ? y / (height - 1) : 0
-    const altitudeDeg = skyViewAltitudeDeg(v)
+    const altitudeDeg = aerialAltitudeDeg(v)
     const altitudeRad = (altitudeDeg * Math.PI) / 180
     // Jacobien de la parametrisation, et rien d'autre : c'est une moyenne en
     // angle solide. Le `cos(hauteur)` n'est pas un detail — l'oublier
     // surpondere le zenith, ou le parametrage s'etire.
-    const weight = Math.cos(altitudeRad) * Math.max(1e-6, v)
+    const weight = Math.cos(altitudeRad) * Math.max(1e-6, 2 * v - 1)
     for (let x = 0; x < width; x++) {
       const i = (((depth - 1) * height + y) * width + x) * 4
       // La ligne Y de la matrice sRGB : la luminance vaut `683 × Y`.
@@ -158,6 +228,63 @@ export function measureMeanSkyLuminance(lut: AerialLut): number {
     }
   }
   return weightTotal > 0 ? (683 * total) / weightTotal : 0
+}
+
+/**
+ * Eclairement diffus du ciel sur une surface horizontale, par canal.
+ *
+ * ## A quoi il sert
+ *
+ * A eclairer une surface. Le moteur savait deja ce que le Soleil **direct**
+ * apporte a une surface (`directSolar`), et ce que le ciel **rayonne** dans une
+ * direction (la table). Il ne savait pas ce que le ciel entier **depose** sur un
+ * plan, qui est la seconde moitie de l'eclairement d'un paysage — et la
+ * premiere a l'ombre, ou sous un ciel couvert.
+ *
+ *     E = ∫ L(ω)·cosθ_z·dω        sur l'hemisphere
+ *
+ * ## La ponderation, et pourquoi elle differe de la luminance moyenne
+ *
+ * `measureMeanSkyLuminance` moyenne en **angle solide** : c'est ce a quoi l'oeil
+ * s'adapte, et le `cosθ_z` y serait une erreur — elle a d'ailleurs ete commise
+ * puis corrigee. Ici c'est l'inverse : un plan horizontal recoit d'autant moins
+ * qu'une direction est rasante, et le cosinus **est** le modele.
+ *
+ * Les deux quantites coexistent donc, et repondent a deux questions distinctes.
+ *
+ * ## L'unite
+ *
+ * La table porte des radiances en sRGB lineaire ; cette integrale rend donc un
+ * eclairement dans **la meme echelle**, multipliee par des steradians. C'est
+ * exactement ce qu'attend `L = albedo/π · E`, et c'est ce qui garantit qu'une
+ * surface eclairee par ce ciel-la et le ciel lui-meme traversent la meme
+ * exposition sans facteur de raccord.
+ *
+ * Controle : un ciel de radiance uniforme `L` doit rendre `π·L`.
+ */
+export function measureSkyIrradiance(lut: AerialLut): [number, number, number] {
+  const { width, height, depth, scattered } = lut
+  const total = [0, 0, 0]
+  let weightTotal = 0
+  // Meme restriction que la luminance moyenne : le ciel commence a l'horizon.
+  for (let y = Math.ceil(AERIAL_HORIZON_ROW); y < height; y++) {
+    const v = height > 1 ? y / (height - 1) : 0
+    const altitudeRad = (aerialAltitudeDeg(v) * Math.PI) / 180
+    // Meme jacobien d'angle solide que la luminance moyenne...
+    const solidAngle = Math.cos(altitudeRad) * Math.max(1e-6, 2 * v - 1)
+    // ...puis le cosinus zenithal, qui est ici le modele et non une erreur.
+    const weight = solidAngle * Math.sin(altitudeRad)
+    for (let x = 0; x < width; x++) {
+      const i = (((depth - 1) * height + y) * width + x) * 4
+      for (let c = 0; c < 3; c++) total[c] += Math.max(0, scattered[i + c]) * weight
+    }
+    weightTotal += solidAngle * width
+  }
+  if (!(weightTotal > 0)) return [0, 0, 0]
+  // L'hemisphere vaut 2π steradians ; la somme des poids d'angle solide le
+  // represente, et le cosinus est deja porte par `weight`.
+  const scale = (2 * Math.PI) / weightTotal
+  return [total[0] * scale, total[1] * scale, total[2] * scale]
 }
 
 const solarRgbCache = new Map<string, LinearRgb>()
@@ -187,7 +314,7 @@ export function fillAerialRows(
   toRow: number,
   options: SingleScatteringOptions = {},
 ): void {
-  const { width, height, depth, scattered, transmittance } = lut
+  const { width, height, depth, scattered, ambient, transmittance } = lut
   const solar = solarLinearSrgb(grid)
   const bands = grid.count
   const buffer = new Float64Array(bands)
@@ -202,13 +329,16 @@ export function fillAerialRows(
   const stepsPerSlice = 4
 
   for (let y = Math.max(0, fromRow); y < Math.min(height, toRow); y++) {
-    const altitudeDeg = skyViewAltitudeDeg(height > 1 ? y / (height - 1) : 0)
+    const altitudeDeg = aerialAltitudeDeg(height > 1 ? y / (height - 1) : 0)
     for (let x = 0; x < width; x++) {
       const azimuthDeg = 180 * (width > 1 ? x / (width - 1) : 0)
       const aerial = aerialPerspective(grid, altitudeDeg, azimuthDeg, sunAltitudeDeg, {
         ...options,
         slices: depth,
         stepsPerSlice,
+        // Sous l'horizon, le trajet se termine au sol. C'est ce qui distingue
+        // une surface — qui s'y trouve — du ciel, qui n'y est pas.
+        stopAtGround: altitudeDeg < 0,
       })
 
       // Transmittance de la tranche precedente, pour imposer la decroissance —
@@ -227,6 +357,16 @@ export function fillAerialRows(
         scattered[i] = rgb[0]
         scattered[i + 1] = rgb[1]
         scattered[i + 2] = rgb[2]
+
+        // La meme integrale privee de sa source solaire — voir `ambient`. Elle
+        // traverse le meme operateur colorimetrique que le total, sans quoi les
+        // deux ne seraient pas sur la meme echelle et une ombre changerait la
+        // teinte du voile au lieu de seulement l'assombrir.
+        for (let b = 0; b < bands; b++) buffer[b] = aerial.ambient[base + b]
+        const ambientRgb = spectralToLinearSrgb(grid, buffer)
+        ambient[i] = ambientRgb[0]
+        ambient[i + 1] = ambientRgb[1]
+        ambient[i + 2] = ambientRgb[2]
 
         // Reduction de la transmittance spectrale — voir l'avertissement en tete
         // de module. Le spectre de reference est celui du Soleil.
@@ -293,7 +433,7 @@ export function sampleAerialLut(
 ): { scattered: [number, number, number]; transmittance: [number, number, number] } {
   const folded = Math.abs(((((azimuthFromSunDeg + 180) % 360) + 360) % 360) - 180)
   const u = folded / 180
-  const v = Math.sqrt(Math.max(0, Math.min(90, viewAltitudeDeg)) / 90)
+  const v = aerialV(viewAltitudeDeg)
 
   const fx = Math.max(0, Math.min(lut.width - 1, u * (lut.width - 1)))
   const fy = Math.max(0, Math.min(lut.height - 1, v * (lut.height - 1)))
@@ -344,6 +484,7 @@ export function sampleAerialLut(
  */
 export const AERIAL_LUT_GLSL = /* glsl */ `
   uniform sampler2D uAerialScattered;
+  uniform sampler2D uAerialAmbient;
   uniform sampler2D uAerialTransmittance;
   /** Largeur, hauteur d'une tranche, nombre de tranches. */
   uniform vec3 uAerialSize;
@@ -351,6 +492,7 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
   uniform float uAerialExposure;
   uniform float uAerialObserverRadius;
   uniform float uAerialTopRadius;
+  uniform float uAerialGroundRadius;
 
   /**
    * Longueur du trajet de l'observateur a la sortie de l'atmosphere, forme
@@ -362,6 +504,15 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
     float r0 = uAerialObserverRadius;
     float mu = clamp(dir.y, -1.0, 1.0);
     float rt = uAerialTopRadius;
+    float rg = uAerialGroundRadius;
+
+    // Une visee descendante se termine **au sol**, pas dans l'espace. C'est la
+    // meme distinction que fait le solveur en remplissant la table : sans elle,
+    // la coordonnee de distance etait normalisee par un trajet qui n'existe pas,
+    // et tout objet vu vers le bas heritait du voile d'une visee rasante.
+    float groundDisc = r0 * r0 * mu * mu - (r0 * r0 - rg * rg);
+    if (mu < 0.0 && groundDisc >= 0.0) return -r0 * mu - sqrt(groundDisc);
+
     return -r0 * mu + sqrt(max(0.0, r0 * r0 * mu * mu + rt * rt - r0 * r0));
   }
 
@@ -385,7 +536,14 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
    * Une distance infinie — un astre — donne \`w = 1\`, c'est-a-dire exactement la
    * tranche que lit le fond de ciel. Le raccord est structurel, pas ajuste.
    */
-  vec3 aerialPerspective(vec3 dir, float distanceM, out vec3 transmittance) {
+  /**
+   * Coordonnees de lecture d'une direction et d'une distance.
+   *
+   * Extraites pour que le voile total et sa part ambiante soient lus **au meme
+   * endroit** de la table : deux calculs separes divergeraient d'un demi-texel
+   * et l'ombre laisserait un lisere.
+   */
+  void aerialCoords(vec3 dir, float distanceM, out float uTexel, out float vTexel, out float sliceF) {
     vec3 d = normalize(dir);
 
     // Azimut relatif : angle entre les projections horizontales des deux
@@ -393,7 +551,12 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
     vec2 flatDir = normalize(vec2(d.x, d.z) + vec2(1e-9));
     vec2 flatSun = normalize(vec2(uAerialSunDir.x, uAerialSunDir.z) + vec2(1e-9));
     float u = acos(clamp(dot(flatDir, flatSun), -1.0, 1.0)) / 3.14159265;
-    float v = sqrt(clamp(degrees(asin(clamp(d.y, 0.0, 1.0))), 0.0, 90.0) / 90.0);
+    // La table couvre desormais les deux hemispheres : plus de bornage a
+    // l'horizon. La valeur 0,5 designe l'horizon exactement, et la
+    // parametrisation est quadratique de part et d'autre.
+    float elevDeg = degrees(asin(clamp(d.y, -1.0, 1.0)));
+    float tv = sign(elevDeg) * sqrt(clamp(abs(elevDeg) / 90.0, 0.0, 1.0));
+    float v = (tv + 1.0) * 0.5;
 
     float total = aerialTotalPath(d);
     float w = total > 0.0 ? clamp(sqrt(max(0.0, distanceM) / total), 0.0, 1.0) : 1.0;
@@ -401,25 +564,40 @@ export const AERIAL_LUT_GLSL = /* glsl */ `
     // Recentrage sur les texels, comme partout dans le moteur : sans lui,
     // l'interpolation extrapole a l'horizon et au zenith, la ou la table est
     // justement la plus tendue.
-    float uTexel = 0.5 + u * (uAerialSize.x - 1.0);
-    float vTexel = 0.5 + v * (uAerialSize.y - 1.0);
+    uTexel = 0.5 + u * (uAerialSize.x - 1.0);
+    vTexel = 0.5 + v * (uAerialSize.y - 1.0);
+    sliceF = w * (uAerialSize.z - 1.0);
+  }
 
-    float sliceF = w * (uAerialSize.z - 1.0);
+  /** Lecture d'une des tables, tranches interpolees. */
+  vec3 aerialLookup(sampler2D tex, float uTexel, float vTexel, float sliceF) {
     float s0 = floor(sliceF);
     float s1 = min(uAerialSize.z - 1.0, s0 + 1.0);
-    float tz = sliceF - s0;
+    return mix(
+      aerialSlice(tex, uTexel, vTexel, s0),
+      aerialSlice(tex, uTexel, vTexel, s1),
+      sliceF - s0
+    );
+  }
 
-    transmittance = mix(
-      aerialSlice(uAerialTransmittance, uTexel, vTexel, s0),
-      aerialSlice(uAerialTransmittance, uTexel, vTexel, s1),
-      tz
-    );
-    vec3 scattered = mix(
-      aerialSlice(uAerialScattered, uTexel, vTexel, s0),
-      aerialSlice(uAerialScattered, uTexel, vTexel, s1),
-      tz
-    );
-    return scattered * uAerialExposure;
+  vec3 aerialPerspective(vec3 dir, float distanceM, out vec3 transmittance) {
+    float uTexel, vTexel, sliceF;
+    aerialCoords(dir, distanceM, uTexel, vTexel, sliceF);
+    transmittance = aerialLookup(uAerialTransmittance, uTexel, vTexel, sliceF);
+    return aerialLookup(uAerialScattered, uTexel, vTexel, sliceF) * uAerialExposure;
+  }
+
+  /**
+   * Ce que l'air renvoie encore quand un obstacle lui cache le Soleil sans lui
+   * cacher le ciel — meme integrale, source solaire retiree.
+   *
+   * Une ombre portee dans l'air n'est donc pas un facteur applique au voile :
+   * c'est cette table-ci qui remplace l'autre sur le segment concerne.
+   */
+  vec3 aerialAmbient(vec3 dir, float distanceM) {
+    float uTexel, vTexel, sliceF;
+    aerialCoords(dir, distanceM, uTexel, vTexel, sliceF);
+    return aerialLookup(uAerialAmbient, uTexel, vTexel, sliceF) * uAerialExposure;
   }
 
   /** Objet a l'infini : un astre, hors de l'atmosphere. */

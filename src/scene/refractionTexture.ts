@@ -37,10 +37,12 @@
  * disque solaire qui en fait 1920.
  */
 import { ClampToEdgeWrapping, DataTexture, FloatType, LinearFilter, RGBAFormat } from 'three'
+import { airmass } from '@/astro/photometry'
 import {
   REFRACTION_LUT_WIDTH,
   isRefractionEnabled,
   fillRefractionLut,
+  refractionLutFloorDeg,
   sharedRefractionTable,
   type RefractionTable,
 } from '@/atmosphere/refraction/refractionTable'
@@ -65,7 +67,9 @@ export function refractionFor(observerElevationM: number): Entry {
 
   const table = sharedRefractionTable(key)
   const data = new Float32Array(REFRACTION_LUT_WIDTH * 4)
-  fillRefractionLut(data, table)
+  // La masse d'air voyage dans le canal vert, calculee pour **ce** site : c'est
+  // la meme grandeur que lisent les corps du systeme solaire cote processeur.
+  fillRefractionLut(data, table, (apparentAltitudeDeg) => airmass(apparentAltitudeDeg, key))
 
   const texture = new DataTexture(data, REFRACTION_LUT_WIDTH, 1, RGBAFormat, FloatType)
   texture.minFilter = LinearFilter
@@ -102,12 +106,24 @@ export function refractionUniforms() {
      * droits. Un cas du modele, et non une exception a traiter a part.
      */
     uRefractionActive: { value: 0 },
+    /**
+     * Plancher de la texture, degres — il descend avec l'observateur.
+     *
+     * Une constante suffisait tant qu'on supposait l'oeil au niveau de la mer.
+     * A dix kilometres l'horizon est trois degres plus bas, et la texture doit
+     * suivre : c'est une propriete du **site**, pas du moteur.
+     */
+    uRefractionFloor: { value: 0 },
   }
 }
 
 /** Recopie la texture et l'etat courant dans un materiau. */
 export function applyRefractionUniforms(uniforms: ReturnType<typeof refractionUniforms>): void {
-  uniforms.uRefractionLut.value = refractionFor(refractionSite.observerElevationM).texture
+  const entry = refractionFor(refractionSite.observerElevationM)
+  uniforms.uRefractionLut.value = entry.texture
   uniforms.uRefractionWidth.value = REFRACTION_LUT_WIDTH
   uniforms.uRefractionActive.value = isRefractionEnabled() ? 1 : 0
+  // Le nuanceur et le processeur lisent la meme table : ils doivent lire le
+  // meme plancher, sans quoi ils designeraient des hauteurs differentes.
+  uniforms.uRefractionFloor.value = refractionLutFloorDeg(entry.table)
 }

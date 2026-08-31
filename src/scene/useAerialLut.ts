@@ -59,6 +59,7 @@ import {
   createAerialLut,
   fillAerialRows,
   measureMeanSkyLuminance,
+  measureSkyIrradiance,
   type AerialLut,
 } from '@/atmosphere/lut/aerialPerspectiveLut'
 import {
@@ -181,6 +182,14 @@ export const AERIAL_TOP_RADIUS_M = EARTH_MEAN_RADIUS_M + ATMOSPHERE_TOP_M
 
 export interface AerialTextures {
   scattered: DataTexture | null
+  /**
+   * Meme table, source solaire retiree.
+   *
+   * Elle n'a de sens que pour un objet qui **occulte le Soleil sans occulter le
+   * ciel** : un relief, un nuage. Le fond de ciel n'a rien devant lui et ne la
+   * lit jamais.
+   */
+  ambient: DataTexture | null
   transmittance: DataTexture | null
   /** `(largeur, hauteur d'une tranche, nombre de tranches)`. */
   size: Vector3
@@ -193,6 +202,18 @@ export interface AerialTextures {
    * elle qui pilote l'exposition, et non une table d'ancres exterieure.
    */
   meanSkyLuminanceCdPerM2: number
+  /**
+   * Eclairement diffus du ciel sur un plan horizontal, sRGB lineaire par canal.
+   *
+   * Ce que le ciel entier **depose** sur une surface, par opposition a ce qu'il
+   * **rayonne** dans une direction. C'est la moitie de l'eclairement d'un
+   * paysage, et la totalite a l'ombre.
+   *
+   * Mesure sur la meme table, au meme instant, avec le meme operateur
+   * colorimetrique : une surface eclairee par cette valeur et le ciel qui
+   * l'entoure sont donc sur la meme echelle radiometrique, sans raccord.
+   */
+  skyIrradiance: [number, number, number]
 }
 
 /**
@@ -207,10 +228,12 @@ export interface AerialTextures {
  */
 export const aerialTextures: AerialTextures = {
   scattered: null,
+  ambient: null,
   transmittance: null,
   size: new Vector3(AERIAL_LUT_WIDTH, AERIAL_LUT_HEIGHT, AERIAL_LUT_DEPTH),
   observerRadiusM: EARTH_MEAN_RADIUS_M,
   meanSkyLuminanceCdPerM2: 0,
+  skyIrradiance: [0, 0, 0],
 }
 
 /**
@@ -223,12 +246,15 @@ export const aerialTextures: AerialTextures = {
 export function aerialUniforms() {
   return {
     uAerialScattered: { value: null as DataTexture | null },
+    uAerialAmbient: { value: null as DataTexture | null },
     uAerialTransmittance: { value: null as DataTexture | null },
     uAerialSize: { value: new Vector3(AERIAL_LUT_WIDTH, AERIAL_LUT_HEIGHT, AERIAL_LUT_DEPTH) },
     uAerialSunDir: { value: new Vector3(0, 1, 0) },
     uAerialExposure: { value: 0 },
     uAerialObserverRadius: { value: EARTH_MEAN_RADIUS_M },
     uAerialTopRadius: { value: AERIAL_TOP_RADIUS_M },
+    /** Rayon du sol : il borne le trajet d une visee descendante. */
+    uAerialGroundRadius: { value: EARTH_MEAN_RADIUS_M },
   }
 }
 
@@ -247,6 +273,7 @@ export function applyAerialUniforms(
   exposure: number,
 ): void {
   uniforms.uAerialScattered.value = aerialTextures.scattered
+  uniforms.uAerialAmbient.value = aerialTextures.ambient
   uniforms.uAerialTransmittance.value = aerialTextures.transmittance
   uniforms.uAerialSunDir.value.set(sunDirection[0], sunDirection[1], sunDirection[2])
 
@@ -306,6 +333,7 @@ export function useAerialLut(
   // l'union de tous les tableaux typees possibles, et le retrouver a chaque
   // image demanderait une assertion que rien ne garantit.
   const scatteredData = useMemo(() => new Float32Array(AERIAL_LUT_WIDTH * rows * 4), [rows])
+  const ambientData = useMemo(() => new Float32Array(AERIAL_LUT_WIDTH * rows * 4), [rows])
   const transmittanceData = useMemo(() => new Float32Array(AERIAL_LUT_WIDTH * rows * 4), [rows])
 
   const makeTexture = (data: Float32Array<ArrayBuffer>): DataTexture => {
@@ -320,6 +348,7 @@ export function useAerialLut(
   }
 
   const scattered = useMemo(() => makeTexture(scatteredData), [scatteredData])
+  const ambient = useMemo(() => makeTexture(ambientData), [ambientData])
   const transmittance = useMemo(() => makeTexture(transmittanceData), [transmittanceData])
 
   /** Tampon de construction : les textures ne recoivent qu'une table complete. */
@@ -344,13 +373,15 @@ export function useAerialLut(
   useEffect(
     () => () => {
       scattered.dispose()
+      ambient.dispose()
       transmittance.dispose()
     },
-    [scattered, transmittance],
+    [scattered, ambient, transmittance],
   )
 
   // Les materiaux exterieurs a l'arbre du fond de ciel lisent cet objet.
   aerialTextures.scattered = scattered
+  aerialTextures.ambient = ambient
   aerialTextures.transmittance = transmittance
   aerialTextures.observerRadiusM = EARTH_MEAN_RADIUS_M + observerElevationM
 
@@ -372,8 +403,10 @@ export function useAerialLut(
       // Rien de diffuse, et une transmittance unite — l'objet est vu tel quel.
       if (!current.cleared) {
         scatteredData.fill(0)
+        ambientData.fill(0)
         transmittanceData.fill(1)
         scattered.needsUpdate = true
+        ambient.needsUpdate = true
         transmittance.needsUpdate = true
         current.cleared = true
         current.altitude = Number.NaN
@@ -421,12 +454,15 @@ export function useAerialLut(
         // La table n'est publiee qu'entiere : pendant la construction, le ciel
         // continue d'afficher la precedente.
         scatteredData.set(pending.scattered)
+        ambientData.set(pending.ambient)
         transmittanceData.set(pending.transmittance)
         // La luminance moyenne est relevee **au moment de la publication**, sur
         // la table complete : elle decrit donc exactement le ciel qui va
         // s'afficher, pas celui d'avant ni un a moitie construit.
         aerialTextures.meanSkyLuminanceCdPerM2 = measureMeanSkyLuminance(pending)
+        aerialTextures.skyIrradiance = measureSkyIrradiance(pending)
         scattered.needsUpdate = true
+        ambient.needsUpdate = true
         transmittance.needsUpdate = true
         current.altitude = current.pendingAltitude
         current.elevation = current.pendingElevation

@@ -30,7 +30,8 @@ import { Starfield } from './Starfield'
 import { ConstellationLines } from './ConstellationLines'
 import { DeepSky } from './DeepSky'
 import { EclipticLine, EquatorialGrid, HorizonGrid, HorizonLine } from './Grids'
-import { Ground } from './Ground'
+import { Globe } from './Globe'
+import { Terrain } from './Terrain'
 import { SkyBackground } from './SkyBackground'
 import { SolarSystemBodies } from './Bodies'
 import { useBodyTextures } from './useBodyTextures'
@@ -41,7 +42,7 @@ import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
 import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
 import { AIRGLOW_LUX } from '@/astro/photometry'
-import { sunDiscTint } from '@/atmosphere/transport/directSolar'
+import { directSolar, sunDiscTint } from '@/atmosphere/transport/directSolar'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
@@ -92,6 +93,7 @@ export function SkyCanvas() {
 
   const date = useSimulatedDate()
   const location = useSkyStore((s) => s.location)
+  const elevationOffsetM = useSkyStore((s) => s.elevationOffsetM)
   const layers = useSkyStore((s) => s.layers)
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
@@ -286,6 +288,27 @@ export function SkyCanvas() {
     () => sunDiscTint(SOLAR_GRID, sunAltitudeKey, { observerElevationM }),
     [sunAltitudeKey, observerElevationM],
   )
+
+  /**
+   * Irradiance solaire directe au sol, sRGB lineaire — **non normalisee**.
+   *
+   * `sunTint` ci-dessus rend la meme grandeur ramenee a une luminance unite au
+   * zenith : c'est ce qu'il faut pour **teinter** un disque, et exactement ce
+   * qu'il ne faut pas pour **eclairer** une surface. Une surface a besoin de la
+   * grandeur absolue, sur la meme echelle que la table de ciel — les deux
+   * passent par `spectralToLinearSrgb`, donc elles y sont deja.
+   *
+   * ⚠️ Elle n'etait autrefois calculee que si le banc de relief etait allume.
+   * Le globe est maintenant une **surface eclairee** en permanence, et la
+   * couper reviendrait a eteindre le Soleil sur la moitie de la scene. Le
+   * calcul integre quatre mille pas le long du trajet oblique, mais il ne
+   * depend que de la hauteur solaire quantifiee : il ne se refait donc que
+   * lorsque celle-ci bouge, pas a chaque image.
+   */
+  const sunIrradiance = useMemo<[number, number, number]>(() => {
+    const rgb = directSolar(SOLAR_GRID, sunAltitudeKey, { observerElevationM }).linearSrgb
+    return [rgb[0], rgb[1], rgb[2]]
+  }, [sunAltitudeKey, observerElevationM])
 
   /**
    * Designation d'un objet par un clic dans la scene.
@@ -541,6 +564,7 @@ export function SkyCanvas() {
         <SkyBackground
           skyExposure={skyExposure}
           observerElevationM={location.elevation}
+          extraHeightM={elevationOffsetM}
           sunDistanceAu={sunDistanceAu}
           ozoneColumnDu={ozoneColumnDu}
           atmosphereEnabled={layers.atmosphere}
@@ -635,7 +659,31 @@ export function SkyCanvas() {
         )}
 
         <HorizonLine color={colors.horizonLine} />
-        {layers.ground && <Ground color={colors.ground} glowColor={colors.groundGlow} illuminance={illuminance} />}
+        {/* L'altitude passee au globe est celle du **site**, non celle qui bascule
+            a cent kilometres quand le calque atmosphere est eteint : la
+            depression de l'horizon est une propriete du lieu, pas du calque. */}
+        {layers.ground && (
+          <Globe
+            observerElevationM={location.elevation}
+            extraHeightM={elevationOffsetM}
+            sunDirection={sunDirection}
+            sunIrradiance={sunIrradiance}
+            skyExposure={skyExposure}
+          />
+        )}
+        {layers.terrain && (
+          <Terrain
+            observerElevationM={location.elevation}
+            extraHeightM={elevationOffsetM}
+            latitudeDeg={location.latitude}
+            longitudeDeg={location.longitude}
+            sunDirection={sunDirection}
+            sunIrradiance={sunIrradiance}
+            sunAltitudeDeg={sky.sunAltitude}
+            sunAzimuthDeg={sky.sunAzimuth}
+            skyExposure={skyExposure}
+          />
+        )}
 
         <LabelLayer labels={labels} host={labelHost} />
         {constellationLabelData.length > 0 && (

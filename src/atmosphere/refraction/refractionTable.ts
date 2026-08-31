@@ -41,9 +41,10 @@
  * traitement spectral du disque est un travail de rendu, pas de transport.
  */
 import { radToDeg } from '../core/units'
+import { HORIZON_MARGIN_DEG } from '../horizonMargin'
 import { ATMOSPHERE_TOP_M } from '../transport/slantPath'
 import { standardAirIndexAt } from './airIndex'
-import { refractionForApparent, scaledIndexProfile, type RayBendingOptions } from './rayBending'
+import { horizonDipDeg, refractionForApparent, scaledIndexProfile, type RayBendingOptions } from './rayBending'
 
 export interface RefractionTable {
   /** Hauteurs apparentes de la grille, degres — croissantes. */
@@ -54,6 +55,10 @@ export interface RefractionTable {
   readonly horizonTrueDeg: number
   /** Refraction a l'horizon apparent, degres. */
   readonly horizonRefractionDeg: number
+  /** Hauteur vraie la plus basse **tabulee**, degres — horizon moins la marge. */
+  readonly floorTrueDeg: number
+  /** Compression verticale a l'horizon, `dA/da`. */
+  readonly horizonCompression: number
 }
 
 export interface RefractionTableOptions extends RayBendingOptions {
@@ -115,24 +120,87 @@ export function buildRefractionTable(options: RefractionTableOptions = {}): Refr
   const indexAt = tabulatedIndexProfile(raw)
   const integration: RayBendingOptions = { ...options, lambdaNm, indexAt, observerElevationM }
 
-  const apparentDeg = new Float64Array(count)
-  const trueDeg = new Float64Array(count)
+  // --- Ou commence le domaine ------------------------------------------------
+  //
+  // ⚠️ **Pas a zero degre.** La table partait de l'horizontale, ce qui revient a
+  // supposer l'observateur au niveau de la mer. Des qu'il prend de la hauteur,
+  // son horizon **descend** — 0,17° a trente-cinq metres, 0,93° a mille, 3,1° a
+  // dix kilometres — et toute la bande comprise entre l'horizontale et cet
+  // horizon est du ciel parfaitement visible, que la table ignorait.
+  //
+  // `refractionForApparent` sait deja la traiter : elle suit la **branche
+  // descendante** du rayon, qui plonge, atteint un point tangent, puis remonte.
+  // C'est la meme integrale que celle de `horizonDipDeg`. Il ne manquait que de
+  // la lui demander.
+  const dipDeg = observerElevationM > 0 ? horizonDipDeg(observerElevationM, integration) : 0
+  // Un cheveu au-dessus de l'horizon : a la depression exacte, le rayon rase le
+  // sol et l'integrale n'a plus de solution.
+  const minApparent = -dipDeg * (1 - 1e-6)
+  const span = 90 - minApparent
+
+  const apparentAbove = new Float64Array(count)
+  const trueAbove = new Float64Array(count)
 
   for (let i = 0; i < count; i++) {
     const u = i / (count - 1)
     // Concentre pres de l'horizon, ou la refraction varie de dix minutes d'arc
     // par degre ; espace vers le zenith, ou elle ne bouge plus.
-    const apparent = 90 * u * u
+    const apparent = minApparent + span * u * u
     const refraction = radToDeg(refractionForApparent(apparent, integration))
-    apparentDeg[i] = apparent
-    trueDeg[i] = apparent - refraction
+    apparentAbove[i] = apparent
+    trueAbove[i] = apparent - refraction
   }
+
+  // --- Prolongement sous l'horizon ------------------------------------------
+  //
+  // ⚠️ **Il n'y a la aucune image, et le prolongement n'est pas physique.** Sous
+  // l'horizon apparent, plus aucun rayon ne parvient a l'observateur : le
+  // modele de Bouguer n'a plus de solution, et toute valeur est une
+  // extrapolation. Ce qu'on choisit ici, c'est **comment** extrapoler.
+  //
+  // Le prolongement precedent gardait la refraction constante, ce qui revient a
+  // une pente `dA/da = 1`. La fonction restait continue, mais **sa derivee
+  // sautait** — de 0,4 a 1 en franchissant l'horizon. Or cette derivee est
+  // exactement la compression verticale du disque : le Soleil reprenait sa
+  // forme ronde a l'instant ou il se couchait.
+  //
+  // Le prolongement retenu conserve **valeur et pente** a l'horizon, puis laisse
+  // la pente rejoindre 1 — le regime sans atmosphere — sur l'echelle de la
+  // marge :
+  //
+  //     dA/da = s_h·exp(−d/λ) + (1 − exp(−d/λ))     d = a_h − a,  λ = marge/3
+  //
+  // Il est C¹ par construction, et strictement croissant puisque sa pente reste
+  // entre `s_h` et 1, tous deux positifs — ce dont dependent la dichotomie et
+  // l'interpolation de la texture.
+  const horizonTrueDeg = trueAbove[0]
+
+  // Pente mesuree sur un intervalle assez large pour ne pas dependre du bruit
+  // d'integration du premier pas, qui ne fait qu'une seconde d'arc.
+  let j = 1
+  while (j < count - 1 && apparentAbove[j] - apparentAbove[0] < 0.05) j++
+  const horizonCompression = (apparentAbove[j] - apparentAbove[0]) / (trueAbove[j] - trueAbove[0])
+
+  const below = 96
+  const lambda = HORIZON_MARGIN_DEG / 3
+  const apparentDeg = new Float64Array(below + count)
+  const trueDeg = new Float64Array(below + count)
+  for (let i = 0; i < below; i++) {
+    const d = HORIZON_MARGIN_DEG * (1 - i / below)
+    const e = 1 - Math.exp(-d / lambda)
+    trueDeg[i] = horizonTrueDeg - d
+    apparentDeg[i] = apparentAbove[0] - horizonCompression * lambda * e - (d - lambda * e)
+  }
+  apparentDeg.set(apparentAbove, below)
+  trueDeg.set(trueAbove, below)
 
   return {
     apparentDeg,
     trueDeg,
-    horizonTrueDeg: trueDeg[0],
-    horizonRefractionDeg: apparentDeg[0] - trueDeg[0],
+    horizonTrueDeg,
+    horizonRefractionDeg: apparentAbove[0] - horizonTrueDeg,
+    floorTrueDeg: trueDeg[0],
+    horizonCompression,
   }
 }
 
@@ -141,17 +209,14 @@ export function buildRefractionTable(options: RefractionTableOptions = {}): Refr
  *
  * ## Sous l'horizon apparent
  *
- * Il n'y a la, au sens strict, **aucune image** : plus aucun rayon ne parvient a
- * l'observateur, et la hauteur apparente n'est pas definie. Rendre la hauteur
- * vraie telle quelle serait pourtant un mauvais choix — la fonction ferait alors
- * un saut de trente-trois minutes d'arc a la frontiere, et tout ce qui en
- * derive avec elle : la texture lue par les nuanceurs, et le mouvement d'un
- * astre qui se couche.
+ * Il n'y a la, au sens strict, **aucune image**. La table porte neanmoins une
+ * marge tabulee de quelques degres, dont le prolongement conserve **valeur et
+ * pente** a l'horizon — voir `buildRefractionTable`. C'est ce qui evite que la
+ * compression verticale d'un disque saute de 0,4 a 1 au moment ou il se couche.
  *
- * Le prolongement retenu conserve la refraction horizontale : l'astre continue
- * de descendre au meme rythme, en restant sous l'horizon. La fonction reste
- * **continue et croissante**, ce dont dependent l'interpolation de la texture et
- * la lecture par dichotomie.
+ * Sous cette marge, la refraction est figee et la pente revient a un : on est
+ * alors dans le regime sans atmosphere, et l'objet est de toute facon occulte
+ * par le sol.
  *
  * La visibilite ne se decide donc pas au signe du resultat mais par
  * `isVisible`, qui compare a `horizonTrueDeg`.
@@ -159,7 +224,7 @@ export function buildRefractionTable(options: RefractionTableOptions = {}): Refr
 export function apparentFromTable(table: RefractionTable, trueAltitudeDeg: number): number {
   const { trueDeg, apparentDeg } = table
   const last = trueDeg.length - 1
-  if (trueAltitudeDeg <= trueDeg[0]) return trueAltitudeDeg - trueDeg[0]
+  if (trueAltitudeDeg <= trueDeg[0]) return apparentDeg[0] + (trueAltitudeDeg - trueDeg[0])
   if (trueAltitudeDeg >= trueDeg[last]) return trueAltitudeDeg
 
   // Dichotomie : la suite des hauteurs vraies est croissante par construction,
@@ -297,18 +362,31 @@ export function refractSceneDirection(
 export const REFRACTION_LUT_WIDTH = 512
 
 /**
- * Parametrisation de la texture : `u = √((h + 1,2)/91,2)`.
+ * Plancher de la texture, degres — **propriete du site, non constante**.
+ *
+ * ⚠️ **Il valait quatre degres pour tout le monde**, ce qui suffisait au niveau
+ * de la mer et pas ailleurs : a dix kilometres, l'horizon vrai descend vers
+ * −3,6°, et la marge sous lui demande encore trois degres de plus. La texture
+ * s'arretait donc au milieu de ce qui est visible.
+ *
+ * Le plancher suit desormais le bas de la table, `floorTrueDeg`, qui vaut
+ * l'horizon vrai du site moins la marge. Il descend avec l'observateur, et la
+ * texture avec lui.
+ */
+export const refractionLutFloorDeg = (table: RefractionTable): number => table.floorTrueDeg
+
+/**
+ * Parametrisation de la texture : `u = √((h − plancher)/etendue)`.
  *
  * Le carre concentre les texels pres de l'horizon, ou la refraction varie de dix
  * minutes d'arc par degre, et les espace vers le zenith ou elle ne bouge plus.
- * Le decalage de 1,2° couvre les astres encore visibles alors qu'ils sont
- * geometriquement couches.
  */
-export const refractionLutU = (trueAltitudeDeg: number): number =>
-  Math.sqrt(Math.max(0, Math.min(1, (trueAltitudeDeg + 1.2) / 91.2)))
+export const refractionLutU = (trueAltitudeDeg: number, floorDeg: number): number =>
+  Math.sqrt(Math.max(0, Math.min(1, (trueAltitudeDeg - floorDeg) / (90 - floorDeg))))
 
 /** Hauteur vraie portee par une coordonnee de texture. */
-export const refractionLutAltitude = (u: number): number => u * u * 91.2 - 1.2
+export const refractionLutAltitude = (u: number, floorDeg: number): number =>
+  floorDeg + u * u * (90 - floorDeg)
 
 /**
  * Remplit la texture : **la refraction**, en degres, et non la hauteur apparente.
@@ -318,13 +396,27 @@ export const refractionLutAltitude = (u: number): number => u * u * 91.2 - 1.2
  * quatre-vingt-dix degres. L'erreur d'interpolation porte alors sur la petite
  * quantite, pas sur la grande.
  */
-export function fillRefractionLut(target: Float32Array, table: RefractionTable): void {
+export function fillRefractionLut(
+  target: Float32Array,
+  table: RefractionTable,
+  airmassAt?: (apparentAltitudeDeg: number) => number,
+): void {
   const width = target.length / 4
+  const floorDeg = refractionLutFloorDeg(table)
   for (let i = 0; i < width; i++) {
-    const trueAltitudeDeg = refractionLutAltitude(i / (width - 1))
-    const refraction = apparentFromTable(table, trueAltitudeDeg) - trueAltitudeDeg
-    target[i * 4] = refraction
-    target[i * 4 + 1] = 0
+    const trueAltitudeDeg = refractionLutAltitude(i / (width - 1), floorDeg)
+    const apparent = apparentFromTable(table, trueAltitudeDeg)
+    target[i * 4] = apparent - trueAltitudeDeg
+    // Canal vert : la **masse d'air**, sur la meme abscisse.
+    //
+    // Elle voyage avec la refraction parce qu'elle en partage exactement le
+    // domaine — du plancher du site au zenith — et que le nuanceur du champ
+    // d'etoiles la calculait de son cote avec une formule **bornee a zero
+    // degre**. Deux modeles d'atmosphere dans la meme image, et le second
+    // ignorait que l'horizon descend avec l'observateur.
+    //
+    // Le canal etait libre : la lecture ne coute rien de plus.
+    target[i * 4 + 1] = airmassAt ? airmassAt(apparent) : 0
     target[i * 4 + 2] = 0
     target[i * 4 + 3] = 0
   }
@@ -343,12 +435,30 @@ export const REFRACTION_LUT_GLSL = /* glsl */ `
   uniform sampler2D uRefractionLut;
   uniform float uRefractionWidth;
   uniform float uRefractionActive;
+  uniform float uRefractionFloor;
+
+  /** Coordonnee de texture pour une hauteur vraie donnee. */
+  float refractionLutX(float trueAltDeg) {
+    // Le plancher est celui du site : il descend quand l'observateur monte.
+    float u = sqrt(clamp((trueAltDeg - uRefractionFloor) / (90.0 - uRefractionFloor), 0.0, 1.0));
+    return 0.5 / uRefractionWidth + u * (1.0 - 1.0 / uRefractionWidth);
+  }
 
   /** Refraction en degres pour une hauteur vraie donnee. */
   float refractionDeg(float trueAltDeg) {
-    float u = sqrt(clamp((trueAltDeg + 1.2) / 91.2, 0.0, 1.0));
-    float x = 0.5 / uRefractionWidth + u * (1.0 - 1.0 / uRefractionWidth);
-    return texture2D(uRefractionLut, vec2(x, 0.5)).r;
+    return texture2D(uRefractionLut, vec2(refractionLutX(trueAltDeg), 0.5)).r;
+  }
+
+  /**
+   * Masse d'air, rapportee au zenith, pour une hauteur **vraie** donnee.
+   *
+   * Lue dans la meme table que la refraction, donc sur le meme domaine : elle
+   * descend jusqu'au plancher du site au lieu de s'arreter a l'horizontale.
+   * Vue de dix kilometres, la masse d'air a moins trois degres vaut 219 et non
+   * 39 — c'est la difference entre un astre eteint et un astre qui ne l'est pas.
+   */
+  float airmassAt(float trueAltDeg) {
+    return texture2D(uRefractionLut, vec2(refractionLutX(trueAltDeg), 0.5)).g;
   }
 
   /**

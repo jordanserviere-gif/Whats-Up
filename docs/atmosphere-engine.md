@@ -1011,7 +1011,7 @@ npm run verify:atmosphere              # tout
 npm run verify:atmosphere -- vapeur    # filtre sur le nom de suite
 ```
 
-**État : 675 contrôles, 31 suites, aucun échec.**
+**État : 695 contrôles, 31 suites, aucun échec.**
 
 ### `npm run atmo:baseline`
 
@@ -3093,6 +3093,956 @@ l'exposition suit. Le second demande le modele de Garstang (1989).
 
 ---
 
+## La marge sous l'horizon — trois bornes au meme endroit
+
+### Le symptome
+
+Un astre qui passait l'horizon **redevenait normal, puis s'eteignait**. Les deux
+mots comptent : il perdait d'abord ce que l'atmosphere lui avait fait, puis
+disparaissait d'un coup.
+
+Ce n'etait pas un defaut mais **trois**, situes dans trois modules sans rapport,
+et qui n'avaient en commun que d'avoir borne leur domaine **exactement** a la
+hauteur zero.
+
+| Module | Ce qu'il faisait a la frontiere | Ce qu'on voyait |
+| --- | --- | --- |
+| `columnsToSpace` | colonne **infinie** des que le rayon droit plonge | le disque s'éteint d'un coup |
+| `apparentFromTable` | prolongement a **pente un** | le disque redevient rond |
+| nuanceur du ciel | `dir.y < 0` donne zero | le ciel se coupe net |
+
+### Ce que la frontiere a de faux
+
+L'horizon **visible** n'est pas a la hauteur zero, et il n'y est pour aucun
+observateur reel :
+
+| terme | valeur |
+| --- | --- |
+| réfraction à l'horizon | 0,57° — un astre de hauteur vraie −0,57° est encore vu |
+| demi-diamètre solaire | 0,27° — le limbe supérieur survit au centre |
+| abaissement d'horizon à 3 000 m | 1,76° |
+
+Leur somme vaut 2,6°. Couper a zero, c'est couper **a l'interieur** de ce qu'un
+observateur voit encore. La marge vaut donc **trois degres**, et
+`atmosphere/horizonMargin.ts` porte ce calcul.
+
+⚠️ **Ce n'est pas une grandeur physique**, et le module le dit : c'est une borne
+de domaine numerique. La rendre plus grande ne changerait rien a l'image, la
+rendre plus petite ferait reapparaitre les sauts.
+
+### La correction, module par module
+
+**La colonne est bornee au rayon tangent.** `columnsToSpace` a raison de rendre
+l'infini pour un rayon droit qui plonge dans le sol — c'est ce que dit sa
+geometrie. Mais un Soleil de hauteur vraie −0,3° est **encore entierement
+visible**, et sa lumiere traverse une colonne finie : le modele rectiligne se
+trompe precisement la ou la courbure compte. `sunDiscTint` borne donc son
+argument au rayon tangent, la plus longue colonne qu'un rayon puisse parcourir —
+meme borne que `AIRMASS_MAX` dans la photometrie, et pour la meme raison.
+
+**Le prolongement de la refraction devient C¹.** L'ancien conservait la valeur
+mais pas la pente : `dA/da` sautait de 0,86 a 1 en franchissant l'horizon. Or
+cette pente **est** la compression verticale du disque. Le nouveau conserve les
+deux, et laisse la pente rejoindre 1 — le regime sans atmosphere — sur l'echelle
+de la marge :
+
+```
+dA/da = s_h·exp(−d/λ) + (1 − exp(−d/λ))     d = a_h − a,  λ = marge/3
+```
+
+C¹ par construction, et strictement croissant puisque sa pente reste entre `s_h`
+et 1, tous deux positifs — ce dont dependent la dichotomie et l'interpolation de
+la texture. Les 96 echantillons du prolongement sont **tabules**, si bien que les
+deux sens de lecture et la texture GPU en profitent sans code supplementaire.
+
+| Marche a la traversee de l'horizon | |
+| --- | --- |
+| compression verticale, avant | **0,168** |
+| compression verticale, après | **0,0037** |
+| teinte du disque, avant | **100 %** — elle tombait a zero |
+| teinte du disque, après | **0,10 %** |
+
+Effet de bord mesure : la texture de refraction est passee de **1,97″ a 0,81″**
+d'erreur. Le coude qu'elle devait interpoler n'existe plus.
+
+### Le sol occulte pour de bon
+
+⚠️ **L'en-tete de `Ground.tsx` affirmait une chose fausse** : que le tampon de
+profondeur suffisait a masquer tout ce qui est couche, « planetes, satellites,
+etoiles et grilles comprises ». C'etait vrai pour la seconde moitie de la liste
+et faux pour la premiere.
+
+`sceneDepth` compresse les distances en logarithme. Les etoiles sont a 200, mais
+Neptune a 72, le Soleil a 61, la Lune a 42, un satellite a 20, un avion a 8.
+**Tout le systeme solaire est a l'interieur de la calotte**, plus pres que ses
+150 : une planete couchee passait le test de profondeur et se dessinait
+par-dessus le sol.
+
+Le sol ne teste donc plus la profondeur du tout. Il est dessine en dernier et
+recouvre sans condition tout ce qui tombe dans sa geometrie — l'hemisphere sous
+l'horizon — quelle que soit la distance de l'objet.
+
+Il declare `transparent: true` tout en restant parfaitement opaque, son alpha
+valant un. C'est le seul moyen de le faire passer dans la file des transparents,
+ou `renderOrder` est respecte : three.js dessine **tous** les opaques avant
+**tous** les transparents, et un sol opaque serait passe avant les corps quel que
+soit son rang. Meme contrainte, meme parade que pour le fond de ciel.
+
+### Ce que la validation ne voyait pas
+
+Les trois defauts vivaient sous **675 controles** sans en declencher un seul.
+Tous portaient sur la **valeur** des fonctions ; aucun sur leur **derivee**, ni
+sur la continuite d'une teinte a la traversee d'une frontiere.
+
+Cinq controles ont ete ajoutes, dont les deux qui auraient suffi :
+
+- `la compression verticale ne saute pas a la traversee de l'horizon` — mesuree
+  symetriquement a ±0,02°, comparee a ce que donnait le prolongement precedent ;
+- `la teinte du disque traverse l'horizon sans marche` — les deux limites, prises
+  a ±0,001° pour que la variation propre de la teinte ne masque pas la marche.
+
+### ⚠️ Ce qui reste
+
+**Les etiquettes ne sont pas occultees.** Le nom d'un astre couche reste affiche
+au-dessus du sol : `LabelLayer` est du DOM, hors de la scene 3D, et le sol ne
+peut rien contre lui. C'etait deja le cas avant cette passe.
+
+**Le sol lui-meme reste peint.** Deux couleurs d'interface, un `smoothstep` et
+une parabole sur le log de l'eclairement. Ni albedo, ni BRDF, ni transport. Le
+commentaire du fichier promettait sa disparition « en phase 9, avec la
+perspective aerienne » ; la phase 9 a livre la perspective aerienne mais ne l'a
+jamais branchee sur le sol. C'est aujourd'hui **la derniere grande surface peinte
+du moteur**, et elle rejoint le registre ci-dessous.
+
+---
+
+## Le banc de relief — la distance devient visible
+
+### Ce qui manquait
+
+La table de perspective atmospherique est parametree en **distance**, sur seize
+tranches. Une seule servait : le fond de ciel lit la tranche a l'infini, et les
+avions lisent une distance uniforme par appareil. **Rien ne faisait varier la
+distance a l'interieur d'une meme image**, et quinze seiziemes de la table
+n'etaient jamais regardes.
+
+### Le banc
+
+Une chaine **rectiligne** qui passe a quinze kilometres a l'est, longue de six
+cents. Tout y est constant sauf la distance, qui va de 15 a 300 km continument :
+meme altitude de crete, meme albedo, meme profil d'un bout a l'autre. **Chaque
+ecart d'aspect le long de la chaine est donc un effet de distance**, et rien
+d'autre.
+
+On y lit ensemble les trois choses que le moteur calcule : l'extinction qui mange
+le contraste, la diffusion en avant qui bleuit les cretes, et la courbure de la
+Terre qui avale la chaine. Les nombres sortent de la geometrie, pas d'un reglage :
+
+| Distance | Hauteur apparente d'un sommet a 4 000 m | Mesure |
+| --- | --- | --- |
+| 15 km | +14,75° | conforme |
+| 50 km | +4,34° | conforme |
+| 100 km | +1,89° | conforme |
+| 244 km | **−0,01°** | le sommet atteint l'horizon |
+
+### L'eclairement est calcule
+
+    L = (albedo/π)·(E_direct·cos θ + E_ciel·V_ciel)·T(d) + L_diffusee(d)
+
+`E_direct` vient de `directSolar`, le spectre solaire transmis le long du trajet
+oblique reel. `E_ciel` demandait une grandeur que le moteur ne calculait pas : ce
+que le ciel **entier depose sur un plan**, par opposition a ce qu'il **rayonne
+dans une direction**. D'ou `measureSkyIrradiance`, mesure sur la table qui
+s'affiche.
+
+Les deux passent par le meme `spectralToLinearSrgb` que la table elle-meme :
+leurs unites sont donc coherentes **par construction**, sans facteur de raccord.
+Le recoupement le confirme — `directSolar` rend 111 566 lx d'eclairement solaire
+normal, et sa propre grandeur photometrique `normalIlluminanceLux` en donne
+111 566.
+
+⚠️ **La ponderation n'est pas celle de la luminance moyenne, et la distinction
+n'est pas academique.** `measureMeanSkyLuminance` moyenne en angle solide — ce a
+quoi l'oeil s'adapte, et ou le cosinus serait une erreur, deja commise puis
+corrigee. Ici c'est l'inverse : un plan recoit d'autant moins qu'une direction
+est rasante, et le cosinus **est** le modele. L'invariant qui le garantit : un
+ciel de radiance uniforme doit rendre exactement `π·L`. Mesure : **0,06 %**.
+
+### Ce que le banc a mesure du moteur
+
+C'est son objet. A 15 km, sur une visee rasante, la table rend une transmittance
+verte de **0,573** — soit un coefficient d'extinction de 0,037 km⁻¹ et, par
+Koschmieder, une **portee visuelle de 105 km**. C'est une atmosphere tres pure,
+la limite haute d'une belle journee, et non un voile excessif.
+
+Le massif ressort neanmoins clair, et c'est correct : une roche ensoleillee
+d'albedo 0,21 rend 6 000 cd/m² quand le ciel moyen en fait 3 800. Une montagne
+au soleil **est** plus lumineuse que le ciel bleu.
+
+### ⚠️ Trois erreurs, dont deux de methode
+
+**L'approximation petit-angle, prise pour un angle.** `apparentElevationRad`
+rendait `(z−h)/d`, une tangente. Sans consequence au loin — quatre secondes
+d'arc a cent kilometres — mais absurde au pied de l'observateur, ou le rapport
+depasse l'unite : a vingt metres d'un oeil pose a trente-cinq, il vaut −1,75,
+soit cent degres sous l'horizon. Le cosinus changeait de signe, les anneaux
+proches se projetaient **a l'azimut oppose**, et le maillage retourne barrait
+l'ecran.
+
+**Une somme d'octaves ne visite pas [0, 1].** Ses extremes exigent que toutes les
+octaves culminent ensemble, ce qui n'arrive pas : sa plage utile est d'environ
+[0,30 ; 0,75]. Une crete nominale de 4 000 m culminait donc a **2 735**. Il a
+fallu etirer le bruit pour que la chaine atteigne la hauteur demandee — 3 868 m
+mesures apres correction.
+
+**Une mesure ratee, attrapee tout de suite.** Le chronometre de la construction
+englobait le `setTimeout` d'attente et rendait 2 504 ms. Le cout reel, mesure sur
+les 532 480 evaluations du champ de relief qui le dominent, est de **34 ms**, une
+seule fois a l'activation. Le rendu, lui, ne coute rien de mesurable : 6,10 ms
+par image avec comme sans, l'application etant verrouillee sur la synchro
+verticale.
+
+### ⚠️ Deux defauts signales a l'usage, et ce qu'ils apprennent
+
+**Le sol s'arretait net sous l'horizon.** Le maillage descendait bien jusqu'a
+vingt metres, mais **l'observateur est a l'interieur** du terrain, pas devant
+lui : il l'entoure et passe sous ses pieds. En profondeur logarithmique, les
+anneaux proches forment un cone tres resserre dont on ne voit que la face
+**interne** — et l'elimination des faces arriere les supprimait toutes. Le
+terrain cessait vers trois cents metres, laissant une coupure rectiligne et un
+vide sous l'horizon. `side: DoubleSide` le resout ; c'est le reglage correct pour
+une surface qui enveloppe le point de vue.
+
+**Un pas de differences finies fixe ne peut pas eclairer un maillage a echelle
+variable.** Les normales etaient prises sur vingt-cinq metres, alors que la maille
+s'etire d'un facteur quinze mille — un metre pres de l'observateur, quinze
+kilometres a trois cents. Au loin, elles decrivaient donc un **micro-relief que la
+maille ne represente pas** : l'ombrage n'avait plus de rapport avec la silhouette
+visible, ni avec la position du Soleil.
+
+Les normales viennent desormais du **maillage lui-meme** — produit vectoriel des
+deux tangentes, pris en coordonnees physiques et non dans la scene, dont la
+profondeur logarithmique fausserait toutes les pentes. Verification : au lever,
+Soleil a l'est derriere la chaine, elle est franchement a contre-jour, sans aucun
+versant eclaire ; a midi elle montre ses versants et ses ombres.
+
+**Et deux mesures ratees de plus**, du meme genre que les precedentes : deux
+captures prises **pendant la reconstruction de la table**, qui rendaient un ciel
+noir en plein midi. J'en ai conclu une regression avant de verifier que
+`meanSkyLuminanceCdPerM2` valait encore zero. La table se construit en huit
+lignes par image ; toute capture doit attendre sa publication.
+
+---
+
+### ⚠️ L'atmosphere coupee net a zero degre
+
+Signale a l'usage, et visible surtout en zoomant : le ciel s'arretait **exactement
+a la hauteur zero**, alors que l'horizon d'un observateur en hauteur est plus bas.
+
+La cause etait le sol. La calotte plate avait son bord a `y = 0` et, depuis
+qu'elle est totalement occultante, elle masquait la bande de ciel comprise entre
+l'horizontale et l'horizon reel. Mesure : **54 pixels** de sol la ou il fallait du
+ciel, de 0,000° a −0,189°.
+
+Le bord suit desormais `horizonDipDeg`, l'integrale du moteur sur la branche
+descendante du rayon — 0,1731° a trente-cinq metres, 0,9283° a mille. Le fondu de
+marge du nuanceur part lui aussi de l'horizon apparent et non de l'horizontale,
+sans quoi il attenuait une bande de ciel parfaitement visible.
+
+| Colonne de pixels a 3° de champ | Avant | Apres |
+| --- | --- | --- |
+| le ciel descend jusqu'a | +0,003° | **−0,173°** |
+| sol plat parasite | 54 px | **4 px** |
+
+Les quatre pixels restants sont la resolution de la maille, non un decalage de
+modele.
+
+### ⚠️ Deux horizons dans la meme image
+
+En corrigeant, un desaccord est apparu : le terrain placait son horizon avec le
+`k = 1/7` de la geodesie, le sol avec l'integrale de Ciddor. **3,1 % d'ecart** sur
+le rayon effectif — 1,167 R contre 1,204 R — soit trois millimes de degre, un
+pixel a fort zoom.
+
+C'est exactement ce que l'unicite de la table de refraction interdit ailleurs
+dans ce projet. Le rayon effectif se **deduit donc de la depression mesuree**, par
+inversion de `dip = √(2h/R_eff)` : le terrain et le sol partagent leur horizon par
+construction, et non par coincidence.
+
+### ⚠️ Une image par seconde qui n'existait pas
+
+J'ai cru mesurer un effondrement du rendu apres le passage en `DoubleSide` :
+**6,1 ms en 640 × 400 contre une seconde en 1920 × 1080**. J'en ai conclu un cout
+de **remplissage** et reduit trois choses — premier anneau de 20 a 60 m, maillage
+de 512 × 208 a 384 × 160, `forceSinglePass`.
+
+**Le diagnostic etait faux.** Un onglet qui n'a pas le focus voit son
+`requestAnimationFrame` cadence a **1 Hz** par le navigateur. La comparaison
+opposait une fenetre au premier plan a une fenetre en arriere-plan, et le
+`1000,5 ms` mesure n'etait rien d'autre que cette seconde exacte.
+
+Ce qui l'a revele : la meme mesure rendait 1000,5 ms **sans le terrain et sans
+l'atmosphere**, sur une scene quasi vide. Aucun rendu ne coute cela. Le focus
+rendu, tout revient a **6,1 ms** — terrain, atmosphere et table doublee compris.
+
+Les trois reductions ont donc ete **annulees**, sauf `forceSinglePass`, qui reste
+juste pour une autre raison : le terrain est opaque par son alpha, et la seconde
+passe que three.js reserve aux surfaces translucides ne changerait rien a l'image.
+
+C'est la **cinquieme** mesure mal conditionnee du projet, apres le banc GPU lance
+dans l'onglet de l'application, le rendu logiciel de la phase 20, le
+`getImageData` sur un canvas WebGL et l'instance de module dedoublee par le
+rechargement a chaud. **Le rendu n'a ete en cause aucune de ces fois.** La lecon
+se repete : une mesure de performance doit d'abord prouver que son instrument
+mesure ce qu'elle croit.
+
+---
+
+### ⚠️ Ce que ce calque ne modelise pas
+
+**Les ombres portees.** Seul l'auto-ombrage du premier ordre existe, par le
+`max(0, N·L)`. Une vallee ne recoit pas l'ombre de la crete qui la domine, faute
+de carte d'ombre : au couchant, la chaine est plus uniformement eclairee qu'elle
+ne le serait.
+
+**Le facteur de vue du ciel** est l'approximation plane `(1 + N_y)/2`, sans
+occlusion par le relief voisin.
+
+**Le relief n'est pas un modele geologique** — bruit de valeur fractal a graine
+fixe. C'est une surface de test ; ce qui est physique, c'est ce que l'atmosphere
+en fait.
+
+---
+
+## Sous l'horizon — la table cessait d'exister
+
+### Le defaut
+
+Le nuanceur **ecretait** toute visee descendante a la ligne rasante :
+
+```glsl
+float v = sqrt(clamp(degrees(asin(clamp(d.y, 0.0, 1.0))), 0.0, 90.0) / 90.0);
+```
+
+La table n'etait construite que de 0° a 90°. Sans consequence tant que rien ne
+vivait sous l'horizon — le ciel n'y est pas. Faux des qu'une **surface** s'y
+trouve, et le banc de relief en a mis une.
+
+La raison est geometrique : le rayon rasant de la table ne rencontre **jamais** le
+sol et monte indefiniment, quand le vrai rayon descendant s'y arrete. L'ecart sur
+la colonne moleculaire, observateur a trente-cinq metres :
+
+| visee | distance | colonne en trop |
+| --- | --- | --- |
+| −0,2° | 20 km | **23,5 %** |
+| −0,5° | 5 km | **16,5 %** |
+| −1,2° | 2 km | **15,8 %** |
+| −4° | 500 m | 0,17 % |
+| −30° | 60 m | 0,14 % |
+
+La repartition surprend et s'explique : sous forte depression le trajet est court
+et l'air homogene, l'erreur est nulle. C'est **pres de l'horizon** qu'elle eclate,
+la ou vit un premier plan.
+
+### La correction
+
+La table couvre desormais **les deux hemispheres**, et la parametrisation change
+de nature d'un cote a l'autre :
+
+| | au-dessus de l'horizon | en dessous |
+| --- | --- | --- |
+| fin du trajet | sortie par l'espace | **intersection avec le sol** |
+| `totalPath` | `−r₀·µ + √(r₀²µ² + r_top² − r₀²)` | `−r₀·µ − √(r₀²µ² − r₀² + R²)` |
+| ce que decrit la tranche lointaine | le ciel | la surface au sol |
+
+Le solveur recoit une option `stopAtGround` : pour le ciel il **renonce** quand le
+rayon rencontre le sol — c'est ce que verifie le controle « aucune radiance sous
+l'horizon » — et pour une surface il **marche jusque-la**. Les deux comportements
+coexistent parce qu'ils repondent a deux questions distinctes.
+
+**Soixante-cinq lignes et non soixante-quatre.** Il en faut un nombre impair pour
+que l'horizon tombe exactement sur un texel : c'est la ligne la plus tendue de la
+table, celle ou la colonne passe de quelques kilometres a plusieurs centaines, et
+l'interpoler entre deux voisins serait la seule erreur qu'on ne peut pas se
+permettre. Trente-deux lignes de chaque cote : **la resolution au-dessus de
+l'horizon est exactement celle d'avant**, la moitie basse est un ajout et non un
+partage.
+
+### Ce qu'il a fallu reprendre
+
+**Les deux mesures d'adaptation.** `measureMeanSkyLuminance` et
+`measureSkyIrradiance` parcouraient toute la table. La moitie basse decrivant
+desormais des surfaces au sol, les y inclure aurait fait s'adapter l'oeil a un
+paysage plutot qu'a la voute — et l'exposition entiere avec lui. Les deux partent
+maintenant de la ligne d'horizon.
+
+**L'echantillonneur processeur.** `sampleAerialLut` gardait l'ancienne formule et
+designait donc, pour une hauteur donnee, une ligne differente de celle que lit le
+nuanceur. Trois controles l'ont attrape immediatement.
+
+**Le controle « la tranche lointaine est le ciel »**, qui balayait toute la table :
+il n'est vrai qu'au-dessus de l'horizon.
+
+Sept controles ajoutes, dont celui qui porte le changement : a mi-course, la
+transmittance verte vaut **1,000 a −20° contre 0,004 au ras**. L'ecretage donnait
+la seconde aux deux.
+
+**Etat : 695 controles, aucun echec ; 6,1 ms par image, table doublee comprise.**
+
+---
+
+## L'horizon n'est plus a zero degre — passe de fond
+
+### La regle
+
+Rien ne doit etre borne a l'**horizontale**. Tout ce qui a une limite basse la
+prend a l'**horizon du site**, et avec une **marge** au-dela — jamais cale sur la
+limite exacte.
+
+C'est une regle de conception, pas une correction ponctuelle : un observateur
+peut choisir une altitude de plusieurs kilometres, et son horizon descend
+d'autant.
+
+| altitude | depression | horizon vrai | plancher des tables |
+| --- | --- | --- | --- |
+| 0 m | 0,000° | −0,549° | −3,549° |
+| 35 m | 0,173° | −0,758° | −3,758° |
+| 1 000 m | 0,928° | −1,662° | −4,662° |
+| 3 000 m | 1,619° | −2,472° | −5,472° |
+| 10 000 m | 3,014° | −4,032° | −7,032° |
+
+Tout descend ensemble, et la marge de trois degres reste sous le plus bas.
+
+### Ce qui bornait encore, et ce que cela coutait
+
+**La table de refraction commencait a zero degre apparent.** Elle supposait donc
+l'observateur au niveau de la mer, et ignorait toute la bande entre l'horizontale
+et l'horizon reel — trois degres de ciel parfaitement visible depuis dix
+kilometres. `refractionForApparent` savait pourtant deja suivre la **branche
+descendante** du rayon, qui plonge, atteint un point tangent et remonte : il ne
+manquait que de la lui demander.
+
+**Le plancher de la texture valait quatre degres pour tout le monde.** Il suit
+desormais `floorTrueDeg`, donc le site, et voyage en uniforme jusqu'au nuanceur.
+
+**La masse d'air etait bornee a zero** — dans `photometry.ts` et, une seconde
+fois, dans le nuanceur du champ d'etoiles, qui portait sa propre copie de la
+formule de Pickering. Deux modeles d'atmosphere dans la meme image, tous deux
+supposant l'oeil au niveau de la mer :
+
+| vue depuis 10 km | formule bornee | colonne reelle |
+| --- | --- | --- |
+| 0° | 38,75 | 39,4 |
+| −1° | **38,75** | **63,5** |
+| −2° | **38,75** | **112,6** |
+| −3° | **38,75** | **218,8** |
+
+Elle est desormais la **colonne que le moteur integre**, tabulee par site et
+mise en cache. Au niveau de la mer les deux modeles s'accordent a 0,3 % jusqu'a
+dix degres. Et elle voyage dans le **canal vert** de la texture de refraction —
+qui etait libre, partage exactement le meme domaine, et se lit sans surcout : le
+nuanceur et le processeur lisent enfin la meme grandeur.
+
+### ⚠️ Le plafond qui annulait tout le reste
+
+`extinctionMagnitudes` plafonnait a **douze masses d'air**, atteintes des quatre
+degres de hauteur. Au-dela, l'extinction restait figee a 3,36 magnitudes : un
+astre a quatre degres, un astre au ras et un astre sous l'horizontale rendaient
+**identiquement**. C'etait le plus restrictif de tous les bornages du moteur, et
+il rendait les autres sans effet.
+
+Sans lui, l'extinction suit la colonne jusqu'au bout :
+
+| hauteur | masse d'air | avant | apres |
+| --- | --- | --- | --- |
+| 10° | 5,6 | 1,56 | 1,56 |
+| 4° | 12,1 | 3,36 | 3,40 |
+| 2° | 18,8 | **3,36** | **5,27** |
+| 0° | 35,2 | **3,36** | **9,86** |
+
+**Rien ne change au-dessus de quatre degres.** En dessous, l'extinction atteint
+**9,86 magnitudes a l'horizon**, ce qui est la valeur classique de la
+litterature — environ dix. Vega y devient une magnitude 9,9 : les etoiles
+s'eteignent donc avant d'atteindre l'horizon, exactement ce qu'on observe, et la
+capture de nuit le confirme.
+
+`AIRMASS_MAX` passe de 40 a 300 pour la meme raison : quarante etait la valeur
+rasante d'un observateur au niveau de la mer, un plafond deguise en fait
+physique. Il ne sert plus qu'a empecher la divergence quand le rayon rase le sol.
+
+---
+
+## L'ombre du relief entre dans le transport
+
+### Le principe : ce n'est pas un facteur, c'est le domaine d'integration
+
+La table de perspective atmospherique est calculee pour une atmosphere **a
+symetrie spherique**, donc sans relief : chaque point d'air y est eclaire par un
+Soleil que rien ne masque. Soleil levant derriere une chaine, la brume situee
+**devant** elle brillait donc comme si la montagne n'existait pas — et comme on
+regarde presque droit vers le Soleil, le pic de diffusion avant de Mie y saturait
+a blanc.
+
+On aurait pu multiplier le voile par un facteur d'ombre. Ce serait faux, et ce
+serait de la peinture. La diffusion est une **integrale le long du rayon**, et
+l'ombre n'en attenue pas le resultat : elle en **retire des morceaux**.
+
+Or la table donne deja tout ce qu'il faut. Comme l'integrale est lineaire, la
+contribution d'un segment vue de l'oeil se lit par simple difference :
+
+    L(a→b) vue de l'observateur  =  L(0→b) − L(0→a)
+
+Il suffit donc de **sommer les segments eclaires** et de sauter les autres. Aucune
+ombre n'est dessinee : elle est ce que le relief retire a la somme.
+
+### La carte d'ombre : une altitude, pas une apparence
+
+Pour un instant donne, la direction du Soleil est fixe, et l'ensemble des points
+ombres est delimite par une surface. Cette surface se calcule :
+
+    ombre(P) = max sur t>0 de [ h(P + t·L) − t·tan(a) − chute(t) ]
+
+`L` est la direction horizontale vers le Soleil, `a` sa hauteur, `chute`
+l'abaissement du a la courbure — avec le **meme rayon effectif** que celui qui
+place les sommets, sans quoi l'ombre glisserait sur le relief.
+
+Ce qui est stocke est une **altitude en metres**, pas une couleur. Deplacer le
+Soleil d'un degre la change entierement.
+
+**Le balayage est lineaire.** Calculer ce maximum par une marche par texel
+couterait `O(N·K)`. Une recurrence l'evite : le voisin situe vers le Soleil
+connait deja son propre maximum, et il suffit de l'abaisser d'un pas.
+
+    ombre(P) = max( h(P), ombre(P + δ·L) − δ·tan(a) − chute(δ) )
+
+En parcourant la grille dans l'ordre decroissant de `P·L`, le voisin est toujours
+resolu. Le relief, lui, ne depend ni de l'heure ni du Soleil : il est
+echantillonne **une fois**, et seul le balayage — qui ne fait que des additions —
+est refait.
+
+**Le pas de requantification est lui aussi une consequence.** L'ombre d'un sommet
+de quatre mille metres s'allonge en `4000/tan(a)` : cinq kilometres pour un
+vingtieme de degre quand le Soleil est a deux degres. C'est la ou les ombres sont
+les plus longues qu'il faut suivre le plus finement, et le pas est donc pris
+**proportionnel a la tangente** plutot que constant.
+
+### Ce que la mesure donne
+
+Soleil levant a 2° derriere la chaine, visee dans sa direction :
+
+| hauteur dans l'image | avant | apres | rapport |
+| --- | --- | --- | --- |
+| +8° | 229,193,0 | 29,27,18 | **×7,0** |
+| +4° | 233,194,0 | 24,25,15 | **×7,8** |
+| +1° | 233,188,0 | 8,19,3 | **×11,9** |
+
+La chaine cesse d'etre une masse orange saturee et redevient une **silhouette a
+contre-jour**, le ciel s'eclaircissant derriere elle. Cout : **6,1 ms** par image,
+inchange — huit lectures de table supplementaires et autant de la carte d'ombre.
+
+### ⚠️ Ce que cette correction sur-corrige
+
+**Un segment ombre perd toute sa diffusion**, alors que seule la part **solaire
+directe** devrait disparaitre. Un point prive de Soleil recoit encore la lumiere
+du ciel — c'est ce qui rend les ombres bleues dans le monde reel, et non noires.
+
+La table melange diffusion simple et multiple sans permettre de les separer :
+les distinguer demanderait une **seconde table**, construite sans source solaire.
+Les ombres sortent donc trop sombres, et le facteur 7 a 12 mesure ci-dessus est
+une borne haute plutot qu'une valeur juste.
+
+**La penombre est ignoree.** Le Soleil a un demi-degre de diametre ; le bord de
+son ombre est flou sur cinq metres a un kilometre, cinquante a dix. La carte rend
+une frontiere nette.
+
+**Seul le relief du banc ombre.** Le sol plat n'a pas de hauteur, donc pas
+d'ombre.
+
+---
+
+## Le Soleil se cache, le ciel non
+
+### Ce que le test d'ombre coupait de trop
+
+Le solveur teste, en chaque point de la marche, si le Soleil lui est visible :
+la colonne vers le Soleil vaut l'infini dès que le rayon rencontre la Terre. Ce
+test coupait alors **les deux sources d'un coup** — le rayon direct, ce qui est
+juste, et la diffusion multiple, ce qui ne l'est pas.
+
+Un point privé de Soleil continue de baigner dans la lumière du **reste du
+ciel**. C'est elle qui éclaire l'air au ras du sol pendant tout le crépuscule, et
+c'est elle qui rend les ombres bleues plutôt que noires.
+
+La mesure était sans appel : à deux degrés sous l'horizon, le voile à quinze
+kilomètres valait **exactement zéro**. Une crête lointaine se découpait en noir
+absolu sur un ciel encore clair.
+
+### Une seconde extinction qui n'avait pas lieu d'être
+
+Le même passage éteignait la source ambiante par le trajet **Soleil → point**.
+Or `Ψ_ms` est déjà la radiance **au point** : la traversée du Soleil jusqu'à lui
+est comptée dans sa propre construction, par le terme `S(x')` de `L_f`. Elle
+était donc appliquée deux fois, d'un facteur qui atteint la dizaine près de
+l'horizon.
+
+Chaque source porte désormais l'extinction qui est la sienne :
+
+    solaire  :  exp(−τ_soleil→point) · exp(−τ_point→œil)
+    ambiante :                            exp(−τ_point→œil)
+
+### Ce que la mesure donne
+
+Voile à quinze kilomètres, visée anti-solaire, en cd/m² :
+
+| hauteur du Soleil | avant | après | part du ciel derrière |
+| --- | --- | --- | --- |
+| +3° | 178 | 587 | 62 % |
+| −2° | **0** | **30,9** | 64 % |
+| −6° | **0** | **0,53** | 65 % |
+
+Rapport diffusion multiple / simple, qui dit où le premier ordre cesse d'être une
+référence :
+
+| Soleil \ visée | 1° | 5° | 20° | 45° | 88° |
+| --- | --- | --- | --- | --- | --- |
+| +60° | ×2,30 | ×2,00 | ×1,72 | ×1,43 | ×1,21 |
+| +10° | ×2,19 | ×1,78 | ×1,62 | ×1,58 | ×1,56 |
+| **−2°** | **×17,9** | ×2,03 | ×1,49 | ×1,44 | ×1,43 |
+
+L'envolée est **confinée au coin rasant et crépusculaire**, parce que son
+dénominateur y tend vers zéro. Un facteur `1/4π` perdu, lui, inflaterait la
+table entière d'un facteur douze : c'est ce que le contrôle distingue désormais,
+au lieu de borner un seul nombre.
+
+### Le halo blanc du crépuscule s'en va aussi
+
+Le symptôme qui a lancé l'enquête était un **halo blanc** au-dessus du Soleil
+couché. Il n'était ni le terrain ni le disque — sous −0,5° l'extinction sature
+à 138 mag et le halo du disque tombe à 8·10⁻²³ — mais l'arche crépusculaire,
+localisée sur l'azimut solaire (×270 entre l'azimut du Soleil et l'anti-solaire).
+
+Elle blanchissait pour une raison d'exposition : le ciel **autour** était
+artificiellement sombre, l'œil s'adaptait donc trop bas, et l'arche saturait. La
+source ambiante rendue à sa juste valeur, la luminance moyenne du ciel remonte
+et l'exposition redescend :
+
+| Soleil −4° | avant | après |
+| --- | --- | --- |
+| luminance moyenne du ciel | 9,01 cd/m² | **21,9 cd/m²** |
+| exposition | 5,42 | **2,79** |
+| ciel à 9° sur l'azimut solaire | 154,142,129 *(gris)* | **113,118,136** *(bleu)* |
+
+Le passage orange → pâle → bleu ne traverse plus le neutre. Aucune retouche
+d'apparence : la couleur suit la correction du transport.
+
+### L'ombre du relief y trouve sa réponse
+
+Le solveur publie désormais, à côté du voile total, **la même intégrale privée
+de sa source solaire**. Le nuanceur de terrain n'a plus à sauter les segments
+ombrés : chacun prend l'une ou l'autre table.
+
+    segment éclairé  :  L_total(0→b) − L_total(0→a)
+    segment ombré    :  L_ambiant(0→b) − L_ambiant(0→a)
+
+C'est ce qui rend enfin **exact** le raccourci de la carte d'ombre sous
+l'horizon : déclarer tout le domaine privé de Soleil est vrai — c'est la Terre
+qui fait l'ombre — et la conséquence est maintenant la bonne, plus de Soleil
+mais toujours le ciel.
+
+| point mesuré | avant | après |
+| --- | --- | --- |
+| crête, Soleil à −2° | 23,16,13 | **33,40,66** |
+| versant, Soleil à −2° | 14,13,7 | **26,37,57** |
+| crête à contre-jour, Soleil à +3° | 28,28,20 | **41,67,98** |
+| versant à contre-jour | 17,23,11 | **33,63,87** |
+
+Le rapport B/R passe de 0,5 à 2,2 : l'ombre cesse d'être un trou noir et devient
+bleue, ce qu'elle est dans le monde réel.
+
+**Coût.** Une troisième texture flottante de 1,06 Mo, et **0,03 ms** sur les
+3,49 ms d'une ligne de table — sous un pour cent. Le temps par image reste à
+**6,10 ms**, inchangé : les huit lectures supplémentaires par pixel de terrain
+ne déplacent pas la médiane.
+
+### ⚠️ Ce qui reste
+
+**La pénombre est toujours ignorée.** Le Soleil a un demi-degré de diamètre ; la
+carte d'ombre rend une frontière nette.
+
+**L'ambiante hérite de l'hypothèse isotrope.** Un point ombré par une crête ne
+voit pas tout le ciel — la montagne lui en masque une partie — et le modèle lui
+en donne la totalité. L'ombre reste donc légèrement trop claire, là où elle était
+avant trop sombre. Il faudrait un facteur de vue du ciel le long du rayon.
+
+---
+
+## Le relief devient le monde reel
+
+### Ni Cesium, ni quantized-mesh
+
+Le format de terrain le plus repandu, *quantized-mesh*, est un **maillage
+triangulaire irregulier**. Or les deux seuls consommateurs du relief demandent
+tous deux `h(est, nord)` en un point **arbitraire** : le maillage radial, et le
+balayage d'ombre. Echantillonner un TIN, c'est localiser un point dans un
+triangle — donc le rematriciser. On paierait le decodeur pour retomber sur une
+grille.
+
+Pire, son argument de vente ne sert a rien ici : la densite adaptative de ses
+triangles est **moins bonne** que le maillage radial du moteur, dont les anneaux
+log-espaces sont centres sur l'observateur quand un quadtree de tuiles ne l'est
+pas.
+
+On prend donc des tuiles **terrarium** sur les donnees ouvertes d'AWS : pas de
+jeton, CORS ouvert, couverture mondiale, altitude encodee sur trois canaux —
+`h = R·256 + V + B/256 − 32768`.
+
+### La geodesie : deux approximations mesurees, deux rejetees
+
+Le raccourci habituel — `lat += nord/R`, `lon += est/(R cos lat)` — est un
+developpement au premier ordre. Mesure a quatre cent cinquante kilometres depuis
+Paris, contre le geodesique WGS84 : **20,9 km d'erreur**, soit 2,65° de
+deplacement apparent. Une chaine entiere au mauvais endroit.
+
+La correction evidente est la sphere de **rayon de courbure gaussien**, qui
+epouse l'ellipsoide au second ordre autour du site. Mesuree a son tour :
+**814 m**. Vingt-cinq fois mieux, et **trois pixels** tout de meme.
+
+On resout donc sur l'ellipsoide, par les equations imbriquees de **Vincenty**.
+Elles sont iteratives, ce qui serait redhibitoire par cellule — douze millions
+d'appels. Mais la projection n'est evaluee que sur un **treillis de 65 par 65**
+et par niveau, soit douze mille appels : l'exactitude y est gratuite. Entre les
+noeuds, une interpolation bilineaire dont l'erreur se majore a **sept metres**
+au niveau le plus grossier, pour des cellules de quatre cent quarante.
+
+⚠️ **La validation ne compare pas Vincenty a Vincenty.** Deux etalons
+independants : la longueur d'arc d'un trajet plein nord, obtenue par integration
+de Simpson du rayon de courbure meridien — elle se referme a **9·10⁻⁸ m** ; et
+la longitude atteinte sur l'equateur, qui vaut exactement la distance sur le
+demi-grand axe.
+
+### La pyramide : trois niveaux, une empreinte fixe
+
+Quatre cent cinquante kilometres a trente metres feraient neuf cents millions de
+points. Inutile : ce que l'oeil resout n'est pas une longueur mais un **angle**.
+A 0,0347° par pixel, un echantillon utile mesure `distance × 6,06·10⁻⁴`.
+
+| niveau | couvre | pas | source | l'ecran demande |
+| --- | --- | --- | --- | --- |
+| L2 | 28 km | 27 m | z=12 | 15 m a 25 km |
+| L1 | 112 km | 110 m | z=10 | 61 m a 100 km |
+| L0 | 450 km | 440 m | z=8 | 273 m a 450 km |
+
+Partout autour de **deux pixels par cellule**. Trois grilles Int16 de 2048 :
+**25 Mo residents**, quel que soit le rayon demande. Les niveaux se fondent sur
+leur frange exterieure — sans quoi un anneau net cerclerait l'observateur ; le
+saut mesure tombe a **5,2 m** sur un ecart de 1000 m entre niveaux.
+
+Le domaine stocke est carre mais rien n'en lit les coins : les tuiles hors du
+disque utile ne sont pas telechargees.
+
+### ⚠️ La falaise du choix de zoom
+
+Premiere mesure comparee : Chamonix, 45,92° de latitude, **217 tuiles** ; Nice,
+43,70°, **703**. Trois fois plus pour deux degres de latitude.
+
+Les zooms vont de deux en deux, et le niveau fin etait choisi comme le premier
+dont la resolution tient **strictement** sous la taille d'une cellule. A
+Chamonix, le zoom 12 vaut 25,1 m pour une cellule de 27,4 : il passe. A Nice,
+Mercator etirant moins, il vaut 27,7 m : il echoue d'**un pour cent**, et le
+zoom 13 le remplace — quatre fois plus de tuiles.
+
+Un quart de tolerance supprime la falaise. La perte est une fraction de la
+finesse d'une cellule, laquelle est de toute facon deja une fois et demie plus
+grossiere que ce que l'ecran resout a la portee du niveau. Nice retombe a
+**206 tuiles**.
+
+### Ce que ca coute vraiment
+
+Mesure : Chamonix **217 tuiles**, Paris **244**, Nice **206** — aucun echec,
+aucune erreur. Chamonix, **26,2 Mo, 16 s**. Mis en cache un
+mois dans IndexedDB. Les niveaux arrivent l'un apres l'autre et le maillage se
+reconstruit a chaque palier — le relief proche est la bien avant le lointain.
+
+Cout par image, a 3840×2400 pour sortir du plafond de l'instrument :
+**9,00 ms contre 6,10 sans relief**, soit **2,9 ms sur 9,2 Mpx**. Au format
+nominal, sous la milliseconde.
+
+---
+
+## Le sol peint devient un globe
+
+`Ground.tsx` etait une calotte **peinte** : deux couleurs d'interface, un
+`smoothstep`, une parabole sur le log de l'eclairement. Son propre en-tete
+l'admettait, et annoncait la fin de la cale pour la phase 9. Elle n'etait pas
+venue.
+
+Un sol peint ne sait pas ou est le Soleil. Il gardait la meme teinte a midi et
+sous l'horizon, ne rougissait pas au couchant, ne se voilait pas avec la
+distance. Surtout, **rien n'y arretait la lumiere** : la moitie basse de la
+scene n'etait pas une surface, seulement un cache.
+
+**Ce n'est pas un maillage.** Le relief a besoin d'un maillage parce que sa
+hauteur varie ; un globe sans relief n'a aucune hauteur a porter — sa surface
+est une equation. On garde une calotte grossiere comme simple support de
+rasterisation, et chaque pixel resout son intersection :
+
+    t = -r0*mu - sqrt( r0^2 mu^2 - r0^2 + R^2 )
+
+Le rayon employe est le **rayon effectif sous refraction**, celui-la meme qui
+place les sommets et donne la depression de l'horizon. La validation verifie
+qu'au bord de la calotte le discriminant reste positif : aucun fragment rejete,
+donc **aucune frange** entre le globe et le ciel.
+
+La normale au point vise est `normalize(P)` et **s'incline avec la distance** —
+1,8° a deux cents kilometres. C'est ce qui donne au globe un **terminateur** :
+Soleil sous l'horizon de l'observateur, le sol lointain dans sa direction peut
+encore etre eclaire. Rien n'est peint ; la separation tombe la ou
+`dot(N, soleil)` change de signe.
+
+---
+
+## ⚠️ L'oeil etait dans le sol
+
+Le defaut le plus instructif de cette phase, et il ne pouvait pas exister avant.
+
+Le banc synthetique avait une plaine a **zero** et un observateur a l'altitude du
+site — trente-cinq metres. L'oeil la survolait donc de trente-cinq metres, et a
+vingt metres de distance le sol apparaissait deja soixante degres sous
+l'horizon : le premier anneau du maillage couvrait le nadir.
+
+Avec le relief **reel**, l'altitude du site et celle du terrain sous les pieds
+sont **la meme grandeur**. A Chamonix, site a 1035 m et MNT a 1040 m : l'oeil se
+retrouvait cinq metres **sous** la surface. Tout le sol se projetait alors sur
+l'horizon, l'hemisphere inferieur se vidait, et l'on voyait passer les
+constellations sous ses pieds.
+
+Deux corrections, et la seconde est plus subtile que la premiere.
+
+**L'oeil repose sur le sol.** `eyeAltitudeM` prend le maximum de deux lectures :
+le sol sous les pieds plus `EYE_HEIGHT_M` = 1,7 m, ou l'altitude demandee. Le
+maximum, parce que les deux situations sont legitimes — on peut se tenir au sol,
+on peut survoler la vallee. Ce qui ne l'est jamais, c'est d'avoir la tete sous
+terre.
+
+**Cette altitude ne doit pas etre arrondie.** Le maillage etait reconstruit sur
+une altitude quantifiee a dix metres, ce qui evitait cent mille sommets pour un
+metre de deplacement. Avec un oeil qui ne domine le sol que de 1,7 m, l'arrondi
+l'enfonce sous la surface une fois sur deux — et **le maillage se retourne** :
+le sol qui devrait etre sous l'horizon passe au-dessus, la scene se remplit d'un
+dome sombre. L'arrondi ne sert plus qu'a decider **quand** reconstruire ; la
+geometrie recoit la valeur exacte.
+
+Le premier anneau descend en consequence de vingt metres a **cinquante
+centimetres**, ce qui referme l'hemisphere inferieur jusqu'a soixante-treize
+degres sous l'horizon.
+
+**Et le maillage ne porte plus au-dela des donnees.** Depuis sept mille metres,
+la portee optique demandait six cent quatre-vingt-dix-sept kilometres quand la
+pyramide s'arrete a quatre cent cinquante : les anneaux au-dela retombaient au
+niveau de la mer et dessinaient une **marche nette a l'horizon**. Le globe prend
+le relais, et il y est justement au niveau de la mer, comme la pyramide hors de
+son domaine.
+
+---
+
+## Choisir un lieu sur la carte, et s'en eloigner en hauteur
+
+La carte de selection ne charge **aucun fond de carte**. Elle est dessinee a
+partir des memes tuiles d'altitude que le relief : la mer par le signe de
+l'altitude — c'est pour cela que le decodage garde la bathymetrie que la surface,
+elle, ecrete — et le relief par un ombrage.
+
+L'interet n'est pas d'economiser une dependance. La carte montre **exactement ce
+que le moteur sait du terrain**, sa resolution et ses defauts compris : cliquer
+sur une crete visible ici, c'est cliquer sur la crete qui sera rendue.
+
+L'eclairement de la carte vient du nord-ouest a quarante-cinq degres. Ce n'est
+pas une position solaire mais la **convention des cartes topographiques**, qui
+evite l'illusion de relief inverse. C'est une image d'interface, pas une image du
+ciel, et aucune de ses couleurs ne touche au rendu de la scene.
+
+**La hauteur au-dessus du sol est un reglage distinct de l'altitude du lieu**, et
+la distinction est de fond : l'altitude du lieu est une propriete du terrain, que
+le modele numerique connait mieux que n'importe quelle saisie. Le second dit ou
+se trouve l'observateur **par rapport a ce sol** — au sommet d'une tour, en
+ballon, en avion. C'est lui qui abaisse l'horizon et decouvre le lointain :
+
+| hauteur | horizon | portee sur un sommet de 4000 m |
+| --- | --- | --- |
+| 2 m | 5,5 km | 253 km |
+| 35 m | 23,2 km | 271 km |
+| 500 m | 87,4 km | 335 km |
+| 3000 m | 212,4 km | 458 km |
+| 8000 m | 341,8 km | 583 km |
+
+---
+
+## ⚠️ Trois couches, trois horizons
+
+Le defaut ne pouvait apparaitre qu'apres la hauteur au-dessus du sol, et il
+n'apparaissait pas au sol.
+
+Trois couches dessinent la limite entre le ciel et la Terre, et chacune calculait
+sa depression de l'horizon dans son coin :
+
+| couche | altitude employee |
+| --- | --- |
+| relief | celle de **l'oeil** |
+| calotte du globe | celle du **site** |
+| fondu du fond de ciel | celle du **site** |
+
+Tant qu'on se tenait au sol, les deux altitudes etaient la meme et rien ne se
+voyait. Des qu'une hauteur s'ajoutait, l'horizon reel descendait avec l'oeil et
+les deux autres restaient ou ils etaient. **La bande entre les deux
+n'appartenait a personne** : le relief ne montait pas jusque-la, la calotte ne
+descendait pas jusque-la, et l'on y voyait le fondu du fond de ciel s'eteindre
+tout seul.
+
+| site → oeil | bande orpheline | ce que le ciel y devient |
+| --- | --- | --- |
+| 1035 → 1035 m | 0,000° | rien a voir |
+| 1035 → 7035 m | **1,564°** | 47 % — un voile pale |
+| 35 → 6035 m | **2,144°** | 20 % |
+| 35 → 10035 m | **2,847°** | 1 % — un **trait noir** |
+
+### La correction, et pourquoi elle tient
+
+**Une seule altitude pour les trois** : celle de l'oeil. C'est elle qui decide de
+la refraction, de la depression et du profil de densite — a six mille metres
+au-dessus du site, l'altitude nominale de celui-ci ne decrit plus rien.
+
+**Et la geometrie cesse de decider ou est l'horizon.** La calotte du globe
+s'ouvre desormais a l'**horizontale**, pas a la depression : elle couvre tout
+l'hemisphere inferieur, et c'est le test d'intersection **par pixel** qui taille
+le bord exact. Deux avantages — le bord est au metre pres, et il est
+necessairement au meme endroit que celui du relief, puisque les deux resolvent la
+meme sphere.
+
+### L'invariant qui empeche la couture de se rouvrir
+
+La validation compare desormais, pour huit altitudes d'oeil de deux metres a
+quinze kilometres, trois grandeurs qui doivent rester egales : la silhouette du
+relief sur une mer plate, l'horizon que le nuanceur du globe obtient par
+intersection, et l'ancrage du fondu du ciel.
+
+Ecart residuel : **2,6·10⁻³°**, soit 9,5″ a quinze kilometres — **un dixieme de
+pixel**. Ce n'est pas du bruit mais la difference entre la tangente **exacte**
+que resout le globe et la relation petit-angle `dip = √(2h/R)` dont vivent le
+relief et la table de refraction. La reduire demanderait d'imposer l'un des deux
+modeles aux deux, ce qui degraderait le globe.
+
+Le second controle mesure la **consequence** plutot que l'angle : la ou le globe
+s'arrete, le fondu du ciel n'a retire que **3,6·10⁻⁶** de sa radiance.
+
+### Et l'altitude du sol devient une mesure
+
+Choisir un sommet sur la carte laissait le panneau afficher l'altitude du lieu
+precedent. Le modele numerique connait cette valeur mieux que n'importe quelle
+saisie : elle est desormais **publiee** des qu'il est charge. La hauteur
+au-dessus du sol, elle, reste ce que l'utilisateur decide.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -3138,6 +4088,17 @@ en est.
 | **Trou d'ozone antarctique** | anthropique et non stationnaire ; une chronologie, pas une formule. |
 | **Rendu des mirages** | la physique est validée ; un maillage ne peut être qu'à un endroit, et le Soleil « vase étrusque » demande que le disque soit rendu *à travers* la fonction de transfert. |
 | **Nuages** | le transport suppose une atmosphère claire. Sans eux, ni couronne, ni gloire, ni iridescence. |
+| **Le sol** | **résolu**. Le relief est le modèle numérique de terrain réel à trente mètres, et au-delà de sa portée le globe est une sphère résolue par pixel. Les deux reçoivent la même équation du transfert que tout le reste : albédo, cosinus d'incidence, éclairement du ciel, extinction, voile. Plus une seule couleur d'interface sous l'horizon. |
+| **Un seul albédo pour tout le globe** | faute de couverture du sol, la mer, la forêt et le désert partagent `AtmosphereState.groundAlbedo` = 0,1. C'est au moins la valeur qui nourrit déjà la diffusion multiple : le sol qu'on voit et le sol qui éclaire le ciel sont d'accord. Une couverture ESA WorldCover à 10 m serait la suite. |
+| **Le ciel est calculé sur des rayons droits** | la réfraction n'entre pas dans l'intégrale de diffusion : le solveur marche en ligne droite dans une atmosphère sphérique. Nul au niveau de la mer, où le rayon rasant et le rayon courbe partent ensemble. **Croissant avec l'altitude** : visée à l'horizon apparent, le rayon droit passe à 456 m du sol à 3000 m d'altitude et à **1319 m à 12 000 m**, là où le rayon réel rase la surface à 5 m. Il compte donc **13,4 % d'air en trop peu** à douze kilomètres. Corollaire : la table borne les visées descendantes sur le rayon terrestre **vrai** quand le relief et le globe les placent sur le rayon **effectif** — les deux ne s'accordent pas sur où est le sol pour une direction donnée, même si la distance qu'on leur passe est respectée. |
+| **Résolution du relief proche** | la source est native à **trente mètres**. À cinq kilomètres, trente mètres sous-tendent 0,34°, soit une dizaine de pixels : le premier plan reste en blocs. Aucun choix de format ne le relève — seul un MNT national le ferait (RGE ALTI à 1 m, France seulement). |
+| **Bathymétrie écrêtée** | terrarium encode les fonds marins en négatif ; les prendre tels quels creuserait l'océan en cuvette. L'écrêtage à zéro met à plat les dépressions continentales — mer Morte à −430 m, vallée de la Mort à −86 m. Les distinguer demanderait un masque terre/eau. |
+| **Horizon du terrain** | le rayon terrestre effectif n'est plus le `k = 1/7` de la géodésie mais **l'inverse de la dépression que le moteur mesure**. C'est un calage sur une grandeur interne, valide à l'altitude du site ; le rapport `R_eff/R` dépend légèrement de l'altitude (1,204 à 35 m, 1,196 à 1 000 m) et n'est donc pas une constante universelle. |
+| **Ombre du relief dans l'air** | **résolue**. Un segment ombré ne disparaît plus de l'intégrale : il retombe sur la table **ambiante**, la même intégrale privée de sa source solaire. Une ombre n'est donc ni un facteur ni une soustraction, c'est un **changement de terme source**. Mesure : crête à contre-jour, `28,28,20` → `41,67,98` — le noir devient bleu. |
+| **Pénombre** | le Soleil a un demi-degré de diamètre, donc le bord de son ombre est flou sur une largeur croissant avec la distance à l'occulteur — cinq mètres à un kilomètre, cinquante à dix. La carte d'ombre rend une frontière nette. |
+| **Relief du banc** | le champ de hauteur est un **bruit fractal a graine fixe**, pas un modèle géologique — c'est une surface de test. Les albédos (0,12 végétation · 0,20 roche · 0,80 neige) sont de manuel ; ni ombres portées, ni occlusion du ciel par le relief voisin. |
+| **Altitude de l'observateur** | prise en compte par la réfraction, la masse d'air, le bord du sol et le terrain, chacun via `horizonDipDeg`. Le champ n'est **pas borné** dans l'interface : au-delà de la troposphère, le profil standard reste extrapolé et rien ne le signale à l'utilisateur. |
+| **Marge sous l'horizon** | `HORIZON_MARGIN_DEG = 3` est une **borne de domaine numérique**, pas une grandeur physique. Justifiée par une somme de trois termes réels (0,57 + 0,27 + 1,76 = 2,6°) puis arrondie. Le fondu qui l'accompagne est un garde-fou, et il agit hors du champ visible. |
 
 ---
 

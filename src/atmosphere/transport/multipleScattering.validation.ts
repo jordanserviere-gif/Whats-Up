@@ -113,8 +113,24 @@ export function multipleScatteringSuite(): SuiteResult {
       // --- La diffusion multiple ne peut qu'ajouter --------------------------
       // Un seul point ou le ciel s'assombrit signalerait une erreur de signe.
       let darkened = 0
-      let bestRatio = 0
-      for (const sunAltitude of [60, 30, 10, 2, -2]) {
+      // Deux domaines, parce qu'ils ne posent pas la meme question.
+      //
+      // **Plein jour, visee degagee** : la diffusion simple est une reference
+      // valable, et les ordres superieurs ne peuvent qu'y ajouter un supplement
+      // modeste. Un rapport qui s'y envolerait signalerait un facteur perdu —
+      // typiquement le 1/4π de la phase isotrope, qui inflaterait la table
+      // **entiere** d'un facteur douze.
+      //
+      // **Rasant et crepusculaire** : la diffusion simple n'est plus une
+      // reference du tout. Le champ proche est dans l'ombre de la Terre et ne
+      // recoit plus le rayon direct, si bien que le premier ordre s'effondre
+      // pendant que la lumiere du ciel, elle, continue d'eclairer cet air. Le
+      // rapport y devient grand **parce que son denominateur tend vers zero**,
+      // et c'est precisement le deficit que la methode de Hillaire existe pour
+      // combler — l'en-tete du module le chiffre a 32 % des cinq degres.
+      let openSkyRatio = 0
+      let grazingTwilightRatio = 0
+      for (const sunAltitude of [60, 30, 10, 2, 0, -2]) {
         for (const viewAltitude of [1, 5, 20, 45, 88]) {
           for (const azimuth of [0, 60, 120, 180]) {
             const a = skyRadiance(grid, viewAltitude, azimuth, sunAltitude, single)
@@ -122,15 +138,23 @@ export function multipleScatteringSuite(): SuiteResult {
             if (a.luminanceCdPerM2 < 1e-6) continue
             const ratio = b.luminanceCdPerM2 / a.luminanceCdPerM2
             if (ratio < 1) darkened++
-            bestRatio = Math.max(bestRatio, ratio)
+            if (sunAltitude > 0 && viewAltitude >= 5) openSkyRatio = Math.max(openSkyRatio, ratio)
+            else grazingTwilightRatio = Math.max(grazingTwilightRatio, ratio)
           }
         }
       }
       t.check('aucune direction assombrie par les ordres superieurs', darkened, 0, 0)
       t.checkTrue(
-        'l’apport reste dans un rapport physiquement plausible',
-        bestRatio < 3,
-        `rapport maximal x${bestRatio.toFixed(2)} — au-dela, soupconner le facteur 1/4π de la phase isotrope`,
+        'de jour et hors du rasant, l’apport reste modeste',
+        openSkyRatio < 3,
+        `rapport maximal x${openSkyRatio.toFixed(2)} — au-dela, soupconner le facteur 1/4π de la phase isotrope, ` +
+          'qui inflaterait la table entiere et non ce seul coin',
+      )
+      t.checkTrue(
+        'au ras de l’horizon crepusculaire, les ordres superieurs dominent',
+        grazingTwilightRatio > 3 * openSkyRatio && grazingTwilightRatio < 40,
+        `rapport maximal x${grazingTwilightRatio.toFixed(2)} contre x${openSkyRatio.toFixed(2)} de jour — ` +
+          'le premier ordre s’effondre dans l’ombre de la Terre, la lumiere du ciel non',
       )
 
       // --- L'apport croit avec la profondeur optique -------------------------

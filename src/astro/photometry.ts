@@ -11,6 +11,7 @@
 import * as A from 'astronomy-engine'
 import { DEG, RAD, norm360 } from './coords'
 import type { GeoLocation } from './types'
+import { columnsToSpace } from '@/atmosphere/transport/slantPath'
 
 /** Eclairement du fond de ciel sans Soleil ni Lune (airglow + lumiere stellaire). */
 export const AIRGLOW_LUX = 2e-4
@@ -189,23 +190,81 @@ export function diskObscuration(separationDeg: number, sunRadiusDeg: number, moo
   return Math.min(1, area / (Math.PI * r1 * r1))
 }
 
-/** Masse d'air a l'horizon : plafond physique de la traversee atmospherique. */
-export const AIRMASS_MAX = 40
+/**
+ * Plafond de la masse d'air.
+ *
+ * ⚠️ **Quarante etait la valeur rasante d'un observateur au niveau de la mer**,
+ * et donc un plafond deguise en fait physique. Un observateur en hauteur voit
+ * bien au-dela : depuis dix kilometres, une visee a moins trois degres — encore
+ * au-dessus de son horizon, qui est a −3,01° — traverse **219** masses d'air.
+ *
+ * Le plafond ne sert plus qu'a empecher une divergence numerique quand le rayon
+ * rase le sol, la ou la colonne tend vers l'infini. Trois cents couvre tout ce
+ * qu'un observateur atmospherique peut rencontrer, et l'extinction y vaut deja
+ * quatre-vingts magnitudes : rien n'y survit, ce qui est le resultat attendu.
+ */
+export const AIRMASS_MAX = 300
 
 /**
- * Masse d'air traversee a une hauteur donnee (formule de Pickering, 2002),
- * valable jusqu'a l'horizon contrairement a la simple secante.
+ * Masse d'air traversee a une hauteur donnee, rapportee au zenith.
  *
- * La hauteur est bornee a zero : sous l'horizon, l'argument du sinus s'annule
- * puis change de signe, et la formule renvoie l'infini puis des masses d'air
- * negatives. Une extinction negative rendrait les objets couches *plus*
- * brillants — ce qui, dans le nuanceur du champ d'etoiles, produisait un enorme
- * carre lumineux a la place d'une etoile rasante.
+ * ## Elle n'est plus une formule ajustee, mais la colonne que le moteur integre
+ *
+ * Pickering (2002) tenait jusqu'a l'horizon, et pas au-dela : sa hauteur etait
+ * **bornee a zero**, faute de quoi l'argument du sinus change de signe et la
+ * masse d'air devient negative — une extinction negative rendrait les objets
+ * couches *plus* brillants.
+ *
+ * ⚠️ **Ce bornage supposait l'observateur au niveau de la mer.** Des qu'il
+ * prend de la hauteur, son horizon descend — trois degres a dix kilometres — et
+ * toute la bande entre l'horizontale et cet horizon reste parfaitement visible.
+ * La formule y rendait une valeur figee, et l'ecart est considerable :
+ *
+ * | vue depuis 10 km | Pickering borne | colonne reelle |
+ * | --- | --- | --- |
+ * | 0° | 38,75 | 39,4 |
+ * | −1° | **38,75** | **63,5** |
+ * | −2° | **38,75** | **112,6** |
+ * | −3° | **38,75** | **218,8** |
+ *
+ * La colonne du moteur, elle, connait la geometrie spherique et l'altitude de
+ * l'observateur : elle rend l'infini quand le rayon rencontre le sol, et le
+ * plafond s'en charge.
+ *
+ * ## Ce que le changement coute au niveau de la mer
+ *
+ * Rien de visible. Les deux modeles s'accordent a **0,3 %** jusqu'a dix degres,
+ * et divergent ensuite jusqu'a 10 % a l'horizon — mais `extinctionMagnitudes`
+ * plafonne deja a douze masses d'air, atteintes des quatre degres. Sous ce
+ * plafond l'ecart maximal vaut 1,3 %, soit 0,04 magnitude.
  */
-export function airmass(altitudeDeg: number): number {
-  const h = Math.max(altitudeDeg, 0)
-  const am = 1 / Math.sin((h + 244 / (165 + 47 * Math.pow(h + 1e-3, 1.1))) * DEG)
-  return Math.min(Math.max(am, 1), AIRMASS_MAX)
+const airmassCache = new Map<number, Float64Array>()
+const AIRMASS_SAMPLES = 512
+const AIRMASS_FLOOR_DEG = -12
+
+function airmassTable(observerElevationM: number): Float64Array {
+  const key = Math.round(observerElevationM)
+  const cached = airmassCache.get(key)
+  if (cached) return cached
+  const zenith = columnsToSpace(key, 1, 256).air
+  const table = new Float64Array(AIRMASS_SAMPLES)
+  for (let i = 0; i < AIRMASS_SAMPLES; i++) {
+    const alt = AIRMASS_FLOOR_DEG + ((90 - AIRMASS_FLOOR_DEG) * i) / (AIRMASS_SAMPLES - 1)
+    const column = columnsToSpace(key, Math.sin(alt * DEG), 256).air
+    table[i] = zenith > 0 ? Math.min(Math.max(column / zenith, 1), AIRMASS_MAX) : 1
+  }
+  airmassCache.set(key, table)
+  return table
+}
+
+export function airmass(altitudeDeg: number, observerElevationM = 0): number {
+  const table = airmassTable(observerElevationM)
+  const u = ((altitudeDeg - AIRMASS_FLOOR_DEG) / (90 - AIRMASS_FLOOR_DEG)) * (AIRMASS_SAMPLES - 1)
+  if (!(u > 0)) return AIRMASS_MAX
+  if (u >= AIRMASS_SAMPLES - 1) return table[AIRMASS_SAMPLES - 1]
+  const i = Math.floor(u)
+  const f = u - i
+  return table[i] * (1 - f) + table[i + 1] * f
 }
 
 /**
@@ -235,8 +294,22 @@ export const EXTINCTION_COEFFICIENT = MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION
  * 0,84 magnitude au lieu de 0,52. L'exces s'appliquait a toutes les hauteurs,
  * ce qui eteignait le ciel entier la ou seule la basse couche devait souffrir.
  */
-export const extinctionMagnitudes = (altitudeDeg: number, turbidity = 1) =>
-  (MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION * turbidity) * Math.min(airmass(altitudeDeg), 12)
+/**
+ * Perte de magnitude due a la traversee de l'atmosphere.
+ *
+ * ⚠️ **Le plafond de douze masses d'air a saute.** Il figeait l'extinction des
+ * quatre degres de hauteur — 3,36 magnitudes, quelle que soit la suite — et
+ * rendait donc **identiques** un astre a quatre degres et un astre au ras, ou
+ * meme sous l'horizontale pour un observateur en altitude. C'etait le plus
+ * restrictif de tous les bornages du moteur, et il annulait le reste.
+ *
+ * Sans lui, l'extinction suit la colonne jusqu'au bout : 9,8 magnitudes a
+ * l'horizon d'un observateur au sol, ce qui eteint les etoiles avant qu'elles ne
+ * l'atteignent — exactement ce qu'on observe. Le Soleil, lui, y survit
+ * largement.
+ */
+export const extinctionMagnitudes = (altitudeDeg: number, turbidity = 1, observerElevationM = 0) =>
+  (MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION * turbidity) * airmass(altitudeDeg, observerElevationM)
 
 export interface SkyLuminance {
   /** Eclairement horizontal total, en lux. */
@@ -441,7 +514,9 @@ export function pointIntensity(magnitude: number, limitingMagnitude: number): nu
  * Rougissement du a l'extinction : les objets bas sur l'horizon virent a l'orange.
  * Facteur multiplicatif par canal, normalise sur le vert.
  */
-export function extinctionTint(altitudeDeg: number): [number, number, number] {
-  const x = Math.min(airmass(altitudeDeg), 12) - 1
+export function extinctionTint(altitudeDeg: number, observerElevationM = 0): [number, number, number] {
+  // Meme raison qu'au-dessus : le plafond de douze figeait la teinte des quatre
+  // degres, alors que le rougissement continue de croitre jusqu'a l'horizon.
+  const x = airmass(altitudeDeg, observerElevationM) - 1
   return [1, Math.exp(-0.035 * x), Math.exp(-0.085 * x)]
 }

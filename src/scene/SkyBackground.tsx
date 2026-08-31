@@ -4,12 +4,15 @@ import { useFrame } from '@react-three/fiber'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { AIRGLOW_LAYER_ALTITUDE_M, airglowZenithRadiance } from '@/atmosphere/emission/airglow'
 import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
+import { HORIZON_MARGIN_DEG } from '@/atmosphere/horizonMargin'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { spectralToLinearSrgb } from '@/atmosphere/spectral/SpectralSensor'
 import { aerialUniforms, applyAerialUniforms, useAerialLut } from './useAerialLut'
 import { PHOTOPIC_FLOOR, SCOTOPIC_CEILING } from './display/adaptation'
 import { setRefractionEnabled } from '@/atmosphere/refraction/refractionTable'
 import { refractionSite } from './refractionTexture'
+import { cachedHorizonDipDeg } from './Globe'
+import { eyeAltitudeM } from './terrain/elevationField'
 import { DOME_RADIUS } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 
@@ -98,6 +101,8 @@ function buildSkyMaterial(): ShaderMaterial {
     uniform float uAirglowRadiusRatio;
     uniform float uSkyExposure;
     uniform float uScotopic;
+    uniform float uHorizonMargin;
+    uniform float uHorizonDip;
     uniform float uScotopicCeiling;
     uniform float uPhotopicFloor;
 
@@ -113,10 +118,27 @@ function buildSkyMaterial(): ShaderMaterial {
       //
       // Le fond de ciel n'a rien devant lui : il lit donc la tranche a l'infini,
       // et jette la transmittance. Un astre lit la meme tranche et la garde.
+      //
+      // La coupure ne se fait plus a la hauteur zero mais quelques degres plus
+      // bas. Elle y etait nette, et l'horizon geometrique n'est pas l'horizon
+      // visible : la refraction en decale la frontiere d'un demi-degre, et
+      // l'abaissement d'horizon davantage encore. La table clampe deja sa
+      // coordonnee verticale a sa premiere ligne, si bien que la marge lit la
+      // couleur de l'horizon plutot qu'un trou noir.
+      //
+      // ⚠️ Le fondu lui-meme n'a rien de physique : c'est le garde-fou de
+      // \`atmosphere/horizonMargin.ts\`, et il agit sous une calotte de sol qui le
+      // recouvre entierement.
       vec3 transmittanceToSpace = vec3(1.0);
-      vec3 scattered = dir.y < 0.0
-        ? vec3(0.0)
-        : aerialPerspectiveToSpace(dir, transmittanceToSpace);
+      // La marge se compte sous l'horizon **apparent**, pas sous l'horizontale :
+      // pour un observateur en hauteur les deux different, et faire partir le
+      // fondu de zero attenuait une bande de ciel encore parfaitement visible.
+      float elevDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+      float belowDeg = -(elevDeg + uHorizonDip);
+      float horizonFade = 1.0 - smoothstep(0.0, uHorizonMargin, belowDeg);
+      vec3 scattered = horizonFade > 0.0
+        ? aerialPerspectiveToSpace(dir, transmittanceToSpace) * horizonFade
+        : vec3(0.0);
 
       // --- Le socle nocturne : forme calculee, amplitude encore choisie -------
       //
@@ -144,7 +166,10 @@ function buildSkyMaterial(): ShaderMaterial {
       float sinZ = sqrt(max(0.0, 1.0 - h * h));
       float shell = uAirglowRadiusRatio * sinZ;
       float vanRhijn = inversesqrt(max(1e-6, 1.0 - shell * shell));
-      vec3 airglow = uAirglowZenith * vanRhijn * transmittanceToSpace * uAerialExposure;
+      // La couche d'airglow suit la meme marge que la diffusion : sans le
+      // fondu, elle resterait a pleine intensite sous l'horizon, ou
+      // \`transmittanceToSpace\` n'a pas ete ecrite et vaut encore un.
+      vec3 airglow = uAirglowZenith * vanRhijn * transmittanceToSpace * uAerialExposure * horizonFade;
 
       // --- Ce qui reste peint ---------------------------------------------------
       // La lueur lunaire est de la diffusion, exactement comme le ciel de jour :
@@ -216,6 +241,10 @@ function buildSkyMaterial(): ShaderMaterial {
        * elle-meme se fait **par pixel**, sur la luminance locale.
        */
       uScotopic: { value: 0 },
+      /** Profondeur sous l'horizon ou l'atmosphere cesse d'etre calculee, degres. */
+      uHorizonMargin: { value: HORIZON_MARGIN_DEG },
+      /** Depression de l'horizon apparent, degres — zero au niveau de la mer. */
+      uHorizonDip: { value: 0 },
       /** Bornes du domaine mesopique, cd/m². */
       uScotopicCeiling: { value: SCOTOPIC_CEILING },
       uPhotopicFloor: { value: PHOTOPIC_FLOOR },
@@ -246,8 +275,10 @@ export interface SkyBackgroundProps {
   lunarLux: number
   nightColor: string
   moonGlowColor: string
-  /** Altitude de l'observateur, m — la table de ciel en depend. */
+  /** Altitude du sol sous l'observateur, m — la table de ciel en depend. */
   observerElevationM: number
+  /** Hauteur de l'observateur au-dessus de ce sol, m. */
+  extraHeightM: number
   /** Distance Terre-Soleil, ua — l'eclairement varie en `1/d²`. */
   sunDistanceAu: number
   /** Colonne d'ozone, DU — ce qui rend le crepuscule bleu. */
@@ -288,6 +319,7 @@ export function SkyBackground({
   nightColor,
   moonGlowColor,
   observerElevationM,
+  extraHeightM,
   sunDistanceAu,
   ozoneColumnDu,
   atmosphereEnabled,
@@ -302,9 +334,18 @@ export function SkyBackground({
   // se met a jour par `useFrame`, et les rappels de react-three-fiber ne sont
   // disponibles que la. C'est aussi la bonne place du point de vue des
   // responsabilites — le materiau du ciel possede la table qu'il echantillonne.
+  // ⚠️ **L'altitude qui compte est celle de l'oeil**, pas l'altitude nominale du
+  // site : a six mille metres au-dessus de celui-ci, ce sont deux grandeurs sans
+  // rapport. La refraction, la depression de l'horizon et le profil de densite
+  // dependent toutes trois d'ou le regard part.
+  const eyeM = eyeAltitudeM(observerElevationM, extraHeightM)
+
   useAerialLut(
     sunAltitude,
-    observerElevationM,
+    // Quantifiee a dix metres : le ciel n'y distingue rien, et cela evite de
+    // reconstruire toute la table a chaque metre que le relief gagne en se
+    // chargeant — trois paliers, trois reconstructions.
+    Math.round(eyeM / 10) * 10,
     aerosolTurbidity,
     atmosphereEnabled,
     sunDistanceAu,
@@ -315,7 +356,7 @@ export function SkyBackground({
   // corps, les etoiles, le ciel profond et les constellations lisent la meme
   // table de refraction, et le meme interrupteur. C'est cette unicite qui
   // garantit qu'une planete ne se detache pas de son champ d'etoiles.
-  refractionSite.observerElevationM = observerElevationM
+  refractionSite.observerElevationM = eyeM
   setRefractionEnabled(atmosphereEnabled)
 
   useFrame(() => {
@@ -341,6 +382,16 @@ export function SkyBackground({
     )
     u.uAirglowRadiusRatio.value = AIRGLOW_RADIUS_RATIO
     u.uSkyExposure.value = skyExposure
+    // Le ciel descend jusqu'a l'horizon **apparent**, celui de l'oeil. C'est la
+    // meme depression dont le globe et le relief se servent, et les trois
+    // doivent venir de la meme source sous peine de laisser une couture.
+    //
+    // ⚠️ Elles n'en venaient plus. Le relief suivait l'oeil quand le ciel et le
+    // globe suivaient le site : la hauteur ajoutee les separait, et la bande
+    // entre les deux horizons n'appartenait a personne. On y voyait le fondu du
+    // ciel s'eteindre seul — a 47 % sept mille metres au-dessus de Chamonix,
+    // noir a dix mille.
+    u.uHorizonDip.value = cachedHorizonDipDeg(eyeAltitudeM(observerElevationM, extraHeightM))
     // La desaturation suit la luminance du ciel reellement affiche, la meme qui
     // pilote l'exposition. Sans atmosphere, la question ne se pose pas.
     u.uScotopic.value = atmosphereEnabled ? 1 : 0

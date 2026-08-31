@@ -37,11 +37,13 @@ import {
   buildRefractionTable,
   fillRefractionLut,
   refractSceneDirection,
+  refractionLutFloorDeg,
   refractionLutU,
   tabulatedIndexProfile,
   verticalScaleFromTable,
 } from './refractionTable'
 import { standardAirIndexAt } from './airIndex'
+import { HORIZON_MARGIN_DEG } from '../horizonMargin'
 
 const RAD_TO_ARCMIN = 60 * (180 / Math.PI)
 const RAD_TO_ARCSEC = 3600 * (180 / Math.PI)
@@ -318,14 +320,15 @@ export function rayBendingSuite(): SuiteResult {
       // lineairement. Elle doit rendre ce que rend la table.
       const lut = new Float32Array(REFRACTION_LUT_WIDTH * 4)
       fillRefractionLut(lut, table)
+      const floorDeg = refractionLutFloorDeg(table)
       const sampleLut = (altitudeDeg: number) => {
-        const x = refractionLutU(altitudeDeg) * (REFRACTION_LUT_WIDTH - 1)
+        const x = refractionLutU(altitudeDeg, floorDeg) * (REFRACTION_LUT_WIDTH - 1)
         const i = Math.min(REFRACTION_LUT_WIDTH - 2, Math.floor(x))
         const f = x - i
         return lut[i * 4] * (1 - f) + lut[(i + 1) * 4] * f
       }
       let worstLut = 0
-      for (let altitudeDeg = -1.2; altitudeDeg <= 89; altitudeDeg += 0.017) {
+      for (let altitudeDeg = floorDeg + 0.01; altitudeDeg <= 89; altitudeDeg += 0.017) {
         worstLut = Math.max(
           worstLut,
           Math.abs(altitudeDeg + sampleLut(altitudeDeg) - apparentFromTable(table, altitudeDeg)) * DEG_TO_ARCSEC,
@@ -340,7 +343,7 @@ export function rayBendingSuite(): SuiteResult {
       // Sous l'horizon apparent il n'y a plus d'image. Rendre la hauteur vraie
       // telle quelle ferait sauter la fonction de trente-trois minutes d'arc a
       // la frontiere — et la texture avec elle.
-      const belowSteps = [-1.2, -1.0, -0.8, -0.6, table.horizonTrueDeg, -0.3, 0, 0.5]
+      const belowSteps = [-3.5, -2.5, -1.2, -1.0, -0.8, -0.6, table.horizonTrueDeg, -0.3, 0, 0.5]
       t.checkMonotonic(
         'la hauteur apparente reste croissante sous l’horizon',
         belowSteps.map((a) => apparentFromTable(table, a)),
@@ -351,6 +354,58 @@ export function rayBendingSuite(): SuiteResult {
         apparentFromTable(table, table.horizonTrueDeg - 0.1) < 0,
         `${apparentFromTable(table, table.horizonTrueDeg - 0.1).toFixed(4)}° pour une hauteur vraie ` +
           'un dixieme de degre sous la limite de visibilite',
+      )
+
+      // --- La derivee, et non plus seulement la valeur -------------------------
+      //
+      // Le prolongement precedent etait continu mais **pas dérivable** : sa
+      // pente passait de 0,86 a 1 en franchissant l'horizon. Or cette pente est
+      // exactement la compression verticale du disque, et le Soleil reprenait
+      // donc sa forme ronde a l'instant ou il se couchait — le defaut observe
+      // a l'ecran, qu'aucun controle ne voyait parce qu'ils portaient tous sur
+      // la valeur.
+      //
+      // C'est le controle qui manquait.
+      const scaleAt = (a: number) => verticalScaleFromTable(table, a)
+
+      // La marche a la frontiere, mesuree symetriquement de part et d'autre.
+      // Le prolongement a pente un la rendait egale a `1 − compression`, soit
+      // 0,137 : le disque passait d'un ovale de 0,86 a un cercle en franchissant
+      // une limite ou rien de physique ne change.
+      const jump = Math.abs(scaleAt(table.horizonTrueDeg - 0.02) - scaleAt(table.horizonTrueDeg + 0.02))
+      t.checkTrue(
+        'la compression verticale ne saute pas a la traversee de l’horizon',
+        jump < 0.02,
+        `marche de ${jump.toFixed(4)} sur ±0,02°, contre ` +
+          `${(1 - table.horizonCompression).toFixed(3)} avec le prolongement a pente un — ` +
+          'c’est ce saut qui faisait redevenir rond un disque en train de se coucher',
+      )
+
+      // Et la marche reste petite sur toute la marge : sans quoi on l'aurait
+      // seulement deplacee.
+      let worstStep = 0
+      const walk = [0.5, 0.3, 0.15, 0.05, 0, -0.2, -0.4, -0.7, -1.1, -1.6, -2.2, -2.9]
+      for (let i = 1; i < walk.length; i++) {
+        const step = Math.abs(scaleAt(walk[i]) - scaleAt(walk[i - 1])) / Math.abs(walk[i] - walk[i - 1])
+        if (step > worstStep) worstStep = step
+      }
+      t.checkTrue(
+        'et elle varie sans a-coup sur toute la marge',
+        worstStep < 1,
+        `variation maximale ${worstStep.toFixed(3)} par degre — continue, la ou le ` +
+          'prolongement precedent concentrait tout l’ecart en un point'
+      )
+      t.checkTrue(
+        'sous la marge, la pente est revenue au regime sans atmosphere',
+        Math.abs(scaleAt(table.floorTrueDeg - 0.5) - 1) < 1e-9,
+        'au-dela de la marge il n’y a plus de modele : la hauteur apparente suit la vraie',
+      )
+      t.checkTrue(
+        'la marge tabulee couvre bien quelques degres sous l’horizon',
+        Math.abs(table.horizonTrueDeg - table.floorTrueDeg - HORIZON_MARGIN_DEG) < 1e-9,
+        `de ${table.floorTrueDeg.toFixed(2)}° a ${table.horizonTrueDeg.toFixed(2)}° — la refraction ` +
+          'a l’horizon vaut 0,57°, le demi-diametre solaire 0,27° et l’abaissement ' +
+          'd’horizon a 3 000 m 1,76° : leur somme est ce que la marge doit couvrir',
       )
 
       // --- L'inversion de surface retourne bien le gradient ---------------------------
