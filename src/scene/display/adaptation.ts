@@ -190,6 +190,78 @@ export const PHOTOPIC_FLOOR = 3
  * La transition est interpolee en logarithme de la luminance, l'oeil travaillant
  * en decades ; sa forme exacte n'est pas mesuree, ses bornes le sont.
  */
+/**
+ * Eclairement produit a l'oeil par une source ponctuelle de magnitude zero, lux.
+ *
+ * Valeur standard de la photometrie stellaire dans la bande V. C'est ce qui
+ * convertit une magnitude en une grandeur physique.
+ */
+export const ZERO_MAGNITUDE_LUX = 2.54e-6
+
+/**
+ * Magnitude apparente au-dela de laquelle la couleur d'une source ponctuelle
+ * cesse d'etre percue.
+ *
+ * ⚠️ **C'est l'ancrage observationnel de tout ce qui suit, et il est
+ * qualitatif.** Les observateurs s'accordent sur le fait : Sirius, Betelgeuse,
+ * Antares, Vega montrent une teinte, et tout ce qui passe sous la premiere ou
+ * la deuxieme magnitude parait blanc. Le seuil exact varie d'un oeil a l'autre.
+ */
+const POINT_COLOUR_THRESHOLD_MAG = 1
+
+/**
+ * Angle solide sur lequel l'oeil etale une source ponctuelle, steradians.
+ *
+ * ## Pourquoi cette grandeur est necessaire
+ *
+ * Une etoile n'a pas de luminance : c'est un point, et son image n'a de taille
+ * que celle que l'optique lui donne. Or la bascule cones/batonnets se joue sur
+ * l'eclairement **retinien**, donc sur une luminance. Il faut donc savoir sur
+ * quelle surface de retine l'etoile se depose.
+ *
+ * ## ⚠️ Elle n'est pas choisie, elle est deduite — parce qu'on ne la connait pas
+ *
+ * La fonction d'etalement de l'oeil **nu et adapte a l'obscurite** est une
+ * grandeur mal definie : la litterature va d'une minute d'arc, pour une pupille
+ * de jour, a une dizaine pour une pupille de sept millimetres ou les
+ * aberrations dominent. Choisir dans cet intervalle serait choisir le resultat.
+ *
+ * On la **deduit** donc de l'ancrage observationnel ci-dessus : la tache est
+ * celle qui place une source de magnitude 1 exactement au plancher photopique,
+ * la ou les cones cessent d'etre seuls.
+ *
+ *     Ω = E(mag 1) / PHOTOPIC_FLOOR
+ *
+ * Le resultat vaut **2,3 minutes d'arc de diametre**, ce qui tombe dans
+ * l'intervalle publie sans avoir ete pris dedans. C'est une verification, pas
+ * une justification.
+ *
+ * ## Ce que ca donne
+ *
+ * | magnitude | luminance retinienne | part des batonnets |
+ * | --- | --- | --- |
+ * | −1,4 (Sirius) | 27,4 cd/m² | 0 % |
+ * | 0 | 7,5 cd/m² | 0 % |
+ * | 2 | 1,19 cd/m² | 7 % |
+ * | 3 | 0,47 cd/m² | 23 % |
+ * | 4 | 0,19 cd/m² | 48 % |
+ * | 6 | 0,03 cd/m² | 90 % |
+ *
+ * Les brillantes gardent leur teinte, le champ profond devient blanc. Le
+ * domaine mesopique est celui du ciel, non un second reglage.
+ */
+export const EYE_POINT_SPREAD_SR =
+  (ZERO_MAGNITUDE_LUX * Math.pow(10, -0.4 * POINT_COLOUR_THRESHOLD_MAG)) / PHOTOPIC_FLOOR
+
+/**
+ * Luminance retinienne d'une source ponctuelle de magnitude donnee, cd/m².
+ *
+ * C'est la grandeur a passer a `scotopicWeight` pour une etoile : elle dit si
+ * l'oeil en voit la couleur ou seulement l'eclat.
+ */
+export const pointSourceRetinalLuminance = (apparentMagnitude: number): number =>
+  (ZERO_MAGNITUDE_LUX * Math.pow(10, -0.4 * apparentMagnitude)) / EYE_POINT_SPREAD_SR
+
 export function scotopicWeight(luminanceCdPerM2: number): number {
   const l = Math.max(1e-12, luminanceCdPerM2)
   if (l <= SCOTOPIC_CEILING) return 1

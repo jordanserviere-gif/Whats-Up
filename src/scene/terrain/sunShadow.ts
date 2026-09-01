@@ -58,7 +58,16 @@
  * La contrepartie est reelle et bornee : l'ombre tres longue d'un sommet au
  * lever du Soleil est tronquee a soixante kilometres.
  */
+import { horizonDipDeg } from '@/atmosphere/refraction/rayBending'
 import { groundAltitudeM, terrainRevision } from './elevationField'
+
+/**
+ * Depression de l'horizon au point le plus haut du globe, degres.
+ *
+ * L'Everest culmine a 8849 m. Sous cette depression, plus aucun relief terrestre
+ * ne peut voir le Soleil, et declarer tout le domaine a l'ombre devient exact.
+ */
+const HIGHEST_TERRAIN_DIP_DEG = horizonDipDeg(8849)
 
 /** Demi-etendue de la carte, metres. */
 export const SHADOW_HALF_SPAN_M = 60_000
@@ -158,18 +167,26 @@ export function buildSunShadowMap(
   // Un point est toujours ombre par lui-meme : la recurrence part du relief.
   const height = Float32Array.from(terrainHeights())
 
-  // Soleil sous l'horizon : plus rien ne recoit le rayon direct, et la
-  // recurrence n'aurait pas de sens — avec une tangente negative l'ombre
-  // monterait indefiniment en s'eloignant.
+  // ## ⚠️ Zero degre n'est pas l'horizon
   //
-  // Declarer tout le domaine prive de Soleil est alors **exact**, et non un
-  // pis-aller : c'est la Terre elle-meme qui fait l'ombre. Ce qui rendait
-  // autrefois ce raccourci ruineux, c'est que le nuanceur en deduisait
-  // l'absence de toute diffusion, et la chaine se decoupait en noir absolu sur
-  // un ciel encore clair. Depuis que chaque segment ombre retombe sur sa part
-  // ambiante, la consequence est la bonne : plus de Soleil, mais toujours le
-  // ciel.
-  if (sunAltitudeDeg <= 0) {
+  // Le raccourci etait : hauteur solaire negative, donc tout le domaine prive
+  // de Soleil. **C'est faux des qu'on prend de l'altitude.** L'horizon d'un
+  // point haut est abaisse — de 0,94° a mille metres, de 2,75° au sommet de
+  // l'Everest — et le Soleil y reste visible bien apres avoir passe
+  // l'horizontale. Un sommet reste eclaire quand la vallee ne l'est plus : c'est
+  // le phenomene le plus banal de la haute montagne, et la carte le niait.
+  //
+  // C'est la meme faute que « les trois horizons » corrigee ailleurs, et la
+  // correction d'alors n'avait pas atteint ce fichier.
+  //
+  // La recurrence, elle, reste valable sous zero : avec une tangente negative
+  // l'ombre **monte** en s'eloignant du Soleil, ce qui est exactement ce que
+  // fait l'ombre de la Terre. On la laisse donc tourner.
+  //
+  // La borne est le point ou plus **aucun** relief terrestre ne voit le Soleil :
+  // la depression de l'horizon au sommet le plus haut du globe. En dessous, tout
+  // est a l'ombre, et le declarer est exact.
+  if (sunAltitudeDeg <= -HIGHEST_TERRAIN_DIP_DEG) {
     height.fill(Number.POSITIVE_INFINITY)
     return { height, sunAltitudeDeg, sunAzimuthDeg }
   }

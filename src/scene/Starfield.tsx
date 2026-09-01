@@ -10,6 +10,12 @@ import {
   POINT_VISIBILITY_FADE_START,
 } from '@/astro/photometry'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
+import {
+  EYE_POINT_SPREAD_SR,
+  PHOTOPIC_FLOOR,
+  SCOTOPIC_CEILING,
+  ZERO_MAGNITUDE_LUX,
+} from './display/adaptation'
 import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
 import {
   PERCEIVED_VARIANCE_CEILING,
@@ -206,7 +212,29 @@ export function Starfield({
             vIntensity *= pow(10.0, -0.4 * fluctuation);
             // Rougissement par l'extinction, normalise sur le rouge.
             float xr = max(0.0, x - 1.0);
-            vColor = starColor * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));
+            vec3 tinted = starColor * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));
+
+            // --- Une etoile faible n'a pas de couleur ------------------------
+            //
+            // ⚠️ **La desaturation scotopique ne vivait que dans le fond de
+            // ciel**, alors que c'est ici qu'elle compte le plus : a l'oeil nu,
+            // tout ce qui passe sous la deuxieme magnitude parait blanc. Le
+            // moteur donnait a chaque etoile la chromaticite pleine de son corps
+            // noir — orange franc a trois mille kelvins, bleu franc a quinze
+            // mille — quelle que soit sa faiblesse.
+            //
+            // Une source ponctuelle n'a pas de luminance : c'est l'oeil qui lui
+            // en donne une, en l'etalant sur sa tache de diffusion. Voir
+            // \`pointSourceRetinalLuminance\` — la magnitude devient une
+            // luminance retinienne, et le meme domaine mesopique que le ciel
+            // decide du reste.
+            float retinal = ${ZERO_MAGNITUDE_LUX.toExponential(6)} *
+                            pow(10.0, -0.4 * (starMag + extinction)) /
+                            ${EYE_POINT_SPREAD_SR.toExponential(6)};
+            float mesopic = log2(max(1e-9, retinal) / ${SCOTOPIC_CEILING.toFixed(4)}) /
+                            log2(${PHOTOPIC_FLOOR.toFixed(1)} / ${SCOTOPIC_CEILING.toFixed(4)});
+            float rods = 1.0 - smoothstep(0.0, 1.0, mesopic);
+            vColor = mix(tinted, vec3(dot(tinted, vec3(0.2126, 0.7152, 0.0722))), rods);
 
             gl_Position = projectionMatrix * viewMatrix * world;
             // Plafond de securite : une etoile reste une source ponctuelle, et

@@ -2123,6 +2123,35 @@ quatre niveaux. C'est le contraste a l'interieur de l'image nocturne qu'on paye.
 
 ---
 
+## Trois reglages choisis remplaces par trois grandeurs calculees
+
+**Etoiles trop coloriees.** La desaturation scotopique ne vivait que dans le fond
+de ciel ; les etoiles portaient la chromaticite pleine de leur corps noir. Une
+source ponctuelle n'a pas de luminance — c'est l'oeil qui lui en donne une, en
+l'etalant sur sa tache de diffusion. La tache, mal definie dans la litterature,
+est **deduite** du seuil observationnel et vaut 2,25′, dans l'intervalle publie.
+Sirius garde sa couleur, une etoile de sixieme magnitude n'en a plus (90 % de
+batonnets).
+
+**Lumiere cendree cent cinquante fois trop forte.** 0,012 pour la Lune, 0,003
+pour les autres planetes — alors que rien n'eclaire leur face nuit. Elle se
+calcule : `A·(R_T/d)²·Φ(α_terre)` plafonne a 8,4·10⁻⁵, soit 10,2 magnitudes sous
+la face jour. Et la complementarite des phases, qui n'etait pas modelisee, fait
+que la cendree est maximale sur un croissant fin et nulle sur une gibbeuse.
+
+**La carte d'ombre prenait zero degre pour l'horizon.** Faux des qu'on prend de
+l'altitude : un sommet reste eclaire quand la vallee ne l'est plus. Meme faute
+que « les trois horizons », que la correction d'alors n'avait pas atteinte. La
+borne est desormais la depression de l'horizon au point le plus haut du globe.
+
+| Soleil | sommet 3000 m | plaine 500 m |
+| --- | --- | --- |
+| −0,9° | **eclaire** | a l'ombre |
+| −2,6° | **eclaire** | a l'ombre |
+| −3,2° | a l'ombre | a l'ombre |
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2169,3 +2198,4 @@ quatre niveaux. C'est le contraste a l'interieur de l'image nocturne qu'on paye.
 | 2026-09-01 | Diffusion multiple itérée — la décroissance crépusculaire redevient régulière |
 | 2026-09-01 | Troncature de la coordonnée de distance — 93 % du ciel crépusculaire était jeté |
 | 2026-09-02 | Trois décades d'écart jour-nuit — la lueur crépusculaire s'éteint enfin |
+| 2026-09-02 | Couleur des étoiles, lumière cendrée et ombre en altitude — trois constantes calculées |

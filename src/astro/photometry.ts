@@ -18,6 +18,64 @@ export const AIRGLOW_LUX = 2e-4
 
 /** Eclairement d'une pleine lune au zenith, en lux. */
 const FULL_MOON_LUX = 0.267
+
+/**
+ * Albedo de Bond de la Terre.
+ *
+ * Ce qu'elle renvoie de l'energie solaire qu'elle recoit, toutes directions
+ * confondues — nuages compris, et ce sont eux qui en font l'essentiel.
+ */
+const EARTH_BOND_ALBEDO = 0.306
+
+/** Rayon terrestre moyen, km. */
+const EARTH_RADIUS_KM = 6371
+
+/**
+ * Fonction de phase d'une sphere lambertienne, egale a un a l'opposition.
+ *
+ *     Φ(α) = [sin α + (π − α) cos α] / π
+ */
+export const lambertPhase = (phaseAngleRad: number): number => {
+  const a = Math.min(Math.PI, Math.max(0, phaseAngleRad))
+  return (Math.sin(a) + (Math.PI - a) * Math.cos(a)) / Math.PI
+}
+
+/**
+ * Lumiere cendree — ce que la Terre eclaire sur la face nuit de la Lune,
+ * rapporte a l'eclairement solaire de sa face jour.
+ *
+ * ## ⚠️ Elle valait 0,012, un nombre choisi
+ *
+ * Le rendu portait une constante d'apparence : 0,012 pour la Lune, 0,003 pour
+ * **toutes les autres planetes** — alors que rien n'eclaire la face nuit de
+ * Venus ou de Mars. La face sombre d'un croissant restait donc visible, et
+ * d'autant plus qu'on grossissait : sous-pixel de loin, texturee de pres, avec
+ * le relief qui l'accrochait.
+ *
+ * ## Ce qu'elle vaut reellement
+ *
+ * La Terre renvoie une fraction `A` du Soleil, sur un disque de rayon `R_T` vu
+ * depuis la Lune a la distance `d` :
+ *
+ *     E_terre / E_soleil = A · (R_T/d)² · Φ(α_terre)
+ *
+ * `(R_T/d)²` vaut 2,75·10⁻⁴ — c'est la petitesse de la Terre vue de la Lune qui
+ * fait tout. Avec l'albedo, le rapport plafonne a **8,4·10⁻⁵**, soit dix
+ * magnitudes sous la face eclairee. La constante etait donc **cent cinquante
+ * fois trop grande**.
+ *
+ * ## La complementarite des phases, qui n'etait pas modelisee
+ *
+ * `α_terre = π − α_lune` : quand la Lune est un croissant fin, la Terre vue
+ * d'elle est presque pleine, et la cendree est a son maximum. Quand la Lune est
+ * gibbeuse, la Terre est un croissant et la cendree s'efface. C'est la raison
+ * pour laquelle on ne voit « la vieille Lune dans les bras de la nouvelle » que
+ * pres de la nouvelle lune — et la constante ne le disait pas.
+ */
+export function earthshineRatio(moonPhaseAngleRad: number, moonDistanceKm: number): number {
+  const solidAngle = (EARTH_RADIUS_KM / Math.max(1, moonDistanceKm)) ** 2
+  return EARTH_BOND_ALBEDO * solidAngle * lambertPhase(Math.PI - moonPhaseAngleRad)
+}
 /** Magnitude visuelle de la pleine lune, reference de l'echelle ci-dessus. */
 const FULL_MOON_MAG = -12.74
 

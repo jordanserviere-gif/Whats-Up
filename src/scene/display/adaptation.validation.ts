@@ -45,6 +45,8 @@ import {
   SCOTOPIC_CEILING,
   adaptiveSkyExposure,
   adaptiveWhiteLuminance,
+  EYE_POINT_SPREAD_SR,
+  pointSourceRetinalLuminance,
   scotopicWeight,
 } from './adaptation'
 
@@ -208,6 +210,40 @@ export function adaptationSuite(): SuiteResult {
       )
       const noonGain = adaptiveSkyExposure(REFERENCE_SKY_LUMINANCE) / SKY_DISPLAY_EXPOSURE
       t.checkRelative('et le plein jour ne bouge pas', noonGain, 1, 1e-12)
+
+      // --- La couleur d'une source ponctuelle ---------------------------------
+      //
+      // ⚠️ **La desaturation scotopique ne vivait que dans le fond de ciel.**
+      // Les etoiles portaient la chromaticite pleine de leur corps noir quelle
+      // que soit leur faiblesse, alors qu'a l'oeil nu tout ce qui passe sous la
+      // deuxieme magnitude parait blanc.
+      //
+      // La tache de diffusion de l'oeil n'est pas choisie mais **deduite** du
+      // seuil observationnel. Ce controle verifie que la valeur ainsi obtenue
+      // tombe dans l'intervalle publie — une a dix minutes d'arc selon la
+      // pupille — ce qui est une verification independante et non l'ancrage.
+      const psfArcmin = 2 * Math.sqrt(EYE_POINT_SPREAD_SR / Math.PI) * (180 / Math.PI) * 60
+      t.checkTrue(
+        'la tache deduite tombe dans l’intervalle publie',
+        psfArcmin > 1 && psfArcmin < 10,
+        `${psfArcmin.toFixed(2)}′ de diametre, pour un oeil nu adapte a l’obscurite`,
+      )
+
+      // Les brillantes gardent leur teinte, le champ profond devient blanc, et
+      // la transition est monotone — un seul renversement trahirait une erreur
+      // de signe.
+      const rods = [-1.4, 0, 1, 2, 3, 4, 5, 6].map((m) =>
+        scotopicWeight(pointSourceRetinalLuminance(m)),
+      )
+      let reversals = 0
+      for (let i = 1; i < rods.length; i++) if (rods[i] < rods[i - 1]) reversals++
+      t.check('la couleur d’une etoile ne peut que s’effacer avec sa magnitude', reversals, 0, 0)
+      t.checkTrue(
+        'Sirius garde sa couleur, une etoile de sixieme magnitude n’en a plus',
+        rods[0] < 0.01 && rods[7] > 0.8,
+        `magnitude −1,4 : ${(rods[0] * 100).toFixed(0)} % de batonnets · ` +
+          `magnitude 6 : ${(rods[7] * 100).toFixed(0)} %`,
+      )
     },
   )
 }

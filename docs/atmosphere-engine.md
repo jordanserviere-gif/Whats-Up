@@ -4543,6 +4543,98 @@ ecran peut montrer plutot qu'en candelas arbitraires.
 
 ---
 
+## Trois reglages choisis remplaces par trois grandeurs calculees
+
+Trois symptomes signales, trois constantes d'apparence a leur racine.
+
+### Une etoile faible n'a pas de couleur
+
+La desaturation scotopique ne vivait que dans **un seul fichier** : le fond de
+ciel. Les etoiles portaient donc la chromaticite pleine de leur corps noir —
+orange franc a trois mille kelvins, bleu franc a quinze mille — quelle que soit
+leur faiblesse. A l'oeil nu, tout ce qui passe sous la deuxieme magnitude parait
+blanc.
+
+Une source ponctuelle n'a pas de luminance : c'est l'oeil qui lui en donne une,
+en l'etalant sur sa tache de diffusion. La magnitude devient alors une luminance
+retinienne, et le meme domaine mesopique que le ciel decide du reste.
+
+⚠️ **La tache de l'oeil nu adapte a l'obscurite est mal definie** — la
+litterature va d'une minute d'arc, pour une pupille de jour, a une dizaine pour
+une pupille de sept millimetres ou les aberrations dominent. Choisir dans cet
+intervalle serait choisir le resultat. Elle est donc **deduite** de l'ancrage
+observationnel — la couleur cesse d'etre percue vers la premiere magnitude — et
+le resultat, **2,25 minutes d'arc**, tombe dans l'intervalle publie sans avoir
+ete pris dedans. C'est une verification, pas une justification.
+
+| magnitude | luminance retinienne | part des batonnets |
+| --- | --- | --- |
+| −1,4 (Sirius) | 27,4 cd/m² | 0 % |
+| 0 | 7,5 cd/m² | 0 % |
+| 2 | 1,19 cd/m² | 7 % |
+| 3 | 0,48 cd/m² | 25 % |
+| 4 | 0,19 cd/m² | 48 % |
+| 6 | 0,03 cd/m² | 90 % |
+
+Les brillantes gardent leur teinte, le champ profond devient blanc.
+
+### La lumiere cendree etait cent cinquante fois trop forte
+
+Le rendu portait une constante : 0,012 pour la Lune, 0,003 pour **toutes les
+autres planetes** — alors que rien n'eclaire la face nuit de Venus ou de Mars.
+
+La cendree se calcule. La Terre renvoie une fraction `A` du Soleil sur un disque
+de rayon `R_T` vu depuis la Lune a la distance `d` :
+
+    E_terre / E_soleil = A · (R_T/d)² · Φ(α_terre)
+
+`(R_T/d)²` vaut 2,75·10⁻⁴ — c'est la petitesse de la Terre vue de la Lune qui
+fait tout. Avec l'albedo de Bond, le rapport plafonne a **8,4·10⁻⁵**, soit
+**10,2 magnitudes** sous la face eclairee.
+
+Et la **complementarite des phases** n'etait pas modelisee : `α_terre = π − α_lune`.
+Croissant fin, Terre presque pleine, cendree maximale ; Lune gibbeuse, Terre en
+croissant, cendree effacee. C'est pourquoi on ne voit « la vieille Lune dans les
+bras de la nouvelle » que pres de la nouvelle lune.
+
+| Lune eclairee | cendree | sous la face jour |
+| --- | --- | --- |
+| 2 % | 8,1·10⁻⁵ | 10,2 mag |
+| 15 % | 6,3·10⁻⁵ | 10,5 mag |
+| 50 % | 2,7·10⁻⁵ | 11,4 mag |
+| 80 % | 6,5·10⁻⁶ | 13,0 mag |
+
+⚠️ **Ce que le signalement voyait n'etait pas seulement ca.** Un astre grossi de
+jour se remplit du **voile atmospherique** — l'air devant lui brille plus que sa
+face nuit — et c'est correct : sans ce voile, la face nuit se decouperait en noir
+dans un ciel bleu, un trou dans le ciel. Ce qui etait faux, c'est ce que la face
+nuit ajoutait par elle-meme.
+
+### Zero degre n'est pas l'horizon, la carte d'ombre l'ignorait
+
+La carte declarait tout le domaine prive de Soleil des que la hauteur solaire
+passait sous zero. **C'est faux des qu'on prend de l'altitude** : l'horizon d'un
+point haut est abaisse — 0,94° a mille metres, 2,75° au sommet de l'Everest — et
+le Soleil y reste visible bien apres avoir passe l'horizontale. Un sommet reste
+eclaire quand la vallee ne l'est plus.
+
+C'est la meme faute que « les trois horizons », et la correction d'alors n'avait
+pas atteint ce fichier.
+
+La recurrence reste valable sous zero : avec une tangente negative, l'ombre
+**monte** en s'eloignant du Soleil, ce qui est exactement ce que fait l'ombre de
+la Terre. On la laisse donc tourner, et la borne devient la depression de
+l'horizon au point le plus haut du globe.
+
+| Soleil | sommet a 3000 m | plaine a 500 m |
+| --- | --- | --- |
+| −0,2° | eclaire | eclaire |
+| **−0,9°** | **eclaire** | a l'ombre |
+| **−2,6°** | **eclaire** | a l'ombre |
+| −3,2° | a l'ombre | a l'ombre |
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -4598,6 +4690,8 @@ en est.
 | **Bathymétrie écrêtée** | terrarium encode les fonds marins en négatif ; les prendre tels quels creuserait l'océan en cuvette. L'écrêtage à zéro met à plat les dépressions continentales — mer Morte à −430 m, vallée de la Mort à −86 m. Les distinguer demanderait un masque terre/eau. |
 | **Horizon du terrain** | le rayon terrestre effectif n'est plus le `k = 1/7` de la géodésie mais **l'inverse de la dépression que le moteur mesure**. C'est un calage sur une grandeur interne, valide à l'altitude du site ; le rapport `R_eff/R` dépend légèrement de l'altitude (1,204 à 35 m, 1,196 à 1 000 m) et n'est donc pas une constante universelle. |
 | **Ombre du relief dans l'air** | **résolue**. Un segment ombré ne disparaît plus de l'intégrale : il retombe sur la table **ambiante**, la même intégrale privée de sa source solaire. Une ombre n'est donc ni un facteur ni une soustraction, c'est un **changement de terme source**. Mesure : crête à contre-jour, `28,28,20` → `41,67,98` — le noir devient bleu. |
+| **Tache de diffusion de l'œil nu** | la bascule cônes/bâtonnets d'une source ponctuelle demande de savoir sur quelle surface de rétine l'étoile se dépose. Cette tache va d'une minute d'arc à une dizaine selon la pupille et l'observateur. Elle est ici **déduite** du seuil observationnel — la couleur cesse d'être perçue vers la première magnitude — et vaut 2,25′, ce qui tombe dans l'intervalle publié. L'ancrage reste **qualitatif** : c'est un fait d'observation, pas une mesure. |
+| **Relief simulé de la Lune** | la carte d'albédo sert de carte de hauteur, avec un gain de 6. Ce n'est pas un modèle topographique : les cratères accrochent la lumière rasante parce que l'albédo varie, non parce que le sol monte. Conséquence mesurée : quelques mouchetures subsistent sur la face nuit, là où la normale perturbée capte un rayon qui ne devrait pas l'atteindre. |
 | **Pénombre** | le Soleil a un demi-degré de diamètre, donc le bord de son ombre est flou sur une largeur croissant avec la distance à l'occulteur — cinq mètres à un kilomètre, cinquante à dix. La carte d'ombre rend une frontière nette. |
 | **Relief du banc** | le champ de hauteur est un **bruit fractal a graine fixe**, pas un modèle géologique — c'est une surface de test. Les albédos (0,12 végétation · 0,20 roche · 0,80 neige) sont de manuel ; ni ombres portées, ni occlusion du ciel par le relief voisin. |
 | **Altitude de l'observateur** | prise en compte par la réfraction, la masse d'air, le bord du sol et le terrain, chacun via `horizonDipDeg`. Le champ n'est **pas borné** dans l'interface : au-delà de la troposphère, le profil standard reste extrapolé et rien ne le signale à l'utilisateur. |

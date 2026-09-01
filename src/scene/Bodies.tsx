@@ -15,7 +15,13 @@ import {
 import { useFrame, useThree } from '@react-three/fiber'
 import { BODY_BY_ID } from '@/astro/bodies'
 import { bodyOrientation } from '@/astro/orientation'
-import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels } from '@/astro/photometry'
+import {
+  earthshineRatio,
+  extinctionMagnitudes,
+  extinctionTint,
+  pointIntensity,
+  pointSizePixels,
+} from '@/astro/photometry'
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL, RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
@@ -443,11 +449,39 @@ function Body({
         skyExposure,
       )
       surface.uniforms.uEmissive.value = 0
-      // Lumiere cendree cote nuit — la Terre reflechie sur la face non
-      // eclairee de la Lune. 0,035 la rendait aussi visible qu'un authentique
-      // clair de lune sur la face nuit ; la vraie lumiere cendree est bien
-      // plus discrete, un filet a peine perceptible sur un croissant fin.
-      surface.uniforms.uNightSide.value = state.id === 'moon' ? 0.012 : 0.003
+
+      // --- Lumiere cendree, calculee -----------------------------------------
+      //
+      // ⚠️ **C'etait une constante d'apparence** : 0,012 pour la Lune, 0,003
+      // pour toutes les autres planetes — alors que rien n'eclaire la face nuit
+      // de Venus ou de Mars. La face sombre d'un croissant restait donc
+      // visible, et d'autant plus qu'on grossissait : sous-pixel de loin,
+      // texturee de pres, avec le relief simule qui l'accrochait.
+      //
+      // Elle vient maintenant de la geometrie — voir `earthshineRatio`. Elle
+      // plafonne a 8,4·10⁻⁵, dix magnitudes sous la face jour : la constante
+      // etait **cent cinquante fois trop grande**. Et elle suit la
+      // complementarite des phases, qui n'etait pas modelisee : croissant fin,
+      // Terre presque pleine, cendree maximale.
+      //
+      // L'angle de phase se lit sur les deux directions que l'ephemeride donne
+      // deja : du corps vers le Soleil, et du corps vers l'observateur.
+      const toObserver = [
+        -state.positionEq[0] / state.distanceKm,
+        -state.positionEq[1] / state.distanceKm,
+        -state.positionEq[2] / state.distanceKm,
+      ] as const
+      const cosPhase = Math.max(
+        -1,
+        Math.min(
+          1,
+          state.sunDirectionEq[0] * toObserver[0] +
+            state.sunDirectionEq[1] * toObserver[1] +
+            state.sunDirectionEq[2] * toObserver[2],
+        ),
+      )
+      surface.uniforms.uNightSide.value =
+        state.id === 'moon' ? earthshineRatio(Math.acos(cosPhase), state.distanceKm) : 0
       surface.uniforms.uHasMap.value = texture ? 1 : 0
       surface.uniforms.uMap.value = texture
       // Le relief simule ne sert que sur la Lune : elle seule se resout assez.
