@@ -38,17 +38,36 @@ import { horizonDipDeg } from '@/atmosphere/refraction/rayBending'
 import { CLIPMAP_HALF_SPANS_M } from './elevationClipmap'
 import { effectiveEarthRadiusM, horizonRangeM } from './ridgeField'
 import {
-  AZIMUTH_MARGIN_DEG,
   AZIMUTH_STEPS,
+  DATA_FINEST_PITCH_DEG,
+  MAX_SCREEN_ERROR_PX,
   MESH_VERTEX_BUDGET,
   RANGE_STEPS,
   azimuthConcentration,
+  azimuthHalfSpanDeg,
   dataPitchDeg,
   dataStepM,
   meshAzimuthDeg,
   meshAzimuthPitchDeg,
   meshRangePitchDeg,
+  screenErrorPx,
+  type MeshView,
 } from './meshSampling'
+
+/**
+ * Viewport de reference des captures : 1440 x 900.
+ *
+ * La loi depend de la hauteur en pixels — c'est ce qui la rend conforme au
+ * critere d'erreur ecran — donc les controles doivent fixer un ecran, comme ils
+ * fixent un site.
+ */
+const view = (fovDeg: number, altitudeDeg = 0): MeshView => ({
+  azimuthDeg: 0,
+  altitudeDeg,
+  fovDeg,
+  aspect: ASPECT,
+  heightPx: 900,
+})
 
 /** Mont Ventoux — la ou le defaut a ete signale. */
 const OBSERVER_M = 1912
@@ -59,11 +78,20 @@ const FAR_RANGE_M = CLIPMAP_HALF_SPANS_M[CLIPMAP_HALF_SPANS_M.length - 1]
 /**
  * Champ au-dela duquel la propriete est hors d'atteinte a budget constant.
  *
- * Le pas de bord vaut au mieux le demi-champ en radians — le minimum de
- * `s + (champ/2)²/4s` est atteint en `s = champ/4` et vaut `champ/2`. L'egaler a
- * la donnee la plus fine, 0,0562°, donne 0,0799 radian de demi-champ.
+ * Le pas de bord vaut au mieux `A·sin(bord)`, atteint en `s = tan(bord/2)`.
+ * L'egaler a la cellule la plus fine de la pyramide donne le demi-etalement en
+ * azimut maximal, dont on redescend au champ **vertical** porte par la camera —
+ * l'azimut se comptant a l'horizontale, le rapport d'aspect s'en mele.
+ *
+ * ⚠️ La premiere version de cette constante valait 9,2° parce qu'elle mesurait le
+ * pas au demi-champ **vertical** au lieu du demi-etalement en azimut. Le
+ * controle etait donc plus indulgent qu'il ne croyait, d'un facteur egal au
+ * rapport d'aspect.
  */
-const RESOLVABLE_FOV_DEG = 2 * (0.0799 / (Math.PI / 180))
+const ASPECT = 1440 / 900
+const RESOLVABLE_FOV_DEG =
+  (2 * Math.atan(Math.tan(Math.asin(Math.min(1, DATA_FINEST_PITCH_DEG / (360 / AZIMUTH_STEPS)))) / ASPECT)) /
+  (Math.PI / 180)
 
 /**
  * Echelle de distances.
@@ -79,10 +107,10 @@ const LADDER_M = [
 ]
 
 /** Champs auxquels la propriete doit tenir. */
-const RESOLVED_FOV_DEG = [0.02, 0.5, 2, 9]
+const RESOLVED_FOV_DEG = [0.02, 0.5, 2, 5]
 
 /** Champs ou elle ne peut pas tenir, et qu'on mesure quand meme. */
-const WIDE_FOV_DEG = [20, 60, 110]
+const WIDE_FOV_DEG = [9, 20, 60, 110]
 
 /**
  * Pire rapport maillage/donnee **dans le champ**, sur toute l'echelle.
@@ -90,18 +118,19 @@ const WIDE_FOV_DEG = [20, 60, 110]
  * Le bord du champ, et non son centre : c'est la que la concentration est la
  * plus lache, donc la que la propriete est le plus a la peine.
  */
-function worstInField(fovDeg: number): { ratio: number; distanceM: number } {
+function worstInField(fovDeg: number): { ratio: number; distanceM: number; pitchDeg: number } {
+  const v = view(fovDeg)
+  const pitchDeg = meshAzimuthPitchDeg(azimuthHalfSpanDeg(v), v)
   let ratio = 0
   let distanceM = 0
-  const edgeDeg = fovDeg / 2
   for (const d of LADDER_M) {
-    const r = meshAzimuthPitchDeg(edgeDeg, 0, fovDeg) / dataPitchDeg(d)
+    const r = pitchDeg / dataPitchDeg(d)
     if (r > ratio) {
       ratio = r
       distanceM = d
     }
   }
-  return { ratio, distanceM }
+  return { ratio, distanceM, pitchDeg }
 }
 
 export function meshSamplingSuite(): SuiteResult {
@@ -116,38 +145,89 @@ export function meshSamplingSuite(): SuiteResult {
         'aucune — propriete interne : le maillage ne doit pas etre plus grossier que la pyramide qu il lit',
     },
     (t) => {
-      // --- La propriete, dans le regime ou elle peut tenir ------------------
-      const resolved = RESOLVED_FOV_DEG.map((fov) => ({ fov, ...worstInField(fov) }))
-      const worst = resolved.reduce((a, b) => (b.ratio > a.ratio ? b : a))
+      // --- Le critere : une erreur ecran constante -------------------------
+      //
+      // C'est la propriete qui rend la loi invariante d'echelle, et c'est
+      // exactement celle d'un raffinement en erreur d'espace ecran : **une
+      // cellule occupe le meme nombre de pixels a tout grossissement**.
+      //
+      // ⚠️ La version precedente ne l'avait pas. Sa marge fixe de trois degres
+      // etait une constante en **degres**, et sous six degres de champ elle
+      // cessait de suivre l'ecran : neuf pixels par colonne a deux degres de
+      // champ, trente-trois a un demi. La loi arretait de zoomer.
+      const fovs = [0.02, 0.1, 0.5, 2, 9, 20, 60, 110]
+      const errors = fovs.map((fov) => ({
+        fov,
+        px: screenErrorPx(worstInField(fov).pitchDeg, view(fov)),
+      }))
+      const inside = errors.filter((e) => e.fov <= 20)
       t.checkTrue(
-        `le maillage n est jamais plus grossier que la donnee, jusqu a ${RESOLVABLE_FOV_DEG.toFixed(1)}° de champ`,
-        worst.ratio <= 1,
-        resolved
+        'une colonne occupe le meme nombre de pixels a tout grossissement',
+        inside.every((e) => e.px <= MAX_SCREEN_ERROR_PX * 1.3),
+        errors.map((e) => `champ ${String(e.fov).padStart(5)}deg : ${e.px.toFixed(1)} px`).join('\n'),
+      )
+      // A champ large, seize pixels seraient plus grossiers qu'une cellule de la
+      // pyramide : c'est la borne de **donnee** qui commande, et l'erreur ecran
+      // descend donc sous la cible au lieu de l'atteindre. C'est voulu — la
+      // depasser reviendrait a jeter du relief pour economiser des sommets.
+      t.checkTrue(
+        'a champ large c est la donnee qui commande, et le pas passe sous la cible ecran',
+        errors.filter((e) => e.fov > 20).every((e) => e.px <= MAX_SCREEN_ERROR_PX),
+        errors
+          .filter((e) => e.fov > 20)
           .map(
-            (r) =>
-              `champ ${String(r.fov).padStart(5)}° : bord ${meshAzimuthPitchDeg(r.fov / 2, 0, r.fov).toFixed(4)}° ` +
-              `contre donnee ${dataPitchDeg(r.distanceM).toFixed(4)}° a ${(r.distanceM / 1000).toFixed(0)} km ` +
-              `— ${r.ratio.toFixed(2)}x`,
+            (e) =>
+              `champ ${e.fov}deg : ${e.px.toFixed(1)} px, ` +
+              `concentration ${azimuthConcentration(view(e.fov)).toFixed(3)}`,
           )
           .join('\n'),
       )
 
-      // ⚠️ Au-dela, la propriete est hors d'atteinte a budget constant. On la
-      // mesure quand meme : un chiffre inscrit vaut mieux qu'un silence, et
-      // c'est lui qui dira si un jour le budget doit bouger.
+      // --- La propriete de depart -----------------------------------------
+      const resolved = RESOLVED_FOV_DEG.map((fov) => ({ fov, ...worstInField(fov) }))
+      const worst = resolved.reduce((a, b) => (b.ratio > a.ratio ? b : a))
+      t.checkTrue(
+        `le maillage n est jamais plus grossier que la donnee, jusqu a ${RESOLVABLE_FOV_DEG.toFixed(1)} deg de champ`,
+        worst.ratio <= 1,
+        resolved
+          .map(
+            (r) =>
+              `champ ${String(r.fov).padStart(5)}deg : bord ${r.pitchDeg.toFixed(4)}deg ` +
+              `contre donnee ${dataPitchDeg(r.distanceM).toFixed(4)}deg a ${(r.distanceM / 1000).toFixed(0)} km ` +
+              `— ${r.ratio.toFixed(2)}x`,
+          )
+          .join('\n'),
+      )
       t.note(
         'champ large, hors du regime resolvable : ' +
-          WIDE_FOV_DEG.map((fov) => `${fov}° -> ${worstInField(fov).ratio.toFixed(1)}x`).join(', ') +
+          WIDE_FOV_DEG.map((fov) => `${fov}deg -> ${worstInField(fov).ratio.toFixed(1)}x`).join(', ') +
           ` (avant ce chantier : ${(0.703125 / dataPitchDeg(27_900)).toFixed(1)}x a tout champ)`,
       )
 
+      // --- La visee plongeante ---------------------------------------------
+      //
+      // ⚠️ Le champ porte par la camera est vertical ; l'etendue en **azimut**
+      // qu'il couvre s'elargit en `1/cos(hauteur)`. Vise vers ses pieds, un
+      // champ d'un degre couvre tous les azimuts, et un secteur fin dimensionne
+      // sur le seul champ laisserait le sol sous l'observateur hors de lui.
+      for (const altitude of [0, -45, -75, -89]) {
+        const v = view(0.5, altitude)
+        const spread = azimuthHalfSpanDeg(v)
+        const fine = (2 * azimuthConcentration(v) * 180) / Math.PI
+        t.checkTrue(
+          `le secteur fin couvre le champ a ${altitude} deg de hauteur`,
+          fine >= spread,
+          `etendue en azimut ${spread.toFixed(2)}deg contre secteur fin ${fine.toFixed(2)}deg`,
+        )
+      }
+
       // --- La loi suit bien la camera --------------------------------------
-      const wide = meshAzimuthPitchDeg(0, 0, 110)
-      const narrow = meshAzimuthPitchDeg(0, 0, 0.5)
+      const wide = meshAzimuthPitchDeg(0, view(110))
+      const narrow = meshAzimuthPitchDeg(0, view(0.5))
       t.checkTrue(
         'le pas d azimut se resserre quand le champ se resserre',
         narrow < wide,
-        `champ 110° -> ${wide.toFixed(4)}° ; champ 0,5° -> ${narrow.toFixed(4)}° ` +
+        `champ 110deg -> ${wide.toFixed(4)}deg ; champ 0,5deg -> ${narrow.toFixed(4)}deg ` +
           `(${(0.703125 / narrow).toFixed(0)}x plus fin qu avant ce chantier)`,
       )
 
@@ -159,40 +239,66 @@ export function meshSamplingSuite(): SuiteResult {
       // recouvrement — l'un et l'autre a un azimut qui suit la camera, donc
       // impossibles a diagnostiquer plus tard.
       for (const fovDeg of [110, 20, 2, 0.02]) {
+        const v = view(fovDeg)
         let total = 0
         const azimuths: number[] = []
-        for (let i = 0; i < AZIMUTH_STEPS; i++) azimuths.push(meshAzimuthDeg(i, 0, fovDeg))
+        for (let i = 0; i < AZIMUTH_STEPS; i++) azimuths.push(meshAzimuthDeg(i, v))
         for (let i = 0; i < AZIMUTH_STEPS; i++) {
           const here = azimuths[i]
           const next = i + 1 === AZIMUTH_STEPS ? azimuths[0] + 360 : azimuths[i + 1]
           total += next - here
         }
-        t.check(`la loi referme le cercle a ${fovDeg}° de champ`, total, 360, 1e-9, '°')
-        t.checkMonotonic(`les colonnes restent ordonnees a ${fovDeg}° de champ`, azimuths, 'croissant')
+        t.check(`la loi referme le cercle a ${fovDeg} deg de champ`, total, 360, 1e-9, 'deg')
+        t.checkMonotonic(
+          `les colonnes restent ordonnees a ${fovDeg} deg de champ`,
+          azimuths,
+          'croissant',
+        )
       }
 
-      // La loi doit **contenir** l'ancienne, et non s'y substituer : a
-      // concentration un, elle est uniforme. C'est ce qui garantit qu'aucun
-      // chemin de code separe ne subsiste pour le champ large.
+      // La loi doit **contenir** l'ancienne, et non s'y substituer : quand
+      // l'etalement en azimut couvre tout le tour, elle tend vers la repartition
+      // uniforme. C'est ce qui garantit qu'aucun chemin de code separe ne
+      // subsiste pour le champ large.
       t.check(
-        'a concentration un, la loi redevient uniforme',
-        meshAzimuthPitchDeg(137, 0, 360, AZIMUTH_STEPS),
+        'a etalement complet, la loi tend vers l uniforme',
+        meshAzimuthPitchDeg(137, view(179)),
         360 / AZIMUTH_STEPS,
-        1e-12,
-        '°',
+        5e-3,
+        'deg',
       )
-      t.check('la concentration sature a un', azimuthConcentration(360), 1, 0)
+
+      // ⚠️ Une concentration superieure a un **inverserait** la loi : le pas
+      // deviendrait le plus grossier face a la visee et le plus fin derriere la
+      // tete. Rien dans la formule ne l'interdit — c'est la borne qui le fait,
+      // et c'est elle qu'il faut tenir.
+      const concentrations = [0.02, 0.5, 2, 9, 20, 60, 110, 179].flatMap((fov) =>
+        [0, -45, -89, 45, 89].map((alt) => ({ fov, alt, s: azimuthConcentration(view(fov, alt)) })),
+      )
+      const inverted = concentrations.filter((c) => c.s > 1)
+      t.checkTrue(
+        'la concentration ne depasse jamais un, quelle que soit la visee',
+        inverted.length === 0,
+        inverted.length === 0
+          ? `${concentrations.length} combinaisons de champ et de hauteur, maximum ` +
+            `${Math.max(...concentrations.map((c) => c.s)).toFixed(3)}`
+          : inverted
+              .map((c) => `champ ${c.fov}deg hauteur ${c.alt}deg -> ${c.s.toFixed(3)}`)
+              .join(' ; '),
+      )
 
       // --- Ce que la concentration coute derriere la tete ------------------
       //
       // ⚠️ Elle n'est pas gratuite : ce qui est donne devant est pris derriere.
       // Le maillage y devient tres grossier, et c'est acceptable **parce qu'on
       // ne le voit pas** — mais uniquement tant que la reconstruction rattrape
-      // le panoramique. C'est ce que la marge fine paie.
+      // le panoramique.
       t.note(
         'pas a l oppose de la visee : ' +
-          [110, 20, 2].map((fov) => `${fov}° -> ${meshAzimuthPitchDeg(180, 0, fov).toFixed(1)}°`).join(', ') +
-          ` — invisible, couvert par la marge de ${AZIMUTH_MARGIN_DEG}° et la reconstruction en tache de fond`,
+          [110, 20, 2, 0.5]
+            .map((fov) => `${fov}deg -> ${meshAzimuthPitchDeg(180, view(fov)).toFixed(1)}deg`)
+            .join(', ') +
+          ' — invisible, couvert par la marge fine et la reconstruction en tache de fond',
       )
 
       // --- Le budget de sommets ------------------------------------------

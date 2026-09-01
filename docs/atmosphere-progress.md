@@ -2373,6 +2373,112 @@ Deux choses, attendues l'une et l'autre, et qui sont la matiere de la phase 2 :
 
 ---
 
+## Le maillage obeit a une erreur d'espace ecran
+
+Phase 2 du chantier `terrain-mesh-resolution`. Une constante gouverne desormais
+le maillage : `MAX_SCREEN_ERROR_PX = 16`, le `maximumScreenSpaceError` par defaut
+de CesiumJS, dont le critere de raffinement est
+
+    SSE = erreur_geometrique × hauteur_ecran / (distance × 2·tan(champ/2))
+
+### ⚠️ Ce que la phase 1 n'avait pas
+
+Sa marge fine valait trois degres — une constante en **degres**. Sous six degres
+de champ, c'est elle qui fixait la concentration, et la loi **cessait de suivre
+l'ecran** : neuf pixels par colonne a deux degres de champ, mais trente-trois a
+un demi. Elle arretait de zoomer sans que rien ne le signale.
+
+La concentration se deduit maintenant, au lieu d'etre choisie. Apres :
+
+| champ | erreur par colonne |
+| --- | --- |
+| 0,02° | 16,0 px |
+| 0,5° | 16,0 px |
+| 2° | 16,0 px |
+| 9° | 8,8 px |
+| 110° | 5,3 px |
+
+Constante par construction dans le regime ou l'ecran commande, et **plus fine**
+que la cible au-dela, ou c'est la donnee qui commande.
+
+### Deux bornes, et la plus serree gagne
+
+- **L'ecran** : une colonne ne doit pas depasser seize pixels, soit
+  `k·champ/hauteur` degres. Elle commande a fort grossissement.
+- **La donnee** : `DATA_FINEST_PITCH_DEG = atan(2/(CLIPMAP_SIZE−1))`, soit
+  0,056°. Ce n'est pas une mesure mais une **propriete de construction de la
+  pyramide** : chaque niveau couvre `2·halfSpan` avec `CLIPMAP_SIZE` cellules,
+  donc les trois offrent le meme pas angulaire depuis le bord de leur domaine.
+
+⚠️ Prendre la seule borne d'ecran laissait le maillage **trois fois plus
+grossier que la pyramide a neuf degres de champ** — seize pixels y sont plus
+larges qu'une cellule. Prendre la seule borne de donnee figeait la loi en
+degres. Il faut les deux.
+
+La concentration sort d'une equation du second degre : le pas au bord du champ
+devant valoir la cible, `s²·c² − (cible/A)·s + n² = 0`. On prend la **racine la
+plus grande**, qui atteint la cible avec le secteur fin le plus large, donc la
+marge la plus genereuse. Discriminant negatif : la cible est hors d'atteinte a
+budget constant, et l'on retombe sur `s = tan(bord/2)`, qui minimise le pas de
+bord.
+
+### ⚠️ Deux erreurs de la phase 1, trouvees en resserrant les controles
+
+**Le seuil resolvable valait 9,2°, il vaut 5,7°.** Le controle mesurait le pas
+au demi-champ **vertical** alors que l'azimut se compte a l'horizontale : il
+etait plus indulgent qu'il ne croyait, d'un facteur egal au rapport d'aspect.
+
+**La visee plongeante sortait du secteur fin.** Le champ porte par la camera est
+vertical ; l'etendue en **azimut** qu'il couvre s'elargit en `1/cos(hauteur)`.
+Vise vers ses pieds, un champ d'un degre couvre vingt degres d'azimut, et le
+secteur fin dimensionne sur le seul champ les laissait dehors. Quatre controles
+tiennent desormais la couverture, de zero a quatre-vingt-neuf degres de
+plongee.
+
+### Le dernier a-coup ne venait pas du calcul
+
+Six megaoctets de tampons par reconstruction, plusieurs reconstructions par
+seconde de panoramique : vingt megaoctets de dechets par seconde, et le
+ramasse-miettes rendait une image a **132 ms** a champ large. Deux jeux de
+tampons recycles en alternance l'ont supprime — on batit toujours dans celui que
+la geometrie affichee n'utilise pas.
+
+Panoramique continu, six secondes par mesure, 2160 images :
+
+| champ | mediane | p95 | p99 | max |
+| --- | --- | --- | --- | --- |
+| 0,5° | 16,6 ms | 20,2 ms | 22,5 ms | 22,9 ms |
+| 2° | 16,6 ms | 20,1 ms | 21,6 ms | 24,6 ms |
+| 20° | 16,7 ms | 19,9 ms | 20,9 ms | 24,6 ms |
+| 110° | 16,6 ms | 20,6 ms | 23,4 ms | 29,7 ms |
+| 0,5° au nadir | 16,5 ms | 20,4 ms | 22,6 ms | 24,2 ms |
+
+### ⚠️ La reparametrisation des anneaux annoncee etait fausse
+
+Elle ne sera pas faite, et c'est le resultat le plus utile de cette phase.
+
+L'idee etait d'equirepartir les anneaux en **hauteur apparente**, ce qui revient
+a leur donner une empreinte ecran constante. Calcul fait : les anneaux
+couvriraient 71,7° de hauteur apparente entre le premier et l'horizon, ce qui
+demanderait deux mille anneaux pour tenir seize pixels. Avec les deux cent huit
+disponibles, le pas deviendrait **0,345° partout** — contre 0,0028° aujourd'hui
+a l'horizon. Cent fois pire, exactement la ou l'oeil regarde.
+
+Et la raison est plus profonde : sur l'axe des distances, **l'erreur n'est pas
+geometrique mais topographique**. Ce qui fait l'erreur, ce n'est pas l'ecart de
+hauteur apparente entre deux anneaux sur un sol plat, c'est le relief qu'ils
+sautent — une crete entre deux anneaux est simplement absente. Cette erreur vaut
+`pente × Δd/d`, donc elle est **constante quand `Δd/d` est constant** : c'est
+exactement ce que fait un espacement logarithmique.
+
+**La loi des anneaux est deja optimale au sens de la SSE.** Elle n'est pas mal
+parametree, elle est **sous-dotee** : a raison 1,0685, l'erreur vaut environ 0,8°
+pour une pente de 0,2, quand la cible en demande vingt fois moins. Aucune
+redistribution ne corrige un facteur vingt ; seuls un budget different ou une
+autre representation le feraient.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2424,3 +2530,4 @@ Deux choses, attendues l'une et l'autre, et qui sont la matiere de la phase 2 :
 | 2026-09-02 | Pente du relief simulé bornée — la face nuit cesse de s'allumer au zoom |
 | 2026-09-01 | Phase 0 du maillage de terrain — le défaut devient un nombre, deux contrôles échouent |
 | 2026-09-01 | Phase 1 — l'azimut suit la caméra : 38x plus fin à fort zoom, budget inchangé |
+| 2026-09-02 | Phase 2 — le maillage obéit à une erreur d'espace écran ; la réparametrisation des anneaux est réfutée |

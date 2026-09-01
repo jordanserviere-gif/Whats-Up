@@ -90,33 +90,109 @@ export function ringRatio(farRangeM: number, rangeSteps = RANGE_STEPS): number {
 }
 
 /**
- * Marge fine autour de la visee, degres de demi-largeur.
+ * Erreur tolerée sur l'ecran, pixels — **la constante qui gouverne le maillage**.
  *
- * ⚠️ **Ce n'est pas un confort, c'est la latence de reconstruction convertie en
- * angle.** Le maillage se refait en tache de fond ; entre l'instant ou la
- * camera bouge et celui ou le nouveau maillage arrive, c'est l'ancien qui est
- * affiche. La marge doit donc couvrir ce que la camera peut parcourir dans
- * l'intervalle, faute de quoi un panoramique decouvrirait la zone grossiere.
+ * C'est la taille apparente que doit avoir une cellule du maillage. Seize
+ * pixels : c'est le `maximumScreenSpaceError` par defaut de CesiumJS, dont le
+ * critere de raffinement est
  *
- * Trois degres valent une dizaine de largeurs d'ecran a fort grossissement, et
- * la vitesse de rotation est elle-meme proportionnelle au champ.
+ *     SSE = erreur_geometrique × hauteur_ecran / (distance × 2·tan(champ/2))
  *
- * Elle sert aussi de **plancher** : sous trois degres de champ, c'est elle qui
- * fixe la concentration, ce qui evite de resserrer indefiniment l'azimut sur un
- * champ qui tend vers zero.
+ * ⚠️ **Ce n'est pas la meme grandeur que la SSE stricte.** Celle-ci se calcule
+ * sur l'**erreur geometrique** — l'ecart en metres entre la representation et le
+ * terrain reel — la ou nous prenons la taille d'une cellule. Une plaine a une
+ * erreur quasi nulle a n'importe quel niveau et meriterait donc peu de sommets
+ * meme de pres ; nous lui en donnons autant qu'a une arete. L'approximation
+ * tient parce que la pyramide a une resolution fixe, mais elle est a signaler :
+ * une SSE stricte demanderait une mesure de rugosite par region, precalculee
+ * avec les tuiles.
+ *
+ * Voir le registre.
  */
-export const AZIMUTH_MARGIN_DEG = 3
+export const MAX_SCREEN_ERROR_PX = 16
 
 /**
- * Concentration de la loi d'azimut — le seul parametre.
+ * Pas angulaire le plus fin que la pyramide sache offrir, degres.
  *
- * `1` rend la repartition uniforme sur trois cent soixante degres, celle d'avant
- * ce chantier. En dessous, les colonnes se resserrent autour de la visee, et le
- * rapport entre le pas le plus grossier et le plus fin vaut `1/s²`.
+ * Il ne depend d'aucun niveau : chaque niveau couvre `2·halfSpan` avec
+ * `CLIPMAP_SIZE` cellules, donc une cellule vue depuis le bord de son propre
+ * niveau sous-tend `atan(2/(CLIPMAP_SIZE−1))` — la meme valeur pour les trois.
+ * C'est une propriete de la construction de la pyramide, pas une mesure.
  */
-export function azimuthConcentration(fovDeg: number): number {
-  const halfWidthDeg = Math.max(fovDeg / 2, AZIMUTH_MARGIN_DEG)
-  return Math.min(1, ((halfWidthDeg * Math.PI) / 180) / 2)
+export const DATA_FINEST_PITCH_DEG = Math.atan(2 / (CLIPMAP_SIZE - 1)) / DEG
+
+/**
+ * Concentration de la loi d'azimut — deduite, non choisie.
+ *
+ * ## Deux bornes, et la plus serree gagne
+ *
+ * - **L'ecran** : une colonne ne doit pas depasser `MAX_SCREEN_ERROR_PX`, ce qui
+ *   vaut `k·champ/hauteur` degres. C'est la borne qui commande a fort
+ *   grossissement.
+ * - **La donnee** : descendre sous `DATA_FINEST_PITCH_DEG` n'apporte rien, et
+ *   surtout **rester au-dessus jette du relief**. C'est la borne qui commande a
+ *   champ large, ou seize pixels sont deja plus grossiers qu'une cellule.
+ *
+ * ⚠️ Prendre la seule borne d'ecran laissait le maillage trois fois plus
+ * grossier que la pyramide a neuf degres de champ. Prendre la seule borne de
+ * donnee — ce que faisait la version precedente — figeait la loi en degres et
+ * l'empechait de suivre le zoom. Il faut les deux.
+ *
+ * ## Resoudre pour `s`
+ *
+ * Le pas au **bord du champ** doit valoir la cible. En posant `A = 360/N`,
+ * `c = cos(bord/2)` et `n = sin(bord/2)`, `pas(bord) = (A/s)(s²c² + n²)` donne
+ *
+ *     s²·c² − (cible/A)·s + n² = 0
+ *
+ * Les deux racines atteignent la cible ; on prend **la plus grande**, qui
+ * l'atteint avec le secteur fin le plus large, donc la marge la plus generreuse
+ * pour le panoramique.
+ *
+ * Quand le discriminant est negatif, la cible est hors d'atteinte a budget
+ * constant : on retombe sur `s = tan(bord/2)`, qui **minimise** le pas de bord —
+ * le mieux que cinq cent douze colonnes puissent faire.
+ */
+export function azimuthConcentration(view: MeshView, azimuthSteps = AZIMUTH_STEPS): number {
+  const uniformPitchDeg = 360 / azimuthSteps
+  const fromScreen = (MAX_SCREEN_ERROR_PX * view.fovDeg) / view.heightPx
+  const targetDeg = Math.min(fromScreen, DATA_FINEST_PITCH_DEG)
+
+  const half = (azimuthHalfSpanDeg(view) * DEG) / 2
+  const c = Math.cos(half)
+  const n = Math.sin(half)
+  const b = targetDeg / uniformPitchDeg
+  const discriminant = b * b - 4 * c * c * n * n
+  const s = discriminant >= 0 ? (b + Math.sqrt(discriminant)) / (2 * c * c) : n / c
+  return Math.min(1, s)
+}
+
+/**
+ * Demi-etendue en azimut du champ de vision, degres.
+ *
+ * Le champ porte par la camera est **vertical** ; l'azimut, lui, se compte le
+ * long de l'horizontale, d'ou le rapport d'aspect. Et une visee plongeante
+ * elargit encore cette etendue en `1/cos(hauteur)` — au nadir, un champ d'un
+ * degre couvre tous les azimuts.
+ */
+export function azimuthHalfSpanDeg(view: MeshView): number {
+  const halfH = Math.atan(Math.tan((view.fovDeg * DEG) / 2) * view.aspect) / DEG
+  const cos = Math.abs(Math.cos(view.altitudeDeg * DEG))
+  return Math.min(180, halfH / Math.max(0.02, cos))
+}
+
+/** Ce que la camera impose au maillage. */
+export interface MeshView {
+  /** Azimut de la visee, degres. */
+  azimuthDeg: number
+  /** Hauteur de la visee, degres — elle elargit l'etendue en azimut du champ. */
+  altitudeDeg: number
+  /** Champ **vertical**, degres, comme le porte la camera de three. */
+  fovDeg: number
+  /** Rapport largeur sur hauteur du viewport. */
+  aspect: number
+  /** Hauteur du viewport, pixels — c'est elle qui convertit les degres en SSE. */
+  heightPx: number
 }
 
 /**
@@ -124,7 +200,7 @@ export function azimuthConcentration(fovDeg: number): number {
  *
  * ## La deformation, et pourquoi celle-ci
  *
- * Les colonnes sont equiréparties dans un parametre `t ∈ [−1, 1[`, puis
+ * Les colonnes sont equirepartis dans un parametre `t ∈ [−1, 1[`, puis
  * deformees par
  *
  *     θ(t) = 2·atan( s·tan(π t / 2) )
@@ -144,16 +220,11 @@ export function azimuthConcentration(fovDeg: number): number {
  * La forme `atan2` evite la tangente infinie en `t = ±1`, ou la formule directe
  * demanderait un cas particulier.
  */
-export function meshAzimuthDeg(
-  i: number,
-  viewAzimuthDeg: number,
-  fovDeg: number,
-  azimuthSteps = AZIMUTH_STEPS,
-): number {
-  const s = azimuthConcentration(fovDeg)
+export function meshAzimuthDeg(i: number, view: MeshView, azimuthSteps = AZIMUTH_STEPS): number {
+  const s = azimuthConcentration(view, azimuthSteps)
   const half = (Math.PI * (-1 + (2 * i) / azimuthSteps)) / 2
   const offset = 2 * Math.atan2(s * Math.sin(half), Math.cos(half))
-  return viewAzimuthDeg + offset / DEG
+  return view.azimuthDeg + offset / DEG
 }
 
 /**
@@ -168,19 +239,22 @@ export function meshAzimuthDeg(
  */
 export function meshAzimuthPitchDeg(
   azimuthDeg: number,
-  viewAzimuthDeg: number,
-  fovDeg: number,
+  view: MeshView,
   azimuthSteps = AZIMUTH_STEPS,
 ): number {
-  const s = azimuthConcentration(fovDeg)
-  let offsetDeg = (azimuthDeg - viewAzimuthDeg) % 360
+  const s = azimuthConcentration(view, azimuthSteps)
+  let offsetDeg = (azimuthDeg - view.azimuthDeg) % 360
   if (offsetDeg > 180) offsetDeg -= 360
   if (offsetDeg < -180) offsetDeg += 360
   const half = (offsetDeg * DEG) / 2
   const c = Math.cos(half)
   const sn = Math.sin(half)
-  return ((360 / (azimuthSteps * s)) * (s * s * c * c + sn * sn))
+  return (360 / (azimuthSteps * s)) * (s * s * c * c + sn * sn)
 }
+
+/** Taille apparente d'un pas angulaire, pixels — l'unite du critere. */
+export const screenErrorPx = (pitchDeg: number, view: MeshView): number =>
+  (pitchDeg * view.heightPx) / view.fovDeg
 
 /**
  * Pas apparent entre deux anneaux consecutifs, degres d'elevation.

@@ -107,7 +107,7 @@ import {
   terrainRevision,
 } from './terrain/elevationField'
 import { CLIPMAP_HALF_SPANS_M } from './terrain/elevationClipmap'
-import { AZIMUTH_STEPS, NEAR_M, RANGE_STEPS, meshAzimuthDeg } from './terrain/meshSampling'
+import { AZIMUTH_STEPS, NEAR_M, RANGE_STEPS, meshAzimuthDeg, type MeshView } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
@@ -235,14 +235,19 @@ function meshIndex(): BufferAttribute {
  * C'est la meme mecanique que le remplissage des tables atmospheriques, qui
  * avancent d'une ligne par image pour la meme raison.
  */
-interface MeshBuild {
-  /** Ce que ce maillage decrit ; une valeur differente en demande un autre. */
-  readonly key: string
-  readonly observerElevationM: number
-  readonly effectiveRadiusM: number
-  readonly logNear: number
-  readonly logSpan: number
-  /** Sinus et cosinus de chaque colonne, la loi d'azimut etant fixee au depart. */
+/**
+ * Tampons d'un maillage, alloues une fois et **recycles**.
+ *
+ * ⚠️ Six megaoctets par reconstruction, et le maillage se refait plusieurs fois
+ * par seconde de panoramique : les allouer a chaque fois produisait vingt
+ * megaoctets de dechets par seconde, et le ramasse-miettes rendait une image a
+ * **132 ms** a champ large. C'etait le seul a-coup qui restait, et il ne venait
+ * pas du calcul.
+ *
+ * Deux jeux suffisent : on batit toujours dans celui que la geometrie affichee
+ * n'utilise pas.
+ */
+interface MeshBuffers {
   readonly sinAz: Float64Array
   readonly cosAz: Float64Array
   readonly positions: Float32Array
@@ -255,46 +260,84 @@ interface MeshBuild {
    * positions comprimees en profondeur.
    */
   readonly local: Float64Array
+}
+
+function makeBuffers(): MeshBuffers {
+  const vertexCount = AZIMUTH_STEPS * RANGE_STEPS
+  return {
+    sinAz: new Float64Array(AZIMUTH_STEPS),
+    cosAz: new Float64Array(AZIMUTH_STEPS),
+    positions: new Float32Array(vertexCount * 3),
+    normals: new Float32Array(vertexCount * 3),
+    ranges: new Float32Array(vertexCount),
+    altitudes: new Float32Array(vertexCount),
+    local: new Float64Array(vertexCount * 3),
+  }
+}
+
+/**
+ * Les deux jeux, et celui qui servira a la prochaine construction.
+ *
+ * L'alternance suffit a garantir qu'on n'ecrit jamais dans les tampons de la
+ * geometrie visible : la construction `n+1` prend l'autre jeu que la `n`, qui
+ * est affichee, et la `n+2` reprend le premier — libere entre-temps.
+ */
+const meshBuffers: readonly MeshBuffers[] = [makeBuffers(), makeBuffers()]
+let nextBuffers = 0
+
+/**
+ * Reconstruction en cours.
+ *
+ * ## ⚠️ Pourquoi elle est etalee sur plusieurs images
+ *
+ * Le maillage suit desormais la camera : il se refait quand la visee ou le champ
+ * changent, c'est-a-dire **pendant qu'on regarde**. Or le construire coute
+ * dix-huit millisecondes, plus qu'une image entiere : le faire d'un bloc
+ * echangerait un defaut de resolution contre un a-coup a chaque mouvement.
+ *
+ * Il est donc bati par tranches, l'ancien maillage restant affiche jusqu'a ce
+ * que le nouveau soit complet. Ce qu'on paie n'est plus un a-coup mais une
+ * **latence**, que la marge du secteur fin absorbe.
+ *
+ * C'est la meme mecanique que le remplissage des tables atmospheriques, qui
+ * avancent d'une ligne par image pour la meme raison.
+ */
+interface MeshBuild {
+  /** Ce que ce maillage decrit ; une valeur differente en demande un autre. */
+  readonly key: string
+  readonly buffers: MeshBuffers
+  readonly observerElevationM: number
+  readonly effectiveRadiusM: number
+  readonly logNear: number
+  readonly logSpan: number
   /** Anneaux dont les positions sont posees. */
   placed: number
   /** Anneaux dont les normales sont calculees. */
   shaded: number
 }
 
-function createBuild(
-  key: string,
-  observerElevationM: number,
-  viewAzimuthDeg: number,
-  fovDeg: number,
-): MeshBuild {
-  const vertexCount = AZIMUTH_STEPS * RANGE_STEPS
+function createBuild(key: string, observerElevationM: number, view: MeshView): MeshBuild {
   // Le meme horizon que le sol, par construction : la depression vient de
   // l'integrale du moteur, pas du coefficient de manuel.
   const effectiveRadiusM = effectiveEarthRadiusM(
     observerElevationM,
     cachedHorizonDipDeg(observerElevationM),
   )
-  const sinAz = new Float64Array(AZIMUTH_STEPS)
-  const cosAz = new Float64Array(AZIMUTH_STEPS)
+  const buffers = meshBuffers[nextBuffers]
+  nextBuffers = 1 - nextBuffers
   for (let a = 0; a < AZIMUTH_STEPS; a++) {
-    const azimuth = meshAzimuthDeg(a, viewAzimuthDeg, fovDeg) * DEG
-    sinAz[a] = Math.sin(azimuth)
-    cosAz[a] = Math.cos(azimuth)
+    const azimuth = meshAzimuthDeg(a, view) * DEG
+    buffers.sinAz[a] = Math.sin(azimuth)
+    buffers.cosAz[a] = Math.cos(azimuth)
   }
   const logNear = Math.log(NEAR_M)
   return {
     key,
+    buffers,
     observerElevationM,
     effectiveRadiusM,
     logNear,
     logSpan: Math.log(farRangeM(observerElevationM, effectiveRadiusM)) - logNear,
-    sinAz,
-    cosAz,
-    positions: new Float32Array(vertexCount * 3),
-    normals: new Float32Array(vertexCount * 3),
-    ranges: new Float32Array(vertexCount),
-    altitudes: new Float32Array(vertexCount),
-    local: new Float64Array(vertexCount * 3),
     placed: 0,
     shaded: 0,
   }
@@ -302,7 +345,7 @@ function createBuild(
 
 /** Avance la construction d'au plus `rings` anneaux. Rend vrai quand elle est finie. */
 function advanceBuild(build: MeshBuild, rings: number): boolean {
-  const { positions, ranges, altitudes, local, sinAz, cosAz } = build
+  const { positions, ranges, altitudes, local, sinAz, cosAz } = build.buffers
   let budget = rings
 
   // --- Les positions ------------------------------------------------------
@@ -358,7 +401,7 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
   // plus equidistantes, un pas d'azimut suppose constant donnerait des pentes
   // fausses la ou la densite change. Ici les tangentes sont prises entre les
   // sommets reels, donc la non-uniformite est portee par les donnees elles-memes.
-  const { normals } = build
+  const { normals } = build.buffers
   while (build.shaded < RANGE_STEPS && budget > 0) {
     const r = build.shaded
     for (let a = 0; a < AZIMUTH_STEPS; a++) {
@@ -401,10 +444,11 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
 /** Rend la geometrie d'une construction achevee. */
 function sealBuild(build: MeshBuild): BufferGeometry {
   const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new BufferAttribute(build.positions, 3))
-  geometry.setAttribute('normal', new BufferAttribute(build.normals, 3))
-  geometry.setAttribute('range', new BufferAttribute(build.ranges, 1))
-  geometry.setAttribute('altitude', new BufferAttribute(build.altitudes, 1))
+  const { positions, normals, ranges, altitudes } = build.buffers
+  geometry.setAttribute('position', new BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new BufferAttribute(normals, 3))
+  geometry.setAttribute('range', new BufferAttribute(ranges, 1))
+  geometry.setAttribute('altitude', new BufferAttribute(altitudes, 1))
   // Deux triangles par cellule ; l'azimut boucle, la distance non. Le tampon est
   // partage entre tous les maillages : il ne depend pas de la visee.
   geometry.setIndex(meshIndex())
@@ -732,13 +776,22 @@ export function Terrain({
   // maillage affiche pointe vers des tampons deja rendus.
   useEffect(() => () => geometry?.dispose(), [geometry])
 
-  useFrame(({ camera }) => {
+  useFrame(({ camera, size }) => {
     // La camera est la source, et non le magasin : celui-ci n'est ecrit qu'au
     // franchissement d'un seuil, et le maillage suivrait donc la visee par
     // paliers decales de ceux qu'il se donne lui-meme.
     camera.getWorldDirection(viewForward)
-    const viewAzimuthDeg = Math.atan2(viewForward.x, -viewForward.z) / DEG
     const fovDeg = (camera as PerspectiveCamera).fov ?? 60
+    const view: MeshView = {
+      azimuthDeg: Math.atan2(viewForward.x, -viewForward.z) / DEG,
+      altitudeDeg: Math.asin(Math.max(-1, Math.min(1, viewForward.y))) / DEG,
+      fovDeg,
+      aspect: size.width / Math.max(1, size.height),
+      // La hauteur du viewport est ce qui convertit les degres en pixels : sans
+      // elle, la loi ne saurait pas ce qu'« une erreur de seize pixels » veut
+      // dire, et redeviendrait une constante en degres.
+      heightPx: Math.max(1, size.height),
+    }
 
     // Quantification de la visee : un quart de champ. En dessous, le maillage
     // ne changerait pas assez pour se voir, et l'on reconstruirait sans fin.
@@ -747,8 +800,9 @@ export function Terrain({
     // seconde de panoramique ne depend donc pas du grossissement.
     const quantum = Math.max(0.02, fovDeg * 0.25)
     const key =
-      `${elevationKey}:${revision}:${Math.round(viewAzimuthDeg / quantum)}:` +
-      `${Math.round(Math.log2(fovDeg) * 4)}`
+      `${elevationKey}:${revision}:${Math.round(view.azimuthDeg / quantum)}:` +
+      `${Math.round(view.altitudeDeg / Math.max(1, quantum))}:` +
+      `${Math.round(Math.log2(fovDeg) * 4)}:${view.heightPx}`
 
     // ⚠️ Une construction en cours n'est **jamais** abandonnee au profit d'une
     // cle plus recente. Un panoramique continu changerait la cle a chaque image
@@ -756,7 +810,7 @@ export function Terrain({
     // besoin. Le maillage affiche a donc au plus un quart de champ de retard,
     // que la marge fine couvre trente fois.
     if (!build.current && shownKey.current !== key) {
-      build.current = createBuild(key, eyeM, viewAzimuthDeg, fovDeg)
+      build.current = createBuild(key, eyeM, view)
     }
     // ⚠️ Le **premier** maillage se batit d'un bloc. L'etaler laisserait un
     // demi-second sans sol au demarrage, ou l'on verrait le ciel sous ses
