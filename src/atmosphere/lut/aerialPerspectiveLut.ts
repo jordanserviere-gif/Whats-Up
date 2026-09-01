@@ -140,13 +140,47 @@ export const AERIAL_NEAR_M = 50
 /**
  * Portee de la coordonnee de distance, m.
  *
- * Ce n'est **pas** la longueur du rayon : c'est la distance au-dela de laquelle
- * l'integrale n'accumule plus rien de mesurable. Une visee rasante depuis le sol
- * parcourt onze cents kilometres, mais a huit cents elle est deja a quarante-six
- * kilometres d'altitude, ou il ne reste rien a diffuser. Les tranches suivantes
- * repetent donc la meme valeur, et `w = 1` designe toujours le ciel.
+ * ## ⚠️ Elle valait 800 km, et c'etait une troncature grave
+ *
+ * Le raisonnement d'origine : « ce n'est pas la longueur du rayon, c'est la
+ * distance au-dela de laquelle l'integrale n'accumule plus rien. Une visee
+ * rasante parcourt onze cents kilometres, mais a huit cents elle est deja a
+ * quarante-six kilometres d'altitude, ou il ne reste rien a diffuser. »
+ *
+ * **C'est vrai de jour et faux au crepuscule**, et le crepuscule est le seul
+ * moment ou cela compte. Le Soleil couche, l'air proche est dans l'ombre de la
+ * Terre et ne diffuse rien : toute la lumiere du ciel vient de l'air **lointain
+ * et haut**, le seul encore eclaire. La tronquer, c'est jeter exactement ce
+ * qu'on cherchait a calculer.
+ *
+ * Mesure, observateur a 1910 m, Soleil a −15,25°, part de la radiance collectee
+ * au-dela de huit cents kilometres :
+ *
+ * | hauteur de visee | part au-dela de 800 km |
+ * | --- | --- |
+ * | 0,09° | **93 %** |
+ * | 0,80° | **91 %** |
+ * | 2,20° | 59 % |
+ * | 4,31° | 0 % |
+ *
+ * La table rendait donc 7 a 12 % de la vraie valeur sous un degre et demi, et
+ * retrouvait l'exactitude au-dela de quatre. Entre les deux, le raccord formait
+ * une **bande brillante etroite** vers deux degres : le halo blanc signale apres
+ * le crepuscule.
+ *
+ * ## La valeur, deduite plutot que choisie
+ *
+ * La borne n'est plus une estimation de « la ou il ne se passe plus rien » mais
+ * la **longueur reelle du plus long trajet possible** : celui d'une visee
+ * horizontale depuis le sol jusqu'au sommet de l'atmosphere,
+ *
+ *     sqrt((R + h_top)² − R²) = 1133 km
+ *
+ * arrondie au-dessus. Un observateur en altitude a un trajet plus court, jamais
+ * plus long. Au-dela, la marche est bornee par sa propre fin et les tranches
+ * repetent la derniere valeur — `w = 1` designe donc toujours le ciel.
  */
-export const AERIAL_FAR_M = 800_000
+export const AERIAL_FAR_M = 1_200_000
 
 /** Constante de la loi logarithmique, telle que `w = 1` donne `AERIAL_FAR_M`. */
 const AERIAL_K = Math.log1p(AERIAL_FAR_M / AERIAL_NEAR_M)
@@ -345,15 +379,28 @@ export function fillAerialRows(
   // Le nombre de pas par tranche est choisi pour que la marche complete garde la
   // finesse validee du ciel : 15 intervalles x 4 pas = 60, contre 48 pour la
   // table de ciel d'origine. Plus fin, jamais moins.
-  // Quatre pas par tranche, mesures contre une marche seize fois plus fine :
+  // ## Huit pas par tranche, et c'est le crepuscule qui l'impose
+  //
+  // Mesure de jour, contre une marche seize fois plus fine :
   //
   //     2 pas -> 0,199 %     4 pas -> 0,050 %     8 pas -> 0,012 %
   //
-  // Deux auraient tenu le meme cout qu'avant le changement de loi, mais a
-  // 0,199 % — trois fois pire que les 0,07 % de l'ancienne marche. On ne degrade
-  // pas la quadrature pour economiser : quatre pas la ramenent sous l'ancienne
-  // valeur, et le budget se rattrape sur le nombre de lignes par image.
-  const stepsPerSlice = 4
+  // Quatre suffisaient donc, et c'est ce qu'on avait retenu. ⚠️ **Mais la mesure
+  // n'avait ete faite que de jour.** Le Soleil couche, l'integrande acquiert une
+  // **arete franche** : le point ou le rayon sort de l'ombre de la Terre. Une
+  // quadrature grossiere l'integre mal, et l'ecart a la marche fine explose.
+  //
+  // Mesure au crepuscule, configuration complete, contre le solveur direct :
+  //
+  // | Soleil | 4 pas | 8 pas |
+  // | --- | --- | --- |
+  // | −6° | 0,3 % | 0,0 % |
+  // | −10° | 0,4 % | 0,2 % |
+  // | **−15°** | **8,5 %** | **1,0 %** |
+  //
+  // Le surcout est de **1,2 ms par ligne** — 4,8 a 6,3 ms — et non du double,
+  // une part du cout d'une ligne ne dependant pas du nombre de pas.
+  const stepsPerSlice = 8
   const sliceDistancesM = aerialSliceDistancesM(depth)
 
   for (let y = Math.max(0, fromRow); y < Math.min(height, toRow); y++) {

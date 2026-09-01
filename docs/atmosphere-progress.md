@@ -2064,6 +2064,40 @@ table utilisable. Premier ciel a **6,0 s** au lieu de 12,1.
 
 ---
 
+## ⚠️ La table jetait 93 % du ciel crepusculaire
+
+Le « halo blanc post-crepusculaire », audite pixel par pixel.
+
+La table de l'application et son recalcul independant s'accordaient a 6 % : le
+materiau faisait bien ce qu'on croyait. Compare au **solveur direct**, en
+revanche, la table rendait **7 % de la vraie valeur** au ras de l'horizon et
+redevenait exacte au-dela de quatre degres. Le raccord entre les deux formait la
+bande brillante signalee.
+
+Cause : `AERIAL_FAR_M` valait 800 km, borne justifiee sur un rayon rasant **de
+jour**. Au crepuscule, l'air proche est dans l'ombre de la Terre et toute la
+lumiere vient de l'air lointain et haut — 93 % de la radiance est collectee
+au-dela de 800 km a 0,09° de hauteur. La borne est desormais la longueur reelle
+du plus long trajet, 1133 km arrondis a 1200.
+
+Aucun controle ne l'avait vue : « la tranche lointaine est numeriquement le
+ciel » ne tournait qu'a vingt degres de hauteur solaire. Il tourne maintenant
+aussi a -6° et -15°.
+
+Le meme controle a revele 8,5 % de residu de quadrature a -15° — l'ombre de la
+Terre fait une arete franche dans l'integrande. Huit pas par tranche au lieu de
+quatre : 1,0 %, pour 1,2 ms de plus par ligne.
+
+**Echelle crepusculaire remesuree** (les chiffres de la veille passaient par la
+table tronquee) : x0,98 a -6°, x0,72 a -8°, x0,70 a -10°, x0,71 a -12°, x0,33 a
+-14°, x0,11 a -16°. Table et solveur direct s'accordent a 1 %.
+
+L'audit a aussi etabli que le halo **n'est pas l'airglow** — 1 a 2 % du total
+sous trois degres — et qu'il est gris parce que la desaturation scotopique vaut
+100 % dans tout le ciel a ces luminances.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2108,3 +2142,4 @@ table utilisable. Premier ciel a **6,0 s** au lieu de 12,1.
 | 2026-09-01 | Loi de distance globale — la rupture du voile à la rasance du globe disparaît |
 | 2026-09-01 | Re-saturation ramenée à 1 — le dégradé du crépuscule cesse d'être écrêté |
 | 2026-09-01 | Diffusion multiple itérée — la décroissance crépusculaire redevient régulière |
+| 2026-09-01 | Troncature de la coordonnée de distance — 93 % du ciel crépusculaire était jeté |

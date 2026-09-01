@@ -109,6 +109,55 @@ export function aerialPerspectiveLutSuite(): SuiteResult {
         'd’affichage qui vaut 3,9e-3 — c’est ce qui fait qu’un astre ne se detache pas du fond',
     )
 
+    // --- Le meme raccord, mais au crepuscule --------------------------------
+    //
+    // ⚠️ **Le controle ci-dessus ne se faisait qu'a vingt degres de hauteur
+    // solaire, et c'est ce qui a laisse passer une troncature grave.**
+    //
+    // De jour, la lumiere du ciel est collectee dans les premieres dizaines de
+    // kilometres du rayon : borner la coordonnee de distance a huit cents ne se
+    // voyait pas. Le Soleil couche, l'air proche est dans l'ombre de la Terre et
+    // ne diffuse rien — toute la lumiere vient de l'air **lointain et haut**, le
+    // seul encore eclaire. La table rendait alors 7 % de la vraie valeur au ras
+    // de l'horizon, et le raccord entre la zone fausse et la zone juste formait
+    // une bande brillante vers deux degres.
+    //
+    // Le raccord se verifie donc desormais la ou il est le plus fragile : au
+    // crepuscule, et sur les premieres hauteurs au-dessus de l'horizon.
+    let worstTwilight = 0
+    let twilightWhere = ''
+    for (const sunAltitude of [-6, -15]) {
+      const dusk = createAerialLut()
+      fillAerialRows(dusk, grid, sunAltitude, 0, dusk.height, transport)
+      for (let y = Math.ceil(AERIAL_HORIZON_ROW) + 1; y < dusk.height; y += 4) {
+        const altitudeDeg = aerialAltitudeDeg(y / (dusk.height - 1))
+        const sky = skyRadiance(grid, altitudeDeg, 0, sunAltitude, {
+          ...transport,
+          primarySteps: 256,
+        }).linearSrgb
+        const i = (((dusk.depth - 1) * dusk.height + y) * dusk.width + 0) * 4
+        // Le plancher se compte en **luminance**, pas en canal : au-dela de
+        // sept degres a −15° la diffusion simple vaut deux millioniemes de
+        // candela, et un ecart relatif n'y decrit plus que du bruit.
+        const luminance = 683 * (0.2126 * sky[0] + 0.7152 * sky[1] + 0.0722 * sky[2])
+        if (luminance < 1e-4) continue
+        for (let c = 0; c < 3; c++) {
+          if (sky[c] <= 1e-12) continue
+          const error = Math.abs(dusk.scattered[i + c] - sky[c]) / sky[c]
+          if (error > worstTwilight) {
+            worstTwilight = error
+            twilightWhere = `Soleil ${sunAltitude}°, visee ${altitudeDeg.toFixed(1)}°`
+          }
+        }
+      }
+    }
+    t.checkTrue(
+      'et elle l’est encore au crepuscule, ou toute la lumiere vient de loin',
+      worstTwilight < 0.05,
+      `ecart relatif maximal ${(worstTwilight * 100).toFixed(1)} % (${twilightWhere}) — ` +
+        'la troncature a huit cents kilometres en laissait 93 % au ras de l’horizon',
+    )
+
     // --- Un objet colle a l'oeil est vu tel quel ----------------------------
     let worstZero = 0
     for (let y = 0; y < lut.height; y++) {

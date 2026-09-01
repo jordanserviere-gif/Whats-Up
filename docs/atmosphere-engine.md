@@ -4366,6 +4366,120 @@ redoutait, sans avoir a figer une copie de la table.
 
 ---
 
+## ⚠️ La table jetait 93 % du ciel crepusculaire
+
+Signale comme « un halo blanc post-crepusculaire », audite pixel par pixel.
+
+### La methode
+
+On a recalcule, terme par terme, ce que le nuanceur du ciel produit pour une
+direction donnee, puis compare au pixel reellement affiche — et enfin compare la
+table au **solveur direct**, qui ne passe par aucune table.
+
+Les deux premieres comparaisons etaient rassurantes : la table de l'application
+et son recalcul independant s'accordent a **6 %**, ecart uniforme imputable a la
+distance Terre-Soleil et a la quantification de la hauteur solaire. Le materiau
+faisait donc bien ce qu'on croyait.
+
+La troisieme ne l'etait pas du tout.
+
+| ligne | hauteur | table / solveur direct |
+| --- | --- | --- |
+| 33 | 0,088° | **x0,074** |
+| 35 | 0,791° | **x0,092** |
+| 37 | 2,197° | x0,433 |
+| 39 | 4,307° | x1,001 |
+| 42 | 8,789° | x0,999 |
+
+La table rendait **sept pour cent** de la vraie valeur au ras de l'horizon, et
+redevenait exacte au-dela de quatre degres. Entre les deux, le raccord formait
+une bande brillante etroite vers deux degres : le halo signale.
+
+### La cause, et c'etait une regression du meme jour
+
+`AERIAL_FAR_M`, la portee de la coordonnee de distance, valait 800 km. Le
+raisonnement inscrit dans le code : « ce n'est pas la longueur du rayon, c'est la
+distance au-dela de laquelle l'integrale n'accumule plus rien ; une visee rasante
+parcourt onze cents kilometres, mais a huit cents elle est deja a quarante-six
+kilometres d'altitude, ou il ne reste rien a diffuser ».
+
+**C'est vrai de jour et faux au crepuscule**, et le crepuscule est le seul moment
+ou cela compte. Le Soleil couche, l'air proche est dans l'ombre de la Terre et ne
+diffuse rien : toute la lumiere du ciel vient de l'air **lointain et haut**, le
+seul encore eclaire.
+
+| hauteur de visee | part de la radiance collectee au-dela de 800 km |
+| --- | --- |
+| 0,09° | **93 %** |
+| 0,80° | **91 %** |
+| 2,20° | 59 % |
+| 4,31° | 0 % |
+
+La borne n'est plus une estimation mais la **longueur reelle du plus long trajet
+possible**, `sqrt((R + h_top)^2 - R^2) = 1133 km`, arrondie a 1200 km.
+
+### Pourquoi aucun controle ne l'a vue
+
+Le controle « la tranche lointaine est numeriquement le ciel » existait, et il
+est exactement celui qui devait l'attraper. Il ne s'executait qu'a **vingt degres
+de hauteur solaire**. De jour la lumiere est collectee dans les premieres
+dizaines de kilometres du rayon : la troncature y est invisible.
+
+Il tourne desormais aussi a -6° et -15°, sur les premieres hauteurs au-dessus de
+l'horizon, avec un plancher en luminance — au-dela de sept degres a -15° la
+diffusion simple vaut deux millioniemes de candela, et un ecart relatif n'y
+decrit plus que du bruit.
+
+### La quadrature a suivi
+
+Le meme controle, une fois etendu, a montre un residu de 8,5 % a -15° la ou le
+jour donnait 0,05 %. Meme cause de principe : sous l'horizon, l'integrande
+acquiert une **arete franche** — le point ou le rayon sort de l'ombre de la Terre
+— qu'une quadrature grossiere integre mal.
+
+| Soleil | 4 pas par tranche | 8 pas |
+| --- | --- | --- |
+| -6° | 0,3 % | 0,0 % |
+| -10° | 0,4 % | 0,2 % |
+| **-15°** | **8,5 %** | **1,0 %** |
+
+Huit pas, donc, pour **1,2 ms de plus par ligne** — 4,8 a 6,3 — et non le double,
+une part du cout d'une ligne ne dependant pas du nombre de pas.
+
+### L'echelle crepusculaire, refaite
+
+Les rapports publies la veille avaient ete mesures **a travers la table
+tronquee**. Les voici sur la table corrigee, ou table et solveur direct
+s'accordent desormais a 1 % :
+
+| Soleil | avant (table tronquee) | apres | reference |
+| --- | --- | --- | --- |
+| -6° | x0,92 | **x0,98** | 3,40 lx |
+| -8° | x0,66 | **x0,72** | 0,452 lx |
+| -10° | x0,64 | **x0,70** | 0,060 lx |
+| -12° | x0,64 | **x0,71** | 0,008 lx |
+| -14° | x0,29 | **x0,33** | 1,97e-3 lx |
+| -16° | x0,10 | **x0,11** | 4,87e-4 lx |
+
+La conclusion qualitative ne change pas — l'accord se degrade sous -12° — mais
+les chiffres etaient sous-estimes de sept a dix pour cent.
+
+### Ce que l'audit a aussi etabli
+
+**Le halo n'est pas l'airglow.** Sous trois degres il ne pese que 1 a 2 % du
+total ; sa part ne devient notable qu'en altitude — 18 % a 8°, 43 % au zenith.
+C'est bien le crepuscule residuel qu'on voit.
+
+**Il est gris parce que l'oeil l'est.** A ces luminances, la desaturation
+scotopique vaut 100 % dans tout le ciel : aucune couleur n'est perceptible, et le
+modele le dit. Le halo est blanc par construction, non par defaut.
+
+**Les sondes de mesure calculaient a un trouble de 2,5** quand le store part sur
+1. Les comparaisons de cette session ont ete refaites avec les entrees de
+l'application — trouble, ozone climatologique, altitude de l'oeil.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -4414,7 +4528,7 @@ en est.
 | **Le sol** | **résolu**. Le relief est le modèle numérique de terrain réel à trente mètres, et au-delà de sa portée le globe est une sphère résolue par pixel. Les deux reçoivent la même équation du transfert que tout le reste : albédo, cosinus d'incidence, éclairement du ciel, extinction, voile. Plus une seule couleur d'interface sous l'horizon. |
 | **Un seul albédo pour tout le globe** | faute de couverture du sol, la mer, la forêt et le désert partagent `AtmosphereState.groundAlbedo` = 0,1. C'est au moins la valeur qui nourrit déjà la diffusion multiple : le sol qu'on voit et le sol qui éclaire le ciel sont d'accord. Une couverture ESA WorldCover à 10 m serait la suite. |
 | **Le ciel est calculé sur des rayons droits** | la réfraction n'entre pas dans l'intégrale de diffusion : le solveur marche en ligne droite dans une atmosphère sphérique. Nul au niveau de la mer, où le rayon rasant et le rayon courbe partent ensemble. **Croissant avec l'altitude** : visée à l'horizon apparent, le rayon droit passe à 456 m du sol à 3000 m d'altitude et à **1319 m à 12 000 m**, là où le rayon réel rase la surface à 5 m. Il compte donc **13,4 % d'air en trop peu** à douze kilomètres. Le corollaire visible — une rupture du voile à la rasance du globe, posée par-dessus le relief — a été supprimé en rendant la coordonnée de distance globale ; il reste l'écart de colonne, invisible. |
-| **Le crépuscule profond est trop sombre** | ⚠️ **partiellement corrigé.** La fermeture locale de la série a été remplacée par deux ordres de transport explicites, et l'angle solaire est échantillonné deux fois plus finement, en loi quadratique autour du terminateur. La décroissance est redevenue **régulière** — ×2,56 à ×3,53 par degré, contre ×1,54 à ×9,51 auparavant. ⚠️ **Les magnitudes, elles, n'ont presque pas bougé** : une table sous-résolue surestimait, une fermeture locale sous-estimait, et les deux se compensaient. L'accord reste bon jusqu'à −8° (×0,92 à −6°, ×0,66 à −8°) puis se dégrade : ×0,64 à −10°, ×0,29 à −14°, ×0,10 à −16° contre les paliers de `photometry.ts`. La cause restante est inchangée : une table indexée sur (altitude, angle solaire) reste une représentation **locale** d'un champ qui ne l'est pas. Aller plus loin demanderait un champ à trois dimensions ou une résolution en harmoniques sphériques. |
+| **Le crépuscule profond est trop sombre** | ⚠️ **partiellement corrigé.** Fermeture locale de la série remplacée par deux ordres de transport explicites, angle solaire échantillonné deux fois plus finement en loi quadratique autour du terminateur. La décroissance est redevenue **régulière** — ×2,56 à ×3,53 par degré, contre ×1,54 à ×9,51 auparavant. ⚠️ Les magnitudes n'ont presque pas bougé : une table sous-résolue surestimait, une fermeture locale sous-estimait, et les deux se compensaient. Rapports à `SOLAR_ANCHORS` de `photometry.ts`, **remesurés après correction de la troncature de la coordonnée de distance** : ×0,98 à −6°, ×0,72 à −8°, ×0,70 à −10°, ×0,71 à −12°, ×0,33 à −14°, ×0,11 à −16°. La table et le solveur direct s'y accordent à 1 %, l'écart restant est donc bien celui du **modèle**. Cause inchangée : une table indexée sur (altitude, angle solaire) reste une représentation **locale** d'un champ qui ne l'est pas. Aller plus loin demanderait un champ à trois dimensions ou une résolution en harmoniques sphériques. |
 | **La courbe d'éclairement crépusculaire de référence** | ⚠️ les premières mesures de ce déficit ont été faites contre des valeurs **citées de mémoire**, qui se sont révélées trop hautes d'un facteur 3 à 9 sous −12°. Les comparaisons portent désormais sur `SOLAR_ANCHORS` de `photometry.ts`, les points d'ancrage du projet. Ceux-là sont décrits comme « classiques de la littérature sur les crépuscules » mais ne citent pas leur source : ils sont cohérents avec le reste du moteur, ce qui suffit à mesurer un écart **relatif**, et ne suffirait pas à trancher une calibration absolue. |
 | **Le socle nocturne peint** | le halo lunaire et le halo urbain sont encore des couleurs d'interface. Mesuré au Ventoux une heure et demie après le coucher : ils portent **3 à 25 %** de la luminance du ciel, davantage en haut qu'à l'horizon. Le halo lunaire comporte un **plancher isotrope de 25 %** — `0,25 + 0,75·cos⁶` — qui n'a aucun fondement : la Lune éclaire le ciel par diffusion, exactement comme le Soleil, et sa place est dans le transport. ⚠️ Le retirer assombrirait encore un ciel déjà trop sombre : les deux défauts se compensent partiellement, et il ne faut pas corriger l'un sans l'autre. |
 | **Résolution du relief proche** | la source est native à **trente mètres**. À cinq kilomètres, trente mètres sous-tendent 0,34°, soit une dizaine de pixels : le premier plan reste en blocs. Aucun choix de format ne le relève — seul un MNT national le ferait (RGE ALTI à 1 m, France seulement). |
