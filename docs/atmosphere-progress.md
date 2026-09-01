@@ -2207,6 +2207,80 @@ rend pas invariant.
 
 ---
 
+## Le maillage du terrain est plus grossier que la donnee qu'il lit
+
+Signale : en zoomant vers l'horizon, il ne reste que « trois aretes qui se
+battent en duel ».
+
+Phase 0 du chantier `terrain-mesh-resolution` : **on ne corrige rien, on mesure**,
+et on ecrit le controle qui retiendra la propriete une fois acquise.
+
+### La propriete
+
+> Le maillage n'est jamais plus grossier que la donnee qu'il echantillonne.
+
+Si elle est fausse, aucune amelioration des tuiles ne se verra : le relief est
+jete entre deux sommets. Charger plus fin, etendre un niveau ou streamer un
+quadtree reviendrait a telecharger du detail que le maillage ne sait pas
+dessiner.
+
+### Ce que la mesure dit
+
+Depuis le Ventoux, 1912 m — la ou le defaut a ete signale :
+
+| distance | donnee | azimut | rapport | anneau | rapport |
+| --- | --- | --- | --- | --- | --- |
+| 2,2 km | 0,7029° | 0,7031° | **1,0x** | 1,8638° | 2,7x |
+| 14 km | 0,1120° | 0,7031° | 6,3x | 0,4892° | 4,4x |
+| 27,9 km | 0,0562° | 0,7031° | **12,5x** | 0,2433° | 4,3x |
+| 112 km | 0,0562° | 0,7031° | **12,5x** | 0,0336° | 0,6x |
+| 170 km (horizon) | 0,1481° | 0,7031° | 4,7x | **0,0028°** | 0,02x |
+
+**L'azimut ne resout la donnee que jusqu'a 2,23 km.** Au-dela il saute des
+cellules, jusqu'a douze au bord de chaque niveau de la pyramide. Le pas est
+uniforme sur trois cent soixante degres et ignore le champ : a plein zoom on
+paie des colonnes derriere sa tete et l'on n'en obtient aucune devant soi.
+
+### ⚠️ Ce que la mesure a corrige
+
+J'avais conclu que l'axe des distances etait « mesure correct, ne pas y
+toucher ». **C'est vrai a l'horizon et faux avant.** Les anneaux y sont jusqu'a
+**4,4x trop grossiers a 14 km** ; la conclusion initiale avait ete tiree du seul
+champ lointain, et le chiffre annonce pour l'horizon — 0,026° — etait celui d'un
+observateur au niveau de la mer, non d'un sommet a 1912 m.
+
+Ce que les anneaux font bien, en revanche, merite d'etre garde : la hauteur
+apparente du sol est **stationnaire a l'horizon**, sa derivee `h/d² − 1/2R` s'y
+annulant. Les anneaux s'y resserrent donc d'eux-memes, a 0,0028° — cinquante
+fois plus fin que la donnee, exactement la ou l'oeil regarde. Ce n'est pas un
+reglage, c'est une consequence de la geometrie, et un controle la retient
+desormais.
+
+### Deux controles echouent volontairement
+
+Ils enoncent la cible : le rapport doit descendre a un, et le pas d'azimut doit
+se resserrer quand le champ se resserre. Un troisieme garde la **solution** :
+le budget de sommets ne doit pas bouger. Resserrer l'azimut en multipliant les
+colonnes rendrait la reconstruction plus longue que plusieurs images — elle
+coute 18 ms pour 106 496 sommets, mesuree sous Node sur une pyramide remplie.
+
+### Les references
+
+`node scripts/shoot.mjs terrain-ventoux` — meme instant, meme visee, trois
+champs : 20°, 2° et 0,5°. Tout y est constant sauf le grossissement, donc
+**chaque difference entre ces trois images est un effet de resolution**.
+
+La visee porte au nord-nord-est et traverse les deux frontieres de la pyramide,
+a 28 et 112,5 km. L'heure n'est pas choisie pour la lumiere mais pour l'angle de
+diffusion : a 08:00 UTC le Soleil est a quatre-vingt-dix degres de la visee,
+soit le minimum du voile de Mie, dont le pic est vers l'avant.
+
+⚠️ Le calque de relief est **eteint par defaut** : sans lui le composant n'est
+pas monte, aucune tuile n'est demandee, et la capture montre une mer plate qu'on
+prendrait pour un defaut de rendu.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2256,3 +2330,4 @@ rend pas invariant.
 | 2026-09-02 | Couleur des étoiles, lumière cendrée et ombre en altitude — trois constantes calculées |
 | 2026-09-02 | Une seule expression de la radiance du ciel — la face nuit d'un astre redevient le ciel |
 | 2026-09-02 | Pente du relief simulé bornée — la face nuit cesse de s'allumer au zoom |
+| 2026-09-01 | Phase 0 du maillage de terrain — le défaut devient un nombre, deux contrôles échouent |

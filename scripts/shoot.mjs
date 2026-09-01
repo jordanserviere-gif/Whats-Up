@@ -20,6 +20,11 @@ const BASE = process.env.SHOOT_URL ?? 'http://localhost:5199'
 
 const PARIS = { name: 'Paris', latitude: 48.8566, longitude: 2.3522, elevation: 35 }
 const REYKJAVIK = { name: 'Reykjavík', latitude: 64.1466, longitude: -21.9426, elevation: 40 }
+// Le mont Ventoux domine de 1912 m une plaine large : l'horizon y est a
+// 170 km et les Alpes s'etagent de 80 a 200 km. C'est le seul site du lot ou
+// le relief lointain occupe reellement l'image, donc le seul ou la resolution
+// du maillage se juge.
+const VENTOUX = { name: 'Mont Ventoux', latitude: 44.1739, longitude: 5.2786, elevation: 1912 }
 
 const BODY_BY_NAME = {
   sun: A.Body.Sun,
@@ -105,6 +110,40 @@ function findTime(
 
 /** `fov` en degres ; `az`/`alt` en degres ; `time` en ISO UTC. */
 const SCENARIOS = [
+  // --- Reference de resolution du terrain -------------------------------
+  //
+  // Meme instant, meme visee, trois champs. Tout y est constant sauf le
+  // grossissement : **chaque difference entre ces trois images est un effet de
+  // resolution**, et rien d'autre.
+  //
+  // Visee au nord-nord-est : les Baronnies vers 30 km, le Vercors vers 80,
+  // Belledonne au-dela de 130. L'axe **traverse les deux frontieres de la
+  // pyramide**, a 28 et 112,5 km, ce qui est exactement ou la finesse de la
+  // donnee saute d'un facteur quatre.
+  //
+  // L'heure n'est pas choisie pour la lumiere mais pour l'**angle de
+  // diffusion** : a 08:00 UTC le Soleil est a l'azimut 110, soit quatre-vingt-
+  // dix degres de la visee. C'est le minimum du voile de Mie, dont le pic est
+  // vers l'avant — une visee vers le Soleil delavait tout et cachait ce qu'on
+  // veut juger. La meme geometrie donne en prime une lumiere rasante sur les
+  // versants exposes.
+  //
+  // La hauteur de visee vaut la depression de l'horizon, pour le poser au
+  // milieu de l'image quel que soit le champ.
+  ...[20, 2, 0.5].map((fov) => ({
+    name: `terrain-ventoux-fov-${String(fov).replace('.', '')}`,
+    time: '2026-09-01T08:00:00Z',
+    location: VENTOUX,
+    az: 20,
+    alt: -1.29,
+    fov,
+    // Le calque de relief est **eteint par defaut** : sans lui, le composant
+    // n'est pas monte, aucune tuile n'est demandee, et la capture montre une
+    // mer plate qu'on prendrait pour un defaut de rendu.
+    layers: { terrain: true },
+    waitTerrain: true,
+    note: `Ventoux vers le Vercors, champ ${fov}°`,
+  })),
   {
     name: '01-nuit-etoilee',
     time: '2026-08-16T22:30:00Z',
@@ -385,6 +424,17 @@ for (const s of scenarios) {
     await page.evaluate(({ az, alt }) => window.__skyStore.getState().lookAt(az, alt), aim)
     s.resolvedTime = new Date(aim.time).toISOString().slice(0, 16).replace('T', ' ')
     s.resolvedAltitude = aim.alt
+  }
+
+  // Le relief arrive par tuiles, niveau par niveau. Sans cette attente, la
+  // capture montre une mer plate et l'on impute au rendu ce qui n'est qu'un
+  // telechargement en cours.
+  if (s.waitTerrain) {
+    await page
+      .waitForFunction(() => (window.__skyStore.getState().terrainProgress?.levelsReady ?? 0) >= 3, null, {
+        timeout: 120_000,
+      })
+      .catch(() => console.log(`${s.name.padEnd(24)} ATTENTION — relief incomplet a l'echeance`))
   }
 
   // La camera rejoint sa cible avec amortissement : on la laisse se poser.

@@ -106,36 +106,13 @@ import {
   terrainRevision,
 } from './terrain/elevationField'
 import { CLIPMAP_HALF_SPANS_M } from './terrain/elevationClipmap'
+import { AZIMUTH_STEPS, NEAR_M, RANGE_STEPS } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 
-/** Secteurs d'azimut du maillage. */
-const AZIMUTH_STEPS = 512
-/** Anneaux de distance, espaces en logarithme. */
-const RANGE_STEPS = 208
-/**
- * Distance du premier anneau, metres.
- *
- * ⚠️ **Vingt metres etait un reste du banc synthetique.** Sa plaine valait zero
- * et l'observateur la survolait de trente-cinq metres : a vingt metres, le sol
- * apparaissait deja soixante degres sous l'horizon, et le premier anneau
- * couvrait le nadir.
- *
- * Le relief reel a supprime cette hauteur. L'oeil repose desormais a
- * `EYE_HEIGHT_M` du sol, et a vingt metres celui-ci n'est plus qu'a **cinq
- * degres** sous l'horizon : tout l'hemisphere inferieur devenait un trou, ou
- * l'on voyait passer les constellations. Un demi-metre le referme jusqu'a
- * soixante-treize degres.
- *
- * ⚠️ **Ces trois nombres ont ete reduits sur une mesure fausse, puis retablis.**
- * Un banc rendait une seconde par image, et j'en avais conclu un cout de
- * remplissage. C'etait le **bridage de `requestAnimationFrame`** : un onglet sans
- * le focus est cadence a 1 Hz par le navigateur, et la comparaison opposait une
- * fenetre au premier plan a une fenetre en arriere-plan.
- *
- * Verifie depuis, focus rendu : **6,1 ms** avec le terrain, l'atmosphere et la
- * table doublee. Le cout n'existait pas.
- */
-const NEAR_M = 0.5
+// Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
+// `terrain/meshSampling.ts` : ce sont des choix de discretisation, ils doivent
+// etre mesurables hors du navigateur, et un controle tient desormais leur
+// rapport a la finesse de la pyramide.
 /**
  * Distance du dernier anneau, metres.
  *

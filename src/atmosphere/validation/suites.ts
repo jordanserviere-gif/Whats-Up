@@ -41,6 +41,7 @@ import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
 import { displayTransformSuite } from './display.validation'
 import { adaptationSuite } from '@/scene/display/adaptation.validation'
 import { terrainSuite } from '@/scene/terrain/terrain.validation'
+import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -101,5 +102,8 @@ export function allSuites(): SuiteResult[] {
     aerialPerspectiveLutSuite(),
     // Dette : le sol peint devient un globe, et le relief devient reel.
     terrainSuite(),
+    // Chantier : resolution du maillage de terrain — deux controles echouent
+    // volontairement, ils enoncent la cible.
+    meshSamplingSuite(),
   ]
 }
