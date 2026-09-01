@@ -20,6 +20,8 @@ import {
   displayTransform,
   radianceFromDisplay,
 } from '@/scene/display/tonemap'
+import { RELIEF_MAX_TILT_DEG, maxLambertUnderTilt } from '@/scene/bodies/surfaceRelief'
+import { SKY_RADIANCE_GLSL } from '@/scene/display/skyRadiance'
 import { suite, type SuiteResult } from './harness'
 
 const LUMA = [0.2126, 0.7152, 0.0722] as const
@@ -133,6 +135,95 @@ export function displayTransformSuite(): SuiteResult {
       t.note(
         `pente a l’origine : ${slope.toFixed(4)} — l’additivite des sources tenues ` +
           `(etoiles, halos) est donc preservee a la migration`,
+      )
+
+      // --- Une seule expression de la radiance du ciel -------------------------
+      //
+      // ⚠️ **Le defaut que ce controle existe pour empecher.** Cette grandeur
+      // etait ecrite deux fois : le fond de ciel additionnait diffusion, airglow
+      // et termes peints, le disque d'un astre ne reprenait que la diffusion. Or
+      // un corps au-dela de l'atmosphere n'occulte rien — tout est devant lui —
+      // et sa face nuit, qui n'emet rien, doit rendre exactement le ciel.
+      //
+      // Mesure du defaut : six niveaux sur 255 entre la face nuit d'une Lune de
+      // jour et le bleu voisin, la ou une photographie ne les distingue pas.
+      //
+      // La propriete se verifie **sur la source**, faute de pouvoir executer du
+      // GLSL ici : `aerialPerspectiveToSpace` ne doit avoir qu'un seul appelant,
+      // le module qui porte l'expression unique. Tout materiau qui remplace le
+      // ciel sur ses pixels passe par lui.
+      // La suite tourne sous Node ; le projet n'embarque pas ses declarations de
+      // types, d'ou cet acces direct plutot qu'un import.
+      const readFileSync = (
+        globalThis as unknown as {
+          require?: (m: string) => { readFileSync: (p: string, e: string) => string }
+        }
+      ).require?.('node:fs').readFileSync
+      const scanned = [
+        'src/scene/SkyBackground.tsx',
+        'src/scene/Bodies.tsx',
+        'src/scene/Aircraft.tsx',
+        'src/scene/Satellites.tsx',
+        'src/scene/Starfield.tsx',
+        'src/scene/DeepSky.tsx',
+        'src/scene/Globe.tsx',
+        'src/scene/Terrain.tsx',
+      ]
+      const callers = scanned.filter((file) => {
+        try {
+          return readFileSync?.(file, 'utf8').includes('aerialPerspectiveToSpace(') ?? false
+        } catch {
+          return false
+        }
+      })
+      t.check(
+        'la radiance du ciel n’a qu’une expression',
+        callers.length,
+        0,
+        0,
+        ` appel(s) direct(s) a aerialPerspectiveToSpace hors du module partage${
+          callers.length ? ' : ' + callers.join(', ') : ''
+        }`,
+      )
+      t.checkTrue(
+        'et le module partage la porte bien en entier',
+        ['aerialPerspectiveToSpace(', 'uAirglowZenith', 'uMoonGlow', 'uPollution'].every((term) =>
+          SKY_RADIANCE_GLSL.includes(term),
+        ),
+        'diffusion, airglow et termes peints reunis dans skyRadianceToSpace',
+      )
+      t.note(
+        'le controle est structurel : il tient l’unicite de l’expression, non l’egalite ' +
+          'numerique des pixels, qu’on ne peut pas mesurer hors du navigateur',
+      )
+
+      // --- Le relief simule ne peut pas inventer de lumiere --------------------
+      //
+      // ⚠️ La carte d'albedo sert de carte de hauteur : un cratere accroche la
+      // lumiere rasante parce que son albedo varie, non parce que le sol monte.
+      // Sans borne, cette perturbation atteignait quarante-deux degres, et la
+      // face nuit d'un croissant s'allumait — jusqu'a **48 niveaux sur 255**
+      // au-dessus du ciel, et d'autant plus qu'on grossissait.
+      //
+      // La propriete est purement geometrique : sous `λ = −sin(pente)`, aucune
+      // normale du cone ne peut voir le Soleil.
+      const beyond = -Math.sin((RELIEF_MAX_TILT_DEG * Math.PI) / 180) - 1e-9
+      let worstLeak = -1
+      for (let lambda = -1; lambda <= beyond; lambda += 0.01) {
+        worstLeak = Math.max(worstLeak, maxLambertUnderTilt(lambda))
+      }
+      t.checkTrue(
+        'au-dela de la pente admise, aucune bosse ne capte le Soleil',
+        worstLeak <= 0,
+        `incidence maximale ${worstLeak.toExponential(2)} sous ${RELIEF_MAX_TILT_DEG}° de pente — ` +
+          'la face nuit reste noire quel que soit le zoom',
+      )
+      // Et la bande ou elle en capte encore est bien celle du terminateur.
+      t.checkTrue(
+        'et pres du terminateur elle en capte',
+        maxLambertUnderTilt(-0.1) > 0,
+        `a 6° sous l’horizon local, une pente de ${RELIEF_MAX_TILT_DEG}° rend ` +
+          `${maxLambertUnderTilt(-0.1).toFixed(3)} — c’est le relief qui accroche la lumiere rasante`,
       )
     },
   )

@@ -2152,6 +2152,61 @@ borne est desormais la depression de l'horizon au point le plus haut du globe.
 
 ---
 
+## La radiance du ciel n'a plus qu'une expression
+
+La face sombre de la Lune n'emet rien, et la Lune est **au-dela de toute
+l'atmosphere** : tout ce qui diffuse est devant elle, rien n'est occulte. Sa face
+nuit **est** le ciel, au sens strict — ce que montre n'importe quelle
+photographie.
+
+La grandeur etait ecrite deux fois : le fond de ciel sommait diffusion, airglow
+et termes peints, le disque d'un astre ne reprenait que la diffusion. Six niveaux
+sur 255 d'ecart, prouves en forcant a zero le halo lunaire peint — le ciel
+tombait alors exactement sur la face nuit.
+
+Un avion, lui, est **dans** l'atmosphere et cache la couche d'airglow : sa place
+n'est pas la. La regle est : au-dela de l'atmosphere, le fond est le ciel entier.
+
+| | ciel | face nuit |
+| --- | --- | --- |
+| plein jour | 131,3 | **131,3** |
+| nuit | 21,0 | **20,9** |
+
+Un controle tient desormais l'unicite : `aerialPerspectiveToSpace` ne doit avoir
+qu'un seul appelant. Il a attrape un appelant restant des sa premiere execution.
+⚠️ Il est structurel, non numerique — troisieme fois qu'une propriete vraie « par
+construction » finit par ne plus l'etre faute d'un controle qui la tienne.
+
+---
+
+## Le relief simule inventait de la lumiere, et de plus en plus au zoom
+
+La face a l'ombre d'un astre s'eclairait a mesure qu'on grossissait, jusqu'a
+paraitre pleine. Ni la cendree, ni le halo, ni le voile, ni le bloom.
+
+La carte d'albedo sert de carte de hauteur, et sans borne elle inclinait la
+normale jusqu'a **42°** — bien au-dela de ce qu'une pente peut faire. Le zoom
+l'aggravait : la difference finie entre texels est lissee par le filtrage quand
+le disque est petit, pleine quand il est grand.
+
+| champ | face nuit au-dessus du ciel |
+| --- | --- |
+| 2° a 0,3° | 0 |
+| **0,15°** | **+48 niveaux** |
+
+Preuve directe : a `uRelief = 0`, la face nuit reste au niveau du ciel a tous les
+zooms.
+
+**Pente bornee a 15°** — celle d'une surface lunaire a l'echelle d'un texel,
+5,3 km de base. La propriete qui en decoule est geometrique : sous
+`L = -sin(pente)`, aucune normale du cone ne voit le Soleil. Le controle le
+verifie, et verifie aussi qu'au terminateur le relief accroche encore.
+
+⚠️ L'amplitude reste dependante du zoom : la borne plafonne l'effet, elle ne le
+rend pas invariant.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2199,3 +2254,5 @@ borne est desormais la depression de l'horizon au point le plus haut du globe.
 | 2026-09-01 | Troncature de la coordonnée de distance — 93 % du ciel crépusculaire était jeté |
 | 2026-09-02 | Trois décades d'écart jour-nuit — la lueur crépusculaire s'éteint enfin |
 | 2026-09-02 | Couleur des étoiles, lumière cendrée et ombre en altitude — trois constantes calculées |
+| 2026-09-02 | Une seule expression de la radiance du ciel — la face nuit d'un astre redevient le ciel |
+| 2026-09-02 | Pente du relief simulé bornée — la face nuit cesse de s'allumer au zoom |

@@ -1,10 +1,9 @@
 import { useMemo } from 'react'
-import { BackSide, Color, ShaderMaterial, Vector3 } from 'three'
+import { BackSide, Color, ShaderMaterial } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { AIRGLOW_LAYER_ALTITUDE_M, airglowZenithRadiance } from '@/atmosphere/emission/airglow'
 import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
-import { HORIZON_MARGIN_DEG } from '@/atmosphere/horizonMargin'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { spectralToLinearSrgb } from '@/atmosphere/spectral/SpectralSensor'
 import { aerialUniforms, applyAerialUniforms, useAerialLut } from './useAerialLut'
@@ -12,6 +11,12 @@ import { PHOTOPIC_FLOOR, SCOTOPIC_CEILING } from './display/adaptation'
 import { setRefractionEnabled } from '@/atmosphere/refraction/refractionTable'
 import { refractionSite } from './refractionTexture'
 import { cachedHorizonDipDeg } from './Globe'
+import {
+  SKY_RADIANCE_GLSL,
+  applySkyRadianceUniforms,
+  skyRadianceState,
+  skyRadianceUniforms,
+} from './display/skyRadiance'
 import { eyeAltitudeM } from './terrain/elevationField'
 import { DOME_RADIUS } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
@@ -89,20 +94,13 @@ function buildSkyMaterial(): ShaderMaterial {
   const fragmentShader = /* glsl */ `
     ${DISPLAY_TONEMAP_GLSL}
     ${AERIAL_LUT_GLSL}
+    ${SKY_RADIANCE_GLSL}
 
     varying vec3 vDir;
 
     uniform vec3 uNight;
-    uniform vec3 uMoonDir;
-    uniform float uMoonFactor;
-    uniform vec3 uMoonGlow;
-    uniform vec3 uPollution;
-    uniform vec3 uAirglowZenith;
-    uniform float uAirglowRadiusRatio;
     uniform float uSkyExposure;
     uniform float uScotopic;
-    uniform float uHorizonMargin;
-    uniform float uHorizonDip;
     uniform float uScotopicCeiling;
     uniform float uPhotopicFloor;
 
@@ -126,62 +124,15 @@ function buildSkyMaterial(): ShaderMaterial {
       // coordonnee verticale a sa premiere ligne, si bien que la marge lit la
       // couleur de l'horizon plutot qu'un trou noir.
       //
-      // ⚠️ Le fondu lui-meme n'a rien de physique : c'est le garde-fou de
-      // \`atmosphere/horizonMargin.ts\`, et il agit sous une calotte de sol qui le
-      // recouvre entierement.
-      vec3 transmittanceToSpace = vec3(1.0);
-      // La marge se compte sous l'horizon **apparent**, pas sous l'horizontale :
-      // pour un observateur en hauteur les deux different, et faire partir le
-      // fondu de zero attenuait une bande de ciel encore parfaitement visible.
-      float elevDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
-      float belowDeg = -(elevDeg + uHorizonDip);
-      float horizonFade = 1.0 - smoothstep(0.0, uHorizonMargin, belowDeg);
-      vec3 scattered = horizonFade > 0.0
-        ? aerialPerspectiveToSpace(dir, transmittanceToSpace) * horizonFade
-        : vec3(0.0);
-
-      // --- Le socle nocturne : forme calculee, amplitude encore choisie -------
+      // ⚠️ **Cette grandeur etait ecrite deux fois.** Le fond de ciel additionnait
+      // diffusion, airglow et termes peints ; le disque d'un astre ne reprenait
+      // que la diffusion. Or un astre au-dela de l'atmosphere n'occulte rien —
+      // tout est devant lui — et sa face nuit doit donc rendre exactement le
+      // ciel. Elle en differait de six niveaux sur 255.
       //
-      // La haute atmosphere brille d'elle-meme : le rayonnement ultraviolet
-      // dissocie l'oxygene le jour, les atomes se recombinent la nuit et rendent
-      // cette energie en raies. C'est de la chimiluminescence, dans une couche
-      // mince a quatre-vingt-dix kilometres.
-      //
-      // Vue obliquement, cette couche est traversee plus longuement — facteur de
-      // van Rhijn, qui atteint six a l'horizon. Mais la lumiere doit ensuite
-      // traverser toute l'atmosphere, et une visee rasante y perd presque tout.
-      // Leur produit donne un maximum vers dix a quinze degres puis un
-      // effondrement au ras de l'horizon : c'est ce qu'on observe, et le
-      // smoothstep d'autrefois l'imitait sans le calculer.
-      //
-      // La transmittance employee est celle que la table de perspective avait
-      // deja calculee pour le fond de ciel, et que ce nuanceur jetait.
-      //
-      // **L'amplitude est desormais physique aussi.** Elle ne l'etait pas tant
-      // que l'exposition restait fixe : l'airglow vaut 3,7e-5 cd/m² au zenith,
-      // soit 4e-10 d'un blanc ancre a 86 302. Depuis que l'exposition suit la
-      // luminance du ciel, le plancher d'adaptation est precisement cette
-      // valeur, et l'airglow retrouve sa place — la couleur peinte a disparu.
-      float h = clamp(dir.y, -1.0, 1.0);
-      float sinZ = sqrt(max(0.0, 1.0 - h * h));
-      float shell = uAirglowRadiusRatio * sinZ;
-      float vanRhijn = inversesqrt(max(1e-6, 1.0 - shell * shell));
-      // La couche d'airglow suit la meme marge que la diffusion : sans le
-      // fondu, elle resterait a pleine intensite sous l'horizon, ou
-      // \`transmittanceToSpace\` n'a pas ete ecrite et vaut encore un.
-      vec3 airglow = uAirglowZenith * vanRhijn * transmittanceToSpace * uAerialExposure * horizonFade;
-
-      // --- Ce qui reste peint ---------------------------------------------------
-      // La lueur lunaire est de la diffusion, exactement comme le ciel de jour :
-      // sa place est dans le transport, avec la Lune pour source. Le halo urbain
-      // est une emission renvoyee par l'atmosphere, que decrit le modele de
-      // Garstang (1989). Ni l'un ni l'autre n'est encore calcule.
-      float toMoon = max(0.0, dot(dir, normalize(uMoonDir)));
-      vec3 painted = uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
-      float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
-      painted += uPollution * (0.3 + 0.7 * lowSky);
-
-      vec3 total = radianceFromDisplay(painted) + scattered + airglow;
+      // Il n'y a plus qu'une expression, et elle vit dans display/skyRadiance.
+      vec3 transmittanceToSpace;
+      vec3 total = skyRadianceToSpace(dir, transmittanceToSpace);
 
       // --- Vision scotopique : les batonnets ne voient pas les couleurs ---------
       //
@@ -225,36 +176,19 @@ function buildSkyMaterial(): ShaderMaterial {
     uniforms: {
       ...aerialUniforms(),
       /**
-       * Radiance de l'airglow au zenith, sRGB lineaire.
-       *
-       * Calculee par `atmosphere/emission/airglow.ts` et normalisee sur
-       * `AIRGLOW_LUX`, l'ancre que le moteur portait deja. Le nuanceur n'ajoute
-       * que la geometrie.
-       */
-      uAirglowZenith: { value: new Vector3() },
-      /** `R/(R+h)` pour la couche d'airglow — le seul terme du facteur van Rhijn. */
-      uAirglowRadiusRatio: { value: 0 },
-      /**
        * Interrupteur global de la desaturation scotopique.
        *
        * Il ne porte que l'extinction du calque atmosphere : la bascule
        * elle-meme se fait **par pixel**, sur la luminance locale.
        */
       uScotopic: { value: 0 },
-      /** Profondeur sous l'horizon ou l'atmosphere cesse d'etre calculee, degres. */
-      uHorizonMargin: { value: HORIZON_MARGIN_DEG },
-      /** Depression de l'horizon apparent, degres — zero au niveau de la mer. */
-      uHorizonDip: { value: 0 },
+      ...skyRadianceUniforms(),
       /** Bornes du domaine mesopique, cd/m². */
       uScotopicCeiling: { value: SCOTOPIC_CEILING },
       uPhotopicFloor: { value: PHOTOPIC_FLOOR },
       /** Exposition d'affichage, partagee avec la diffusion. */
       uSkyExposure: { value: 0 },
-      uMoonDir: { value: new Vector3(0, -1, 0) },
-      uMoonFactor: { value: 0 },
       uNight: { value: new Color('#03040a') },
-      uMoonGlow: { value: new Color('#7d8fc4') },
-      uPollution: { value: new Color('#000000') },
     },
     vertexShader,
     fragmentShader,
@@ -375,12 +309,12 @@ export function SkyBackground({
     // radiance zenithale est une constante, et le nuanceur n'y ajoute que la
     // geometrie de la couche. Il s'eteint avec le calque atmosphere — sans
     // atmosphere, pas de couche emissive.
-    ;(u.uAirglowZenith.value as Vector3).set(
-      atmosphereEnabled ? AIRGLOW_ZENITH[0] : 0,
-      atmosphereEnabled ? AIRGLOW_ZENITH[1] : 0,
-      atmosphereEnabled ? AIRGLOW_ZENITH[2] : 0,
-    )
-    u.uAirglowRadiusRatio.value = AIRGLOW_RADIUS_RATIO
+    // ⚠️ **L'etat du ciel est publie, non applique ici.** Les corps du systeme
+    // solaire remplacent le ciel sur leurs pixels et doivent rendre exactement
+    // le meme fond : ils lisent donc le meme etat, et le meme nuanceur le
+    // consomme. Voir `display/skyRadiance`.
+    skyRadianceState.airglowZenith = atmosphereEnabled ? AIRGLOW_ZENITH : [0, 0, 0]
+    skyRadianceState.airglowRadiusRatio = AIRGLOW_RADIUS_RATIO
     u.uSkyExposure.value = skyExposure
     // Le ciel descend jusqu'a l'horizon **apparent**, celui de l'oeil. C'est la
     // meme depression dont le globe et le relief se servent, et les trois
@@ -391,24 +325,27 @@ export function SkyBackground({
     // entre les deux horizons n'appartenait a personne. On y voyait le fondu du
     // ciel s'eteindre seul — a 47 % sept mille metres au-dessus de Chamonix,
     // noir a dix mille.
-    u.uHorizonDip.value = cachedHorizonDipDeg(eyeAltitudeM(observerElevationM, extraHeightM))
+    skyRadianceState.horizonDipDeg = cachedHorizonDipDeg(
+      eyeAltitudeM(observerElevationM, extraHeightM),
+    )
     // La desaturation suit la luminance du ciel reellement affiche, la meme qui
     // pilote l'exposition. Sans atmosphere, la question ne se pose pas.
     u.uScotopic.value = atmosphereEnabled ? 1 : 0
 
     const malt = (moonAltitude * Math.PI) / 180
     const maz = (moonAzimuth * Math.PI) / 180
-    ;(u.uMoonDir.value as Vector3).set(
+    skyRadianceState.moonDirection = [
       Math.cos(malt) * Math.sin(maz),
       Math.sin(malt),
       -Math.cos(malt) * Math.cos(maz),
-    )
+    ]
+    skyRadianceState.moonFactor =
+      moonAltitude > 0 ? Math.min(0.5, Math.max(0, lunarLux * 0.55)) : 0
+    skyRadianceState.moonGlow = moonGlowColor
+    skyRadianceState.pollution.set(pollutionColor).multiplyScalar(pollutionGain)
 
-    u.uMoonFactor.value = moonAltitude > 0 ? Math.min(0.5, Math.max(0, lunarLux * 0.55)) : 0
-
+    applySkyRadianceUniforms(u as unknown as ReturnType<typeof skyRadianceUniforms>, skyRadianceState)
     ;(u.uNight.value as Color).set(nightColor)
-    ;(u.uMoonGlow.value as Color).set(moonGlowColor)
-    ;(u.uPollution.value as Color).set(pollutionColor).multiplyScalar(pollutionGain)
   })
 
   return (

@@ -32,7 +32,14 @@ import {
   verticalScaleFromTable,
 } from '@/atmosphere/refraction/refractionTable'
 import { refractionFor } from './refractionTexture'
+import { RELIEF_MAX_TILT_DEG } from './bodies/surfaceRelief'
 import { aerialUniforms, applyAerialUniforms } from './useAerialLut'
+import {
+  SKY_RADIANCE_GLSL,
+  applySkyRadianceUniforms,
+  skyRadianceState,
+  skyRadianceUniforms,
+} from './display/skyRadiance'
 
 const DEG = Math.PI / 180
 
@@ -96,6 +103,7 @@ function bodyMaterial() {
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
       ...aerialUniforms(),
+      ...skyRadianceUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -117,6 +125,7 @@ function bodyMaterial() {
     fragmentShader: /* glsl */ `
       ${DISPLAY_TONEMAP_GLSL}
       ${AERIAL_LUT_GLSL}
+      ${SKY_RADIANCE_GLSL}
       varying vec3 vNormal;
       varying vec3 vViewDir;
       varying vec3 vDir;
@@ -154,7 +163,34 @@ function bodyMaterial() {
             // Base tangente approchee : suffisante pour une perturbation locale.
             vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), n));
             vec3 bitangent = cross(n, tangent);
-            n = normalize(n - uRelief * (hx * tangent + hy * bitangent));
+            vec3 bump = uRelief * (hx * tangent + hy * bitangent);
+
+            // --- ⚠️ La pente est bornee, et c'est indispensable ----------------
+            //
+            // Sans borne, la perturbation atteignait **quarante-deux degres**.
+            // Une normale ainsi couchee va chercher le Soleil bien au-dela de ce
+            // qu'une pente peut faire, et la face nuit s'allumait — d'autant plus
+            // qu'on grossissait, la difference finie entre texels voisins etant
+            // lissee par le filtrage a faible zoom et pleine a fort zoom.
+            //
+            // Mesure : face nuit d'un croissant, en niveaux au-dessus du ciel.
+            //
+            //     champ 2° a 0,3° : 0     champ 0,15° : +48
+            //
+            // La borne est la pente qu'une surface lunaire presente reellement a
+            // l'echelle d'un texel de la carte — 10 921 km de circonference pour
+            // 2048 texels, soit **5,3 km**. A cette base, les pentes lunaires
+            // restent de quelques degres, une quinzaine dans les hautes terres
+            // les plus rudes.
+            //
+            // Elle suffit a garantir la propriete qui manquait : au-dela de
+            // quinze degres sous l'horizon local, **aucune** bosse ne peut capter
+            // le Soleil, et la face nuit reste noire quel que soit le zoom.
+            float maxTilt = ${Math.tan((RELIEF_MAX_TILT_DEG * Math.PI) / 180).toFixed(6)};
+            float slope = length(bump);
+            if (slope > maxTilt) bump *= maxTilt / slope;
+
+            n = normalize(n - bump);
           }
         }
 
@@ -185,8 +221,21 @@ function bodyMaterial() {
         //   fois la colonne d'air du zenith. Elle remplace ici l'extinction
         //   photometrique en magnitudes, qui reste en revanche a sa place sur
         //   le halo — la, l'objet est une source ponctuelle, pas une surface.
+        // ⚠️ **Le fond derriere un astre est le ciel entier, pas seulement la
+        // diffusion.** Un corps au-dela de l'atmosphere n'occulte rien : les
+        // 384 000 kilometres de la Lune font que toute l'atmosphere — couche
+        // d'airglow comprise, et l'air qui diffuse le clair de lune — se trouve
+        // **devant** elle. Sa face nuit, qui n'emet rien, doit donc rendre
+        // exactement le ciel, comme le montre n'importe quelle photographie.
+        //
+        // Ce nuanceur n'appelait que la table, quand le fond de ciel y ajoutait
+        // l'airglow et les termes peints : la face nuit d'une Lune de jour
+        // ressortait six niveaux sur 255 plus sombre que le bleu voisin.
+        //
+        // Un avion, lui, est **dans** l'atmosphere et cache la couche d'airglow
+        // qui le surplombe : sa place n'est pas ici.
         vec3 transmittance;
-        vec3 haze = aerialPerspectiveToSpace(normalize(vDir), transmittance);
+        vec3 haze = skyRadianceToSpace(normalize(vDir), transmittance);
         // La couleur du disque est encore en espace d'affichage : albedo de carte multiplie
         // par un eclairement sans unite. On la remonte en radiance pour que le
         // produit par la transmittance et la somme avec le voile se fassent
@@ -447,6 +496,12 @@ function Body({
         surface.uniforms as unknown as ReturnType<typeof aerialUniforms>,
         sunDirection,
         skyExposure,
+      )
+      // Le meme etat que le fond de ciel, pour que le fond derriere le disque
+      // soit exactement celui d'a cote.
+      applySkyRadianceUniforms(
+        surface.uniforms as unknown as ReturnType<typeof skyRadianceUniforms>,
+        skyRadianceState,
       )
       surface.uniforms.uEmissive.value = 0
 

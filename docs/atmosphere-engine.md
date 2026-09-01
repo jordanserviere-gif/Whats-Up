@@ -4635,6 +4635,135 @@ l'horizon au point le plus haut du globe.
 
 ---
 
+## La radiance du ciel n'a plus qu'une expression
+
+### Le raisonnement, qui est plus simple que le defaut
+
+La face sombre de la Lune n'emet rien. L'equation du transfert donne alors
+
+    L_oeil = L_objet · T(0→d) + L_diffusee(0→d)  →  L_diffusee(0→d)
+
+et le point decisif est que la Lune est **au-dela de toute l'atmosphere**. Les
+384 000 kilometres font que `L_diffusee(0→d)` est l'integrale sur tout le trajet
+atmospherique — c'est-a-dire **exactement la radiance du ciel** dans cette
+direction.
+
+Rien n'est occulte : la couche d'airglow a quatre-vingt-dix kilometres, l'air qui
+diffuse le clair de lune, la brume, tout est **devant** elle. La face sombre
+**est** le ciel, au sens strict.
+
+C'est ce que montre n'importe quelle photographie : la partie sombre d'une Lune
+gibbeuse de jour est indiscernable du bleu qui l'entoure.
+
+### Le defaut
+
+Cette grandeur etait ecrite **deux fois**, et les deux ont diverge.
+
+| | ce qui etait somme |
+| --- | --- |
+| fond de ciel | diffusion + airglow + termes peints |
+| disque d'un astre | diffusion seule |
+
+Mesure sur une coupe horizontale du disque, Lune gibbeuse de jour :
+
+    ciel        131  131  131  131
+    face jour   161  165  166  161  158  157  151
+    face nuit   133  125  125  125
+    ciel        131  131  131  131
+
+Six niveaux d'ecart. Forcer a zero le halo lunaire peint faisait tomber le ciel a
+**125 exactement** — la preuve directe qu'il manquait au disque.
+
+De jour c'etait le halo peint, de nuit c'eut ete l'airglow, quatre niveaux sur
+255. **Meme faute, deux regimes** — et rendre le halo lunaire physique n'y aurait
+rien change, puisque l'airglow, lui, l'est deja.
+
+### Ce qui distingue un astre d'un avion
+
+Tout ce qui occulte ne recoit pas la meme chose. Un avion vole a dix kilometres :
+la couche d'airglow est **derriere** lui, il la cache, et son voile est celui de
+la table a distance finie. Un astre est au-dela de tout.
+
+La regle est donc : **au-dela de l'atmosphere, le fond est le ciel entier**.
+
+### Apres
+
+| | ciel | face nuit |
+| --- | --- | --- |
+| plein jour | 131,3 | **131,3** |
+| nuit | 21,0 | **20,9** |
+
+### Le controle, et sa limite
+
+`aerialPerspectiveToSpace` ne doit avoir **qu'un seul appelant** : le module qui
+porte l'expression unique. Le controle lit les sources et le verifie — il a
+d'ailleurs attrape un appelant restant des sa premiere execution.
+
+⚠️ **Il est structurel, non numerique.** Il tient l'unicite de l'expression, pas
+l'egalite des pixels, qu'on ne sait pas mesurer hors du navigateur. C'est la
+troisieme fois qu'une propriete vraie « par construction » finit par ne plus
+l'etre faute d'un controle qui la tienne — apres les trois horizons et la
+troncature de la coordonnee de distance.
+
+---
+
+## Le relief simule inventait de la lumiere, et de plus en plus au zoom
+
+Signale : la face a l'ombre d'un astre s'eclaire a mesure qu'on grossit, jusqu'a
+paraitre pleine.
+
+### Ce que ce n'etait pas
+
+La lumiere cendree, corrigee la veille — elle vaut desormais 8·10⁻⁵. Ni le halo,
+qui s'efface des que le disque est resolu. Ni le voile atmospherique, qui remplit
+legitimement le disque de jour. Ni le bloom, la mesure etant identique sans lui.
+
+### Ce que c'etait
+
+La carte d'albedo sert de **carte de hauteur** : un cratere accroche la lumiere
+rasante parce que son albedo varie, non parce que le sol y monte. L'approximation
+est assumee et suffit pres du terminateur.
+
+Sans borne, elle inclinait la normale jusqu'a **quarante-deux degres**. Une
+normale ainsi couchee va chercher le Soleil bien au-dela de ce qu'une pente peut
+faire, et la face nuit s'allumait.
+
+**Le zoom l'aggravait**, et c'est ce qui l'a fait remarquer : la difference finie
+entre texels voisins est lissee par le filtrage de texture quand le disque est
+petit, et pleine quand il est grand.
+
+| champ | face nuit au-dessus du ciel |
+| --- | --- |
+| 2° a 0,3° | 0 |
+| **0,15°** | **+48 niveaux sur 255** |
+| 0,08° | +36 |
+
+La preuve directe : a `uRelief = 0`, la face nuit reste au niveau du ciel a
+**tous** les zooms, jusqu'a 0,08° de champ.
+
+### La borne
+
+Elle ne pretend pas decrire la Lune — elle empeche l'approximation de produire de
+la lumiere la ou il ne peut pas y en avoir. Sa valeur est la pente qu'une surface
+lunaire presente a l'echelle d'un texel de la carte : 10 921 km de circonference
+pour 2048 texels, soit **5,3 km de base**. A cette echelle les pentes lunaires
+restent de quelques degres, une quinzaine dans les hautes terres les plus rudes.
+
+La propriete qui en decoule est purement geometrique. Une normale perturbee reste
+dans un cone d'angle `t` autour de la vraie, donc
+
+    max(n'·s) = L·cos t + sqrt(1 − L²)·sin t
+
+et cette expression est negative des que `L < −sin t` : **aucune** pente ne peut
+alors capter le Soleil. Le controle la verifie sur tout le domaine, et verifie
+aussi qu'a six degres sous l'horizon local une pente en capte encore — sans quoi
+on aurait supprime le relief au lieu de le borner.
+
+Apres : face nuit au niveau du ciel a tous les zooms, terminateur net a 0,42° de
+champ, disque debordant de l'ecran.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -4685,13 +4814,13 @@ en est.
 | **Le ciel est calculé sur des rayons droits** | la réfraction n'entre pas dans l'intégrale de diffusion : le solveur marche en ligne droite dans une atmosphère sphérique. Nul au niveau de la mer, où le rayon rasant et le rayon courbe partent ensemble. **Croissant avec l'altitude** : visée à l'horizon apparent, le rayon droit passe à 456 m du sol à 3000 m d'altitude et à **1319 m à 12 000 m**, là où le rayon réel rase la surface à 5 m. Il compte donc **13,4 % d'air en trop peu** à douze kilomètres. Le corollaire visible — une rupture du voile à la rasance du globe, posée par-dessus le relief — a été supprimé en rendant la coordonnée de distance globale ; il reste l'écart de colonne, invisible. |
 | **Le crépuscule profond est trop sombre** | ⚠️ **partiellement corrigé.** Fermeture locale de la série remplacée par deux ordres de transport explicites, angle solaire échantillonné deux fois plus finement en loi quadratique autour du terminateur. La décroissance est redevenue **régulière** — ×2,56 à ×3,53 par degré, contre ×1,54 à ×9,51 auparavant. ⚠️ Les magnitudes n'ont presque pas bougé : une table sous-résolue surestimait, une fermeture locale sous-estimait, et les deux se compensaient. Rapports à `SOLAR_ANCHORS` de `photometry.ts`, **remesurés après correction de la troncature de la coordonnée de distance** : ×0,98 à −6°, ×0,72 à −8°, ×0,70 à −10°, ×0,71 à −12°, ×0,33 à −14°, ×0,11 à −16°. La table et le solveur direct s'y accordent à 1 %, l'écart restant est donc bien celui du **modèle**. Cause inchangée : une table indexée sur (altitude, angle solaire) reste une représentation **locale** d'un champ qui ne l'est pas. Aller plus loin demanderait un champ à trois dimensions ou une résolution en harmoniques sphériques. |
 | **La courbe d'éclairement crépusculaire de référence** | ⚠️ les premières mesures de ce déficit ont été faites contre des valeurs **citées de mémoire**, qui se sont révélées trop hautes d'un facteur 3 à 9 sous −12°. Les comparaisons portent désormais sur `SOLAR_ANCHORS` de `photometry.ts`, les points d'ancrage du projet. Ceux-là sont décrits comme « classiques de la littérature sur les crépuscules » mais ne citent pas leur source : ils sont cohérents avec le reste du moteur, ce qui suffit à mesurer un écart **relatif**, et ne suffirait pas à trancher une calibration absolue. |
-| **Le socle nocturne peint** | le halo lunaire et le halo urbain sont encore des couleurs d'interface. Mesuré au Ventoux une heure et demie après le coucher : ils portent **3 à 25 %** de la luminance du ciel. ⚠️ **Conséquence mesurée ailleurs, et plus visible** : le halo lunaire peint est ajouté au fond de ciel mais pas au disque des astres, si bien que la face nuit d'une Lune de jour ressort **six niveaux sur 255 plus sombre que le ciel qui l'entoure** — profil 131 pour le ciel, 125 pour la face nuit — alors qu'une photo réelle ne les distingue pas. Forcer le halo à zéro fait tomber le ciel à 125 exactement : la preuve est directe. La correction n'est pas d'étendre la peinture au disque mais de **calculer** la lueur lunaire, qui est de la lumière diffusée comme le ciel de jour, avec la Lune pour source. Une table de ciel seule — dernière tranche uniquement — coûterait environ **1 % de la table principale**, la marche y étant trente fois plus courte. |
+| **Le socle nocturne peint** | le halo lunaire et le halo urbain sont encore des couleurs d'interface. Mesuré au Ventoux une heure et demie après le coucher : ils portent **3 à 25 %** de la luminance du ciel. Ils s'appliquent désormais **au même endroit pour tout le monde** — voir l'expression unique de la radiance du ciel — ce qui a supprimé le creux de six niveaux sur la face nuit des astres, mais ne les rend pas physiques. La lueur lunaire est de la diffusion, avec la Lune pour source ; le halo urbain relève du modèle de Garstang (1989). |
 | **Résolution du relief proche** | la source est native à **trente mètres**. À cinq kilomètres, trente mètres sous-tendent 0,34°, soit une dizaine de pixels : le premier plan reste en blocs. Aucun choix de format ne le relève — seul un MNT national le ferait (RGE ALTI à 1 m, France seulement). |
 | **Bathymétrie écrêtée** | terrarium encode les fonds marins en négatif ; les prendre tels quels creuserait l'océan en cuvette. L'écrêtage à zéro met à plat les dépressions continentales — mer Morte à −430 m, vallée de la Mort à −86 m. Les distinguer demanderait un masque terre/eau. |
 | **Horizon du terrain** | le rayon terrestre effectif n'est plus le `k = 1/7` de la géodésie mais **l'inverse de la dépression que le moteur mesure**. C'est un calage sur une grandeur interne, valide à l'altitude du site ; le rapport `R_eff/R` dépend légèrement de l'altitude (1,204 à 35 m, 1,196 à 1 000 m) et n'est donc pas une constante universelle. |
 | **Ombre du relief dans l'air** | **résolue**. Un segment ombré ne disparaît plus de l'intégrale : il retombe sur la table **ambiante**, la même intégrale privée de sa source solaire. Une ombre n'est donc ni un facteur ni une soustraction, c'est un **changement de terme source**. Mesure : crête à contre-jour, `28,28,20` → `41,67,98` — le noir devient bleu. |
 | **Tache de diffusion de l'œil nu** | la bascule cônes/bâtonnets d'une source ponctuelle demande de savoir sur quelle surface de rétine l'étoile se dépose. Cette tache va d'une minute d'arc à une dizaine selon la pupille et l'observateur. Elle est ici **déduite** du seuil observationnel — la couleur cesse d'être perçue vers la première magnitude — et vaut 2,25′, ce qui tombe dans l'intervalle publié. L'ancrage reste **qualitatif** : c'est un fait d'observation, pas une mesure. |
-| **Relief simulé de la Lune** | la carte d'albédo sert de carte de hauteur, avec un gain de 6. Ce n'est pas un modèle topographique : les cratères accrochent la lumière rasante parce que l'albédo varie, non parce que le sol monte. Conséquence mesurée : quelques mouchetures subsistent sur la face nuit, là où la normale perturbée capte un rayon qui ne devrait pas l'atteindre. |
+| **Relief simulé de la Lune** | la carte d'albédo sert de carte de hauteur, avec un gain de 6. Ce n'est pas un modèle topographique : les cratères accrochent la lumière rasante parce que l'albédo varie, non parce que le sol monte. **La pente est désormais bornée à 15°** — celle qu'une surface lunaire présente à l'échelle d'un texel, soit 5,3 km de base — ce qui garantit qu'aucune bosse ne capte le Soleil au-delà de cette pente sous l'horizon local. Sans elle, l'inclinaison atteignait 42° et la face nuit s'allumait de 48 niveaux sur 255 à fort zoom. ⚠️ L'amplitude du relief reste **dépendante du zoom** : la différence finie entre texels est lissée par le filtrage à petit disque et pleine à grand. La borne plafonne l'effet, elle ne le rend pas invariant. |
 | **Pénombre** | le Soleil a un demi-degré de diamètre, donc le bord de son ombre est flou sur une largeur croissant avec la distance à l'occulteur — cinq mètres à un kilomètre, cinquante à dix. La carte d'ombre rend une frontière nette. |
 | **Relief du banc** | le champ de hauteur est un **bruit fractal a graine fixe**, pas un modèle géologique — c'est une surface de test. Les albédos (0,12 végétation · 0,20 roche · 0,80 neige) sont de manuel ; ni ombres portées, ni occlusion du ciel par le relief voisin. |
 | **Altitude de l'observateur** | prise en compte par la réfraction, la masse d'air, le bord du sol et le terrain, chacun via `horizonDipDeg`. Le champ n'est **pas borné** dans l'interface : au-delà de la troposphère, le profil standard reste extrapolé et rien ne le signale à l'utilisateur. |
