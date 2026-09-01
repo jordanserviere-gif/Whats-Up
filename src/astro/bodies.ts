@@ -13,6 +13,12 @@ import {
   parallacticAngle,
   precessFromJ2000,
 } from './coords'
+import {
+  apparentFromTable,
+  isRefractionEnabled,
+  isVisible,
+  sharedRefractionTable,
+} from '@/atmosphere/refraction/refractionTable'
 import { skyLuminance } from './photometry'
 import type { BodyId, BodyState, Equatorial, GeoLocation, RiseSetInfo } from './types'
 
@@ -110,19 +116,29 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
   const observer = observerOf(location)
   const eqOfDate = A.Equator(def.body, date, observer, true, true)
   const equatorial: Equatorial = { ra: norm360(eqOfDate.ra * 15), dec: eqOfDate.dec }
-  // Coordonnees horizontales **sans refraction**, pour coller exactement a la
-  // geometrie de la scene : celle-ci place les corps depuis leur direction
-  // equatorielle, qui ne connait pas l'atmosphere. Melanger les deux introduit
-  // un ecart d'environ deux minutes d'arc a 25° de hauteur — invisible au champ
-  // large, mais suffisant pour faire sortir une planete du cadre a fort
-  // grossissement, et pour decaler les etiquettes de leurs objets.
-  // La refraction sera introduite de facon coherente pour toutes les couches
-  // — etoiles comprises — a l'etape 2 de la mission.
+  // --- Coordonnees horizontales, refractees par le moteur ------------------
   //
-  // La chaine vide est la facon documentee de la desactiver : `Horizon` teste
-  // la veracite de son argument, et toute valeur non vide autre que « normal »
-  // ou « jplhor » leve une erreur.
-  const hor = A.Horizon(date, observer, eqOfDate.ra, eqOfDate.dec, '')
+  // `A.Horizon` est appele **sans refraction** — la chaine vide est la facon
+  // documentee de la desactiver — puis la refraction du moteur est appliquee.
+  // Ce n'est pas un detour : la formule interne de la bibliotheque est un
+  // ajustement empirique, la notre sort de l'integrale le long du rayon dans un
+  // profil d'indice de Ciddor. Les faire cohabiter donnerait deux refractions
+  // differentes dans la meme image.
+  //
+  // La meme table sert au placement des astres, des etoiles, du ciel profond et
+  // des constellations — voir `scene/refractionTexture.ts`. C'est cette unicite
+  // qui evite qu'une planete se detache de son champ d'etoiles pres de
+  // l'horizon.
+  const rawHorizon = A.Horizon(date, observer, eqOfDate.ra, eqOfDate.dec, '')
+  const refraction = sharedRefractionTable(location.elevation)
+  const hor = {
+    azimuth: rawHorizon.azimuth,
+    // L'azimut est inchange : la refraction ne depend que de la hauteur dans une
+    // atmosphere a stratification spherique.
+    altitude: isRefractionEnabled()
+      ? apparentFromTable(refraction, rawHorizon.altitude)
+      : rawHorizon.altitude,
+  }
 
   const sunEq = A.Equator(A.Body.Sun, date, observer, true, true)
   const sunEquatorial: Equatorial = { ra: norm360(sunEq.ra * 15), dec: sunEq.dec }
@@ -156,6 +172,7 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
     name: def.name,
     equatorial,
     horizontal: { azimuth: hor.azimuth, altitude: hor.altitude },
+    trueAltitude: rawHorizon.altitude,
     positionEq,
     sunDirectionEq: def.id === 'sun' ? [0, 0, 0] : [dx / dn, dy / dn, dz / dn],
     radiusKm: def.radiusKm,
@@ -168,7 +185,9 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
     elongation,
     brightLimbAngle: def.id === 'sun' ? 0 : brightLimbAngle(equatorial, sunEquatorial, location, date),
     ringTiltDeg,
-    visible: hor.altitude > 0,
+    // Un astre est visible des que sa hauteur **vraie** depasse −33 minutes
+    // d'arc : c'est ce qui fait lever le Soleil avant qu'il ne soit leve.
+    visible: isRefractionEnabled() ? isVisible(refraction, rawHorizon.altitude) : rawHorizon.altitude > 0,
   }
 }
 

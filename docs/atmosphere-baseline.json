@@ -1,0 +1,392 @@
+{
+  "recordedAt": "2026-08-29T18:47:36.042Z",
+  "environment": {
+    "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "webgl2": true,
+    "colorBufferFloat": true,
+    "floatLinear": true,
+    "max3DTexture": 2048,
+    "webgpuAvailable": true
+  },
+  "kernels": {
+    "diffusion simple Rayleigh+Mie (16×8, ancien noyau analytique)": {
+      "phase": "baseline",
+      "measurements": {
+        "1440x900": {
+          "nsPerPixel": 1.4779202282740067,
+          "minNsPerPixel": 1.442307692130803,
+          "maxNsPerPixel": 1.5135327635327636,
+          "spread": 0.048192771192489235,
+          "msPerPass": 1.915384615843113,
+          "reps": 13,
+          "samples": 9
+        },
+        "720x450": {
+          "nsPerPixel": 1.4739229028697698,
+          "minNsPerPixel": 1.442428823756643,
+          "maxNsPerPixel": 1.4928193501499265,
+          "spread": 0.03418803405196552,
+          "msPerPass": 0.4775510205298054,
+          "reps": 49,
+          "samples": 9
+        },
+        "360x225": {
+          "nsPerPixel": 1.5257395770953526,
+          "minNsPerPixel": 1.35103657046815,
+          "maxNsPerPixel": 1.595620778357819,
+          "spread": 0.16030534408453864,
+          "msPerPass": 0.12358490574472357,
+          "reps": 106,
+          "samples": 9
+        }
+      },
+      "nsPerPixel": 1.4779202282740067,
+      "spread": 0.048192771192489235,
+      "samples": 9,
+      "fillRateBound": true,
+      "projectedMs": {
+        "1440x900@dpr1": 1.9153846158431125,
+        "1440x900@dpr2": 7.66153846337245,
+        "1920x1080@dpr2": 12.25846154139592
+      }
+    },
+    "lecture de la table de perspective atmospherique (phase 9)": {
+      "phase": "9",
+      "measurements": {
+        "1440x900": {
+          "nsPerPixel": 0.0864875865128564,
+          "minNsPerPixel": 0.05681047350241006,
+          "maxNsPerPixel": 0.08987925649538339,
+          "spread": 0.3823529401882159,
+          "msPerPass": 0.1120879121206619,
+          "reps": 182,
+          "samples": 9
+        },
+        "720x450": {
+          "nsPerPixel": 0.06512345677172696,
+          "minNsPerPixel": 0.04444444446284094,
+          "maxNsPerPixel": 0.0753086419477139,
+          "spread": 0.4739336487167633,
+          "msPerPass": 0.021099999994039532,
+          "reps": 1000,
+          "samples": 9
+        },
+        "360x225": {
+          "nsPerPixel": 0.09345334739857677,
+          "minNsPerPixel": 0.054104569083642494,
+          "maxNsPerPixel": 0.11312773582311582,
+          "spread": 0.6315789469556465,
+          "msPerPass": 0.007569721139284719,
+          "reps": 251,
+          "samples": 9
+        }
+      },
+      "nsPerPixel": 0.0864875865128564,
+      "spread": 0.3823529401882159,
+      "samples": 9,
+      "fillRateBound": true,
+      "projectedMs": {
+        "1440x900@dpr1": 0.11208791212066191,
+        "1440x900@dpr2": 0.44835164848264764,
+        "1920x1080@dpr2": 0.7173626375722362
+      }
+    }
+  },
+  "probes": {
+    "midi": {
+      "time": "2026-06-21T12:00:00Z",
+      "sunAltitude": 64.54367365797758,
+      "directions": {
+        "zenith": [
+          137,
+          169,
+          212
+        ],
+        "vers-soleil-30": [
+          156,
+          189,
+          226
+        ],
+        "vers-soleil-horizon": [
+          225,
+          228,
+          231
+        ],
+        "perpendiculaire-30": [
+          106,
+          157,
+          215
+        ],
+        "antisoleil-30": [
+          87,
+          144,
+          209
+        ],
+        "antisoleil-horizon": [
+          210,
+          219,
+          227
+        ]
+      }
+    },
+    "apres-midi": {
+      "time": "2026-06-21T16:00:00Z",
+      "sunAltitude": 35.7498695066071,
+      "directions": {
+        "zenith": [
+          76,
+          120,
+          182
+        ],
+        "vers-soleil-30": [
+          199,
+          217,
+          235
+        ],
+        "vers-soleil-horizon": [
+          242,
+          241,
+          238
+        ],
+        "perpendiculaire-30": [
+          88,
+          142,
+          203
+        ],
+        "antisoleil-30": [
+          80,
+          141,
+          204
+        ],
+        "antisoleil-horizon": [
+          213,
+          220,
+          223
+        ]
+      }
+    },
+    "soleil-bas": {
+      "time": "2026-06-21T18:45:00Z",
+      "sunAltitude": 9.433806659281156,
+      "directions": {
+        "zenith": [
+          47,
+          89,
+          136
+        ],
+        "vers-soleil-30": [
+          180,
+          196,
+          208
+        ],
+        "vers-soleil-horizon": [
+          251,
+          249,
+          238
+        ],
+        "perpendiculaire-30": [
+          76,
+          126,
+          170
+        ],
+        "antisoleil-30": [
+          94,
+          149,
+          191
+        ],
+        "antisoleil-horizon": [
+          217,
+          214,
+          180
+        ]
+      }
+    },
+    "coucher": {
+      "time": "2026-06-21T19:52:00Z",
+      "sunAltitude": 0.4029691484576414,
+      "directions": {
+        "zenith": [
+          59,
+          76,
+          98
+        ],
+        "vers-soleil-30": [
+          164,
+          158,
+          163
+        ],
+        "vers-soleil-horizon": [
+          255,
+          225,
+          0
+        ],
+        "perpendiculaire-30": [
+          96,
+          111,
+          126
+        ],
+        "antisoleil-30": [
+          126,
+          142,
+          154
+        ],
+        "antisoleil-horizon": [
+          206,
+          88,
+          0
+        ]
+      }
+    },
+    "crepuscule-civil": {
+      "time": "2026-06-21T20:40:00Z",
+      "sunAltitude": -5.391881930019669,
+      "directions": {
+        "zenith": [
+          11,
+          20,
+          40
+        ],
+        "vers-soleil-30": [
+          53,
+          84,
+          136
+        ],
+        "vers-soleil-horizon": [
+          248,
+          209,
+          0
+        ],
+        "perpendiculaire-30": [
+          19,
+          30,
+          55
+        ],
+        "antisoleil-30": [
+          13,
+          18,
+          31
+        ],
+        "antisoleil-horizon": [
+          1,
+          1,
+          2
+        ]
+      }
+    },
+    "crepuscule-nautique": {
+      "time": "2026-06-21T21:30:00Z",
+      "sunAltitude": -10.475052231501428,
+      "directions": {
+        "zenith": [
+          1,
+          1,
+          1
+        ],
+        "vers-soleil-30": [
+          2,
+          2,
+          2
+        ],
+        "vers-soleil-horizon": [
+          238,
+          217,
+          152
+        ],
+        "perpendiculaire-30": [
+          1,
+          1,
+          1
+        ],
+        "antisoleil-30": [
+          1,
+          1,
+          1
+        ],
+        "antisoleil-horizon": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "nuit": {
+      "time": "2026-06-21T23:30:00Z",
+      "sunAltitude": -16.9855910814693,
+      "directions": {
+        "zenith": [
+          3,
+          3,
+          3
+        ],
+        "vers-soleil-30": [
+          5,
+          5,
+          5
+        ],
+        "vers-soleil-horizon": [
+          12,
+          12,
+          12
+        ],
+        "perpendiculaire-30": [
+          5,
+          5,
+          5
+        ],
+        "antisoleil-30": [
+          5,
+          5,
+          5
+        ],
+        "antisoleil-horizon": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "disque-solaire": {
+      "time": "2026-06-21T12:00:00Z",
+      "sunAltitude": null,
+      "directions": {
+        "centre-disque": [
+          255,
+          255,
+          255
+        ],
+        "limbe": [
+          255,
+          255,
+          255
+        ],
+        "couronne": [
+          255,
+          255,
+          255
+        ]
+      }
+    },
+    "disque-solaire-rasant": {
+      "time": "2026-06-21T19:40:00Z",
+      "sunAltitude": null,
+      "directions": {
+        "centre-disque": [
+          255,
+          255,
+          0
+        ],
+        "limbe": [
+          255,
+          255,
+          0
+        ],
+        "couronne": [
+          255,
+          253,
+          0
+        ]
+      }
+    }
+  },
+  "consoleErrors": []
+}

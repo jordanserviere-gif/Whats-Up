@@ -72,6 +72,15 @@ export interface LayerVisibility {
   aircraft: boolean
   /** Flou lumineux autour des sources vives : le halo du Soleil en depend. */
   bloom: boolean
+  /**
+   * Banc de mesure de l'atmosphere : une chaine de montagnes a distance connue.
+   *
+   * Ce n'est pas un decor. C'est le seul objet de la scene dont la **distance
+   * varie a l'interieur d'une meme image**, ce qui rend visible la partie de la
+   * table de perspective atmospherique que rien d'autre n'utilise — voir
+   * `scene/Terrain.tsx`.
+   */
+  terrain: boolean
 }
 
 interface SkyState {
@@ -91,6 +100,20 @@ interface SkyState {
   // --- Lieu ---
   location: GeoLocation
   setLocation: (l: GeoLocation) => void
+  /**
+   * Hauteur ajoutee au-dessus du sol, m.
+   *
+   * Distincte de l'altitude du lieu, et pour une raison de fond : l'altitude du
+   * lieu est une **propriete du terrain**, que le modele numerique connait mieux
+   * que n'importe quelle saisie. Ce reglage-ci dit ou se trouve l'observateur
+   * **par rapport a ce sol** — au sommet d'une tour, en ballon, en avion.
+   *
+   * C'est lui qui abaisse l'horizon et decouvre le relief lointain : dix
+   * kilometres de hauteur reculent l'horizon de vingt-trois a trois cent
+   * quarante kilometres.
+   */
+  elevationOffsetM: number
+  setElevationOffsetM: (m: number) => void
 
   // --- Vue ---
   tab: ViewTab
@@ -141,6 +164,17 @@ interface SkyState {
 
   // --- Calques ---
   layers: LayerVisibility
+  /**
+   * Avancement du chargement du relief.
+   *
+   * Le relief reel se telecharge en une vingtaine de megaoctets et arrive par
+   * paliers. Sans cette information, l'utilisateur verrait une mer plate se
+   * transformer en montagnes sans savoir pourquoi, ni combien de temps attendre.
+   */
+  terrainProgress: { done: number; total: number; failed: number; levelsReady: number } | null
+  setTerrainProgress: (
+    progress: { done: number; total: number; failed: number; levelsReady: number } | null,
+  ) => void
   toggleLayer: (key: keyof LayerVisibility) => void
   setLayer: (key: keyof LayerVisibility, value: boolean) => void
   /** Magnitude limite des etoiles affichees. */
@@ -232,6 +266,7 @@ const DEFAULT_LAYERS: LayerVisibility = {
   satelliteTracks: true,
   aircraft: false,
   bloom: true,
+  terrain: false,
 }
 
 let satSeq = 0
@@ -252,6 +287,8 @@ export const useSkyStore = create<SkyState>()(
 
       location: PRESET_LOCATIONS[0],
       setLocation: (location) => set({ location }),
+      elevationOffsetM: 0,
+      setElevationOffsetM: (elevationOffsetM) => set({ elevationOffsetM }),
 
       tab: 'ciel',
       setTab: (tab) => set({ tab, panelOpen: true }),
@@ -282,6 +319,8 @@ export const useSkyStore = create<SkyState>()(
       selectAircraft: (hex) => set(hex ? { selectedAircraftHex: hex, selection: null } : { selectedAircraftHex: null }),
 
       layers: DEFAULT_LAYERS,
+      terrainProgress: null,
+      setTerrainProgress: (terrainProgress) => set({ terrainProgress }),
       toggleLayer: (key) => set((s) => ({ layers: { ...s.layers, [key]: !s.layers[key] } })),
       setLayer: (key, value) => set((s) => ({ layers: { ...s.layers, [key]: value } })),
       magnitudeLimit: 6,
@@ -331,6 +370,7 @@ export const useSkyStore = create<SkyState>()(
       // Le temps et la selection sont volatils : on ne persiste que les preferences.
       partialize: (s) => ({
         location: s.location,
+        elevationOffsetM: s.elevationOffsetM,
         layers: s.layers,
         magnitudeLimit: s.magnitudeLimit,
         discScale: s.discScale,

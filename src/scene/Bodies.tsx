@@ -18,16 +18,46 @@ import { bodyOrientation } from '@/astro/orientation'
 import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels } from '@/astro/photometry'
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
+import { DISPLAY_TONEMAP_GLSL, RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
+import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import {
-  ATMOSPHERE_GLSL,
-  ATMOSPHERE_HAZE_COLOR_FN,
-  ATMOSPHERE_TONEMAP_FN,
-  ATMOSPHERE_UNIFORM_DECLARATIONS,
-  applyAerosolTurbidity,
-  atmosphereUniforms,
-} from './atmosphere'
+  isRefractionEnabled,
+  refractSceneDirection,
+  verticalScaleFromTable,
+} from '@/atmosphere/refraction/refractionTable'
+import { refractionFor } from './refractionTexture'
+import { aerialUniforms, applyAerialUniforms } from './useAerialLut'
 
 const DEG = Math.PI / 180
+
+/**
+ * Redresse une direction, si l'atmosphere existe.
+ *
+ * Le calque eteint donne la vue depuis l'espace : les rayons y sont droits, et
+ * la direction geometrique est la bonne.
+ */
+function maybeRefract(
+  elevationM: number,
+  dir: [number, number, number],
+): [number, number, number] {
+  return isRefractionEnabled() ? refractSceneDirection(refractionFor(elevationM).table, dir) : dir
+}
+
+/**
+ * Sur-eclat du disque solaire, en multiples de la radiance qui s'affiche en
+ * blanc.
+ *
+ * Le materiau rendait auparavant la valeur brute 6, dans un espace ou le blanc
+ * valait 1 : le Soleil y etait donc six fois au-dessus du blanc, ce qui le
+ * faisait ecreter a l'affichage et deborder en halo. Le tampon etant desormais
+ * lineaire, « six fois le blanc » se dit `6 × RADIANCE_AT_DISPLAY_WHITE`. La
+ * traduction preserve exactement le sens de l'ancienne constante.
+ *
+ * Ce n'est pas une grandeur physique — la phase 4 la remplacera par la vraie
+ * radiance solaire, qui depasse celle du ciel de plusieurs ordres de grandeur.
+ */
+const SUN_OVERBRIGHT = 6
+const SUN_GAIN = SUN_OVERBRIGHT * RADIANCE_AT_DISPLAY_WHITE
 
 /** Taille monde d'un objet devant occuper `pixels` a l'ecran, a la distance `depth`. */
 function worldSizeForPixels(pixels: number, camera: PerspectiveCamera, viewportHeight: number, depth: number): number {
@@ -59,7 +89,7 @@ function bodyMaterial() {
       /** Relief simule a partir du gradient de l'albedo : creuse les crateres. */
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
-      ...atmosphereUniforms(),
+      ...aerialUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -79,10 +109,8 @@ function bodyMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
-      ${ATMOSPHERE_GLSL}
-      ${ATMOSPHERE_UNIFORM_DECLARATIONS}
-      ${ATMOSPHERE_TONEMAP_FN}
-      ${ATMOSPHERE_HAZE_COLOR_FN}
+      ${DISPLAY_TONEMAP_GLSL}
+      ${AERIAL_LUT_GLSL}
       varying vec3 vNormal;
       varying vec3 vViewDir;
       varying vec3 vDir;
@@ -152,8 +180,13 @@ function bodyMaterial() {
         //   photometrique en magnitudes, qui reste en revanche a sa place sur
         //   le halo — la, l'objet est une source ponctuelle, pas une surface.
         vec3 transmittance;
-        vec3 haze = hazeColorAlong(normalize(vDir), transmittance);
-        gl_FragColor = vec4(col * transmittance + haze, 1.0);
+        vec3 haze = aerialPerspectiveToSpace(normalize(vDir), transmittance);
+        // La couleur du disque est encore en espace d'affichage : albedo de carte multiplie
+        // par un eclairement sans unite. On la remonte en radiance pour que le
+        // produit par la transmittance et la somme avec le voile se fassent
+        // dans le meme espace — ce que l'ancienne chaine ne pouvait pas faire,
+        // et reconnaissait comme une approximation.
+        gl_FragColor = vec4(radianceFromDisplay(col) * transmittance + haze, 1.0);
       }
     `,
   })
@@ -171,7 +204,7 @@ function sunMaterial() {
   return new ShaderMaterial({
     uniforms: {
       uTint: { value: new Vector3(1, 1, 1) },
-      uGain: { value: 6 },
+      uGain: { value: SUN_GAIN },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -219,6 +252,7 @@ function glowMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
+      ${DISPLAY_TONEMAP_GLSL}
       varying vec2 vUv;
       uniform vec3 uColor;
       uniform float uOpacity;
@@ -229,7 +263,7 @@ function glowMaterial() {
         if (r > 1.0) discard;
         float core = smoothstep(uCore, 0.0, r);
         float halo = pow(max(0.0, 1.0 - r), uFalloff);
-        gl_FragColor = vec4(uColor, (core * 0.85 + halo) * uOpacity);
+        gl_FragColor = vec4(radianceFromDisplay(uColor), (core * 0.85 + halo) * uOpacity);
       }
     `,
   })
@@ -263,6 +297,7 @@ function selectionMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
+      ${DISPLAY_TONEMAP_GLSL}
       varying vec2 vUv;
       uniform vec3 uColor;
       uniform float uOpacity;
@@ -275,7 +310,7 @@ function selectionMaterial() {
         // crenele des qu'il devient fin.
         float feather = max(0.004, uThickness * 0.35);
         float a = smoothstep(1.0, 1.0 - feather, r) * smoothstep(inner, inner + feather, r);
-        gl_FragColor = vec4(uColor, a * uOpacity);
+        gl_FragColor = vec4(radianceFromDisplay(uColor), a * uOpacity);
       }
     `,
   })
@@ -296,8 +331,13 @@ interface BodyProps {
   discScale: number
   /** Direction du Soleil dans le repere de la scene, unitaire. */
   sunDirection: [number, number, number]
+  /**
+   * Couleur du disque solaire transmise par l'atmosphere — sRGB lineaire,
+   * normalise sur le zenith au niveau de la mer. Voir `atmosphere/transport`.
+   */
+  sunTint: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
-  atmosphereExposure: number
+  skyExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
   aerosolTurbidity: number
   selected: boolean
@@ -319,7 +359,8 @@ function Body({
   limitingMagnitude,
   discScale,
   sunDirection,
-  atmosphereExposure,
+  sunTint,
+  skyExposure,
   aerosolTurbidity,
   selected,
   selectionColor,
@@ -343,35 +384,64 @@ function Body({
     if (!g || !s) return
 
     const depth = sceneDepth(state.distanceKm)
-    const dir = equatorialDirectionToScene(
-      [
-        state.positionEq[0] / state.distanceKm,
-        state.positionEq[1] / state.distanceKm,
-        state.positionEq[2] / state.distanceKm,
-      ],
-      date,
-      location,
-      scratch.current,
+    // La direction geometrique, puis la **meme** refraction que les etoiles et
+    // les constellations. C'est le point ou un astre bas se releve d'un demi-
+    // degre — et l'unicite de la table est ce qui l'empeche de se detacher du
+    // champ d'etoiles qui l'entoure.
+    const dir = maybeRefract(
+      location.elevation,
+      equatorialDirectionToScene(
+        [
+          state.positionEq[0] / state.distanceKm,
+          state.positionEq[1] / state.distanceKm,
+          state.positionEq[2] / state.distanceKm,
+        ],
+        date,
+        location,
+        scratch.current,
+      ),
     )
     g.position.set(dir[0] * depth, dir[1] * depth, dir[2] * depth)
+
+    // --- Le Soleil aplati ---------------------------------------------------
+    // La refraction decroit quand la hauteur augmente : le limbe inferieur d'un
+    // disque est donc releve davantage que le superieur, et le disque s'ecrase.
+    // Le facteur est la **derivee** de la fonction qui a servi a le placer, pas
+    // un parametre.
+    //
+    // Le groupe ne porte ni rotation ni echelle : ses axes sont ceux de la
+    // scene, et une echelle verticale y comprime exactement selon la verticale
+    // locale. Le diametre horizontal reste intact — d'ou un ovale, et non un
+    // disque plus petit.
+    g.scale.set(1, isRefractionEnabled() ? verticalScaleFromTable(refractionFor(location.elevation).table, state.trueAltitude) : 1, 1)
 
     const trueRadius = sceneRadiusForBody(state.radiusKm, state.distanceKm)
     s.scale.setScalar(trueRadius * discScale)
 
-    const extinction = extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity)
-    const tint = extinctionTint(state.horizontal.altitude)
+    const extinction = extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity, location.elevation)
 
     if (isSun) {
-      // Un Soleil haut est blanc et eblouissant ; c'est l'extinction qui le
-      // rougit et l'affaiblit quand il descend, comme dans le ciel.
-      ;(surface.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-      surface.uniforms.uGain.value = 6 * Math.pow(10, -0.4 * extinction * 0.5)
+      // Teinte et eclat viennent tous deux du **spectre solaire transmis**,
+      // calcule par la loi de Beer-Lambert le long du trajet oblique reel —
+      // voir `atmosphere/transport/directSolar.ts`.
+      //
+      // Ils remplacent deux approximations photometriques : `extinctionTint()`,
+      // deux exponentielles ajustees par canal, et un affaiblissement en
+      // `10^(−0,4·k·X·0,5)` dont le facteur 0,5 n'avait aucune justification.
+      //
+      // Le disque rougit et faiblit desormais parce que la colonne d'air
+      // s'allonge et que la section efficace varie en λ⁻⁴·¹, sans qu'aucune
+      // couleur ne soit ecrite nulle part.
+      ;(surface.uniforms.uTint.value as Vector3).set(sunTint[0], sunTint[1], sunTint[2])
+      surface.uniforms.uGain.value = SUN_GAIN
     } else {
       const sd = equatorialDirectionToScene(state.sunDirectionEq, date, location, scratch.current)
       ;(surface.uniforms.uBodySunDir.value as Vector3).set(sd[0], sd[1], sd[2])
-      ;(surface.uniforms.uSunDir.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
-      surface.uniforms.uAtmosphereExposure.value = atmosphereExposure
-      applyAerosolTurbidity(surface.uniforms as Parameters<typeof applyAerosolTurbidity>[0], aerosolTurbidity)
+      applyAerialUniforms(
+        surface.uniforms as unknown as ReturnType<typeof aerialUniforms>,
+        sunDirection,
+        skyExposure,
+      )
       surface.uniforms.uEmissive.value = 0
       // Lumiere cendree cote nuit — la Terre reflechie sur la face non
       // eclairee de la Lune. 0,035 la rendait aussi visible qu'un authentique
@@ -528,6 +598,7 @@ function SaturnRings({
           }
         `,
         fragmentShader: /* glsl */ `
+          ${DISPLAY_TONEMAP_GLSL}
           varying vec3 vLocal;
           uniform sampler2D uMap;
           uniform float uHasMap;
@@ -543,7 +614,7 @@ function SaturnRings({
             float t = clamp((r - uInner) / (uOuter - uInner), 0.0, 1.0);
             vec4 sampled = uHasMap > 0.5 ? texture2D(uMap, vec2(t, 0.5)) : vec4(uColor, 0.85);
             if (sampled.a < 0.01) discard;
-            gl_FragColor = vec4(sampled.rgb * uTint * uBrightness, sampled.a);
+            gl_FragColor = vec4(radianceFromDisplay(sampled.rgb * uTint * uBrightness), sampled.a);
           }
         `,
       }),
@@ -555,15 +626,22 @@ function SaturnRings({
     if (!m) return
 
     const depth = sceneDepth(state.distanceKm)
-    const dir = equatorialDirectionToScene(
-      [
-        state.positionEq[0] / state.distanceKm,
-        state.positionEq[1] / state.distanceKm,
-        state.positionEq[2] / state.distanceKm,
-      ],
-      date,
-      location,
-      scratch.current,
+    // La direction geometrique, puis la **meme** refraction que les etoiles et
+    // les constellations. C'est le point ou un astre bas se releve d'un demi-
+    // degre — et l'unicite de la table est ce qui l'empeche de se detacher du
+    // champ d'etoiles qui l'entoure.
+    const dir = maybeRefract(
+      location.elevation,
+      equatorialDirectionToScene(
+        [
+          state.positionEq[0] / state.distanceKm,
+          state.positionEq[1] / state.distanceKm,
+          state.positionEq[2] / state.distanceKm,
+        ],
+        date,
+        location,
+        scratch.current,
+      ),
     )
     m.position.set(dir[0] * depth, dir[1] * depth, dir[2] * depth)
     m.scale.setScalar(sceneRadiusForBody(state.radiusKm, state.distanceKm) * discScale)
@@ -583,9 +661,9 @@ function SaturnRings({
       m.quaternion.setFromRotationMatrix(basis.current)
     }
 
-    const tint = extinctionTint(state.horizontal.altitude)
+    const tint = extinctionTint(state.horizontal.altitude, location.elevation)
     ;(material.uniforms.uTint.value as Vector3).set(tint[0], tint[1], tint[2])
-    material.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity) * 0.6)
+    material.uniforms.uBrightness.value = Math.pow(10, -0.4 * extinctionMagnitudes(state.horizontal.altitude, aerosolTurbidity, location.elevation) * 0.6)
     material.uniforms.uHasMap.value = texture ? 1 : 0
     material.uniforms.uMap.value = texture
   })
@@ -605,7 +683,8 @@ export function SolarSystemBodies({
   limitingMagnitude,
   discScale,
   sunDirection,
-  atmosphereExposure,
+  sunTint,
+  skyExposure,
   aerosolTurbidity,
   colors,
   sunGlowColor,
@@ -620,8 +699,10 @@ export function SolarSystemBodies({
   discScale: number
   /** Direction du Soleil dans le repere de la scene, unitaire. */
   sunDirection: [number, number, number]
+  /** Couleur du disque solaire transmise par l'atmosphere, sRGB lineaire. */
+  sunTint: [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
-  atmosphereExposure: number
+  skyExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
   aerosolTurbidity: number
   colors: Map<string, string>
@@ -646,7 +727,8 @@ export function SolarSystemBodies({
           limitingMagnitude={limitingMagnitude}
           discScale={discScale}
           sunDirection={sunDirection}
-          atmosphereExposure={atmosphereExposure}
+          sunTint={sunTint}
+          skyExposure={skyExposure}
           aerosolTurbidity={aerosolTurbidity}
           selected={selectedId === state.id}
           selectionColor={selectionColor}

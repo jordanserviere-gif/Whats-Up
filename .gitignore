@@ -7,3 +7,7 @@ scripts/.cache
 
 # Cache de compilation incrementale TypeScript
 tsconfig.tsbuildinfo
+docs/captures/
+.playwright-mcp/
+shots/
+scripts/.*.mjs

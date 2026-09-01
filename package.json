@@ -10,10 +10,13 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
     "data": "node scripts/build-catalogs.mjs",
+    "data:spectral": "node scripts/build-spectral.mjs",
     "motion": "node scripts/gen-motion.mjs",
     "color": "esbuild scripts/gen-color.mjs --bundle --platform=node --format=esm --log-level=error --outfile=scripts/.cache/gen-color.bundle.mjs && node scripts/.cache/gen-color.bundle.mjs",
     "tokens": "npm run motion && npm run color",
     "verify": "esbuild scripts/verify-astro.mjs --bundle --platform=node --format=esm --log-level=error --outfile=scripts/.cache/verify.mjs && node scripts/.cache/verify.mjs",
+    "verify:atmosphere": "esbuild scripts/verify-atmosphere.mjs --bundle --platform=node --format=esm --log-level=error --outfile=scripts/.cache/verify-atmosphere.mjs && node scripts/.cache/verify-atmosphere.mjs",
+    "atmo:baseline": "node scripts/atmosphere-baseline.mjs",
     "audit:ui": "node scripts/audit-overflow.mjs"
   },
   "dependencies": {

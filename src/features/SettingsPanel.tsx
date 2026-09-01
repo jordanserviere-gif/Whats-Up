@@ -20,6 +20,9 @@ import { DEEP_SKY_COUNT } from '@/astro/deepsky'
 import './SettingsPanel.css'
 import { STAR_COUNT, STAR_MAG_LIMIT } from '@/astro/catalog'
 import { localTimeZone } from '@/astro/time'
+import { horizonDipDeg } from '@/atmosphere/refraction/rayBending'
+import { horizonRangeM } from '@/scene/terrain/ridgeField'
+import { LocationMap } from './LocationMap'
 
 const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string; hint?: string }> = [
   { key: 'stars', label: 'Étoiles' },
@@ -35,12 +38,19 @@ const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string; hint?: st
   { key: 'cardinals', label: 'Points cardinaux' },
   { key: 'ground', label: 'Sol' },
   { key: 'atmosphere', label: 'Atmosphère', hint: 'le ciel bleuit de jour et masque les étoiles' },
+  {
+    key: 'terrain',
+    label: 'Banc atmosphère — relief',
+    hint: 'une chaîne à 15 km à l’est, longue de 600 : la distance seule y varie',
+  },
 ]
 
 /** Reglages : lieu d'observation, calques, apparence. */
 export function SettingsPanel() {
   const location = useSkyStore((s) => s.location)
   const setLocation = useSkyStore((s) => s.setLocation)
+  const elevationOffsetM = useSkyStore((s) => s.elevationOffsetM)
+  const setElevationOffsetM = useSkyStore((s) => s.setElevationOffsetM)
   const layers = useSkyStore((s) => s.layers)
   const setLayer = useSkyStore((s) => s.setLayer)
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
@@ -124,13 +134,35 @@ export function SettingsPanel() {
           onChange={(e) => setLocation({ ...location, name: 'Lieu personnalisé', longitude: Number(e.target.value) })}
         />
         <TextField
-          label="Altitude"
+          label="Altitude du sol"
           type="number"
           numeric
           step="1"
           suffix="m"
           value={location.elevation.toFixed(0)}
           onChange={(e) => setLocation({ ...location, elevation: Number(e.target.value) })}
+        />
+        <TextField
+          label="Hauteur au-dessus du sol"
+          type="number"
+          numeric
+          step="10"
+          suffix="m"
+          value={elevationOffsetM.toFixed(0)}
+          onChange={(e) => setElevationOffsetM(Math.max(0, Number(e.target.value)))}
+        />
+        <p className="md-type-body-small">
+          {elevationOffsetM > 0
+            ? `Horizon abaisse de ${horizonDipDeg(location.elevation + elevationOffsetM).toFixed(2).replace('.', ',')}° — le relief visible porte jusqu'a ${Math.round(horizonRangeM(4000, location.elevation + elevationOffsetM, 7_669_000) / 1000)} km sur un sommet de 4000 m.`
+            : `L'altitude du sol est relue sur le modele numerique de terrain des que celui-ci est charge ; la hauteur ci-dessus s'y ajoute.`}
+        </p>
+
+        <LocationMap
+          latitudeDeg={location.latitude}
+          longitudeDeg={location.longitude}
+          onPick={(latitude, longitude) =>
+            setLocation({ ...location, name: 'Lieu choisi sur la carte', latitude, longitude })
+          }
         />
 
         <Button variant="tonal" icon="my_location" fullWidth disabled={locating} onClick={useMyPosition}>

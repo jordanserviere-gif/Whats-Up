@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
-import { Matrix4, NoToneMapping } from 'three'
+import { DisplayEffect } from './display/DisplayEffect'
+import { RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
+import { HalfFloatType, Matrix4, NoToneMapping } from 'three'
 import { BODIES } from '@/astro/bodies'
+import { ozoneColumnDu as ozoneColumnDuFor } from '@/atmosphere/absorption/ozoneClimatology'
 import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
 import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
 import {
@@ -27,7 +30,8 @@ import { Starfield } from './Starfield'
 import { ConstellationLines } from './ConstellationLines'
 import { DeepSky } from './DeepSky'
 import { EclipticLine, EquatorialGrid, HorizonGrid, HorizonLine } from './Grids'
-import { Ground } from './Ground'
+import { Globe } from './Globe'
+import { Terrain } from './Terrain'
 import { SkyBackground } from './SkyBackground'
 import { SolarSystemBodies } from './Bodies'
 import { useBodyTextures } from './useBodyTextures'
@@ -38,9 +42,23 @@ import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
 import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
 import { AIRGLOW_LUX } from '@/astro/photometry'
+import { directSolar, sunDiscTint } from '@/atmosphere/transport/directSolar'
+import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
+import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
+import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
 import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
+
+/**
+ * Grille spectrale du transport solaire direct.
+ *
+ * Trente-deux bandes sur le visible : largement assez pour une **couleur**,
+ * dont la resolution utile est fixee par la largeur des fonctions
+ * colorimetriques, pas par la finesse du spectre. Les raies de Fraunhofer sont
+ * moyennees par bande, sans perte d'energie — voir `SpectralGrid.ts`.
+ */
+const SOLAR_GRID = uniformSpectralGrid(360, 830, 32)
 
 /** Halo urbain sans teinte : il ne fait qu'eclaircir le ciel. */
 const NEUTRAL_GLOW = '#ffffff'
@@ -75,6 +93,7 @@ export function SkyCanvas() {
 
   const date = useSimulatedDate()
   const location = useSkyStore((s) => s.location)
+  const elevationOffsetM = useSkyStore((s) => s.elevationOffsetM)
   const layers = useSkyStore((s) => s.layers)
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
@@ -155,18 +174,50 @@ export function SkyCanvas() {
   const limitingMagnitude = layers.atmosphere ? sky.limitingMagnitude : 6.6
   const illuminance = layers.atmosphere ? sky.illuminance : 2e-4
 
-  /**
-   * Exposition de la diffusion atmospherique reelle (voir `atmosphere.ts`),
-   * partagee par le fond de ciel, les corps du systeme solaire et le voile
-   * des avions/trainees — meme formule que `SkyBackground`, pour que tous
-   * s'eteignent exactement au meme rythme pendant une eclipse ou en vue
-   * depuis l'espace plutot que de deriver chacun de son cote.
+/**
+   * Attenuation due a une eclipse, partagee par les deux echelles d'exposition.
+   *
+   * Le plancher de 8·10⁻⁴ represente l'atmosphere eclairee hors de l'ombre :
+   * pendant la totalite le ciel devient crepusculaire, pas noir. C'est une
+   * approximation — la vraie luminance sous l'ombre vient d'un transport
+   * horizontal depuis la penombre, hors de portee d'un modele a symetrie de
+   * revolution.
    */
-  const atmosphereExposure = useMemo(() => {
-    if (!layers.atmosphere) return 0
-    const eclipse = Math.pow(1 - sky.obscuration + 8e-4 * sky.obscuration, 0.5)
-    return 0.3 * eclipse
-  }, [layers.atmosphere, sky.obscuration])
+  const eclipseDimming = Math.sqrt(1 - sky.obscuration + 8e-4 * sky.obscuration)
+
+  /**
+   * Distance Terre-Soleil, ua — prise de l'ephemeride, non supposee unitaire.
+   *
+   * Elle varie de 0,983 au perihelie a 1,017 a l'aphelie : l'eclairement, en
+   * `1/d²`, varie donc de 6,9 % sur l'annee. Le transport savait deja le prendre
+   * en compte, personne ne le lui donnait.
+   */
+  const sunDistanceAu = bodies.find((b) => b.id === 'sun')?.distanceAu ?? 1
+
+  /**
+   * Colonne d'ozone du lieu et de la saison, DU.
+   *
+   * L'ozone est ce qui rend le crepuscule bleu, et sa colonne va de 245 DU sous
+   * les tropiques a plus de 400 aux hautes latitudes au printemps. Le moteur
+   * employait 300 partout — voir `atmosphere/absorption/ozoneClimatology.ts`,
+   * dont la parametrisation est signalee comme une interpolation et non une
+   * climatologie publiee.
+   */
+  const ozoneColumnDu = useMemo(
+    () => ozoneColumnDuFor(location.latitude, date),
+    [location.latitude, date],
+  )
+
+
+  /**
+   * Exposition d'affichage du ciel physique — voir `display/exposure.ts`.
+   *
+   * Elle porte la radiance reelle de la table de ciel dans l'espace du
+   * transform d'affichage. Distincte de `atmosphereExposure`, qui reste une
+   * constante de calibrage de l'ancien noyau : les deux echelles coexistent le
+   * temps que les corps et les avions passent au meme transport (phase 9).
+   */
+  const skyExposure = layers.atmosphere ? SKY_DISPLAY_EXPOSURE * eclipseDimming : 0
 
   /**
    * Intensite d'affichage du halo urbain.
@@ -204,6 +255,7 @@ export function SkyCanvas() {
    */
   const dayFactor = Math.min(1, Math.max(0.12, (sky.sunAltitude + 6) / 6))
 
+
   /**
    * Direction du Soleil dans le repere de la scene.
    *
@@ -215,6 +267,48 @@ export function SkyCanvas() {
     () => viewDirection(sky.sunAzimuth, sky.sunAltitude),
     [sky.sunAzimuth, sky.sunAltitude],
   )
+
+  /**
+   * Couleur du disque solaire, transmise par l'atmosphere reelle.
+   *
+   * Le calcul integre la densite moleculaire le long du trajet oblique — quatre
+   * mille pas — puis applique Beer-Lambert bande par bande. C'est trop cher
+   * pour chaque image, et parfaitement inutile : la hauteur du Soleil varie de
+   * quinze degres par heure, soit un vingtieme de degre en douze secondes. On
+   * quantifie donc la visee a ce pas, ce qui borne le recalcul sans qu'aucune
+   * transition ne se voie.
+   *
+   * Sans le calque « atmosphere », l'observateur est place au sommet de
+   * l'atmosphere : le Soleil y garde son spectre hors atmosphere, plus brillant
+   * et plus bleu, ce qui est exactement ce qu'on voit depuis l'espace.
+   */
+  const sunAltitudeKey = Math.round(sky.sunAltitude * 20) / 20
+  const observerElevationM = layers.atmosphere ? location.elevation : ATMOSPHERE_TOP_M
+  const sunTint = useMemo<[number, number, number]>(
+    () => sunDiscTint(SOLAR_GRID, sunAltitudeKey, { observerElevationM }),
+    [sunAltitudeKey, observerElevationM],
+  )
+
+  /**
+   * Irradiance solaire directe au sol, sRGB lineaire — **non normalisee**.
+   *
+   * `sunTint` ci-dessus rend la meme grandeur ramenee a une luminance unite au
+   * zenith : c'est ce qu'il faut pour **teinter** un disque, et exactement ce
+   * qu'il ne faut pas pour **eclairer** une surface. Une surface a besoin de la
+   * grandeur absolue, sur la meme echelle que la table de ciel — les deux
+   * passent par `spectralToLinearSrgb`, donc elles y sont deja.
+   *
+   * ⚠️ Elle n'etait autrefois calculee que si le banc de relief etait allume.
+   * Le globe est maintenant une **surface eclairee** en permanence, et la
+   * couper reviendrait a eteindre le Soleil sur la moitie de la scene. Le
+   * calcul integre quatre mille pas le long du trajet oblique, mais il ne
+   * depend que de la hauteur solaire quantifiee : il ne se refait donc que
+   * lorsque celle-ci bouge, pas a chaque image.
+   */
+  const sunIrradiance = useMemo<[number, number, number]>(() => {
+    const rgb = directSolar(SOLAR_GRID, sunAltitudeKey, { observerElevationM }).linearSrgb
+    return [rgb[0], rgb[1], rgb[2]]
+  }, [sunAltitudeKey, observerElevationM])
 
   /**
    * Designation d'un objet par un clic dans la scene.
@@ -468,7 +562,13 @@ export function SkyCanvas() {
         <CameraRig canvas={host} onPick={onPick} />
 
         <SkyBackground
-          atmosphereExposure={atmosphereExposure}
+          skyExposure={skyExposure}
+          observerElevationM={location.elevation}
+          extraHeightM={elevationOffsetM}
+          sunDistanceAu={sunDistanceAu}
+          ozoneColumnDu={ozoneColumnDu}
+          atmosphereEnabled={layers.atmosphere}
+          aerosolTurbidity={aerosolTurbidity}
           sunAltitude={sky.sunAltitude}
           sunAzimuth={sky.sunAzimuth}
           moonAltitude={layers.atmosphere ? sky.moonAltitude : -90}
@@ -476,7 +576,6 @@ export function SkyCanvas() {
           lunarLux={layers.atmosphere ? sky.lunarLux : 0}
           nightColor={colors.skyZenith}
           moonGlowColor={colors.moonGlow}
-          aerosolTurbidity={aerosolTurbidity}
           pollutionGain={pollutionGain}
           pollutionColor={LIGHT_POLLUTION_TINT ?? NEUTRAL_GLOW}
         />
@@ -524,7 +623,8 @@ export function SkyCanvas() {
             limitingMagnitude={limitingMagnitude}
             discScale={discScale}
             sunDirection={sunDirection}
-            atmosphereExposure={atmosphereExposure}
+            sunTint={sunTint}
+            skyExposure={skyExposure}
             aerosolTurbidity={aerosolTurbidity}
             colors={bodyColors}
             sunGlowColor={colors.sunGlow}
@@ -551,8 +651,7 @@ export function SkyCanvas() {
             states={aircraftStates}
             location={location}
             sunDirection={sunDirection}
-            atmosphereExposure={atmosphereExposure}
-            aerosolTurbidity={aerosolTurbidity}
+            skyExposure={skyExposure}
             dayFactor={dayFactor}
             selectedHex={selectedAircraftHex}
             trackColor={colors.selection}
@@ -560,29 +659,71 @@ export function SkyCanvas() {
         )}
 
         <HorizonLine color={colors.horizonLine} />
-        {layers.ground && <Ground color={colors.ground} glowColor={colors.groundGlow} illuminance={illuminance} />}
+        {/* L'altitude passee au globe est celle du **site**, non celle qui bascule
+            a cent kilometres quand le calque atmosphere est eteint : la
+            depression de l'horizon est une propriete du lieu, pas du calque. */}
+        {layers.ground && (
+          <Globe
+            observerElevationM={location.elevation}
+            extraHeightM={elevationOffsetM}
+            sunDirection={sunDirection}
+            sunIrradiance={sunIrradiance}
+            skyExposure={skyExposure}
+          />
+        )}
+        {layers.terrain && (
+          <Terrain
+            observerElevationM={location.elevation}
+            extraHeightM={elevationOffsetM}
+            latitudeDeg={location.latitude}
+            longitudeDeg={location.longitude}
+            sunDirection={sunDirection}
+            sunIrradiance={sunIrradiance}
+            sunAltitudeDeg={sky.sunAltitude}
+            sunAzimuthDeg={sky.sunAzimuth}
+            skyExposure={skyExposure}
+          />
+        )}
 
         <LabelLayer labels={labels} host={labelHost} />
         {constellationLabelData.length > 0 && (
           <ConstellationLabels labels={constellationLabelData} host={labelHost} color={colors.constellationLabel} />
         )}
 
-        {/* Le tampon en virgule flottante laisse passer les valeurs superieures a
-            1 : c'est ce qui permet au Soleil, rendu a intensite 6, de deborder en
-            halo lumineux plutot que d'etre simplement ecrete au blanc. */}
-        {layers.bloom && (
-          // Le composeur rend hors ecran : l'antialiasing demande au contexte
-          // WebGL ne s'y applique pas, il faut le lui redemander. Sans cela les
-          // traits fins — grilles, figures, traces de satellites — sont
-          // rasterises en tout ou rien, et chaque pixel qu'ils traversent
-          // s'allume puis s'eteint des que le ciel tourne : le ciel scintille.
-          <EffectComposer multisampling={4}>
-            {/* Seuil a 1 : le ciel, ramene sous 1 par la courbe filmique, ne
-                deborde pas. Seules les vraies sources — le Soleil, rendu a
-                intensite 6 — alimentent le halo. */}
-            <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={1.2} radius={0.8} />
-          </EffectComposer>
-        )}
+        {/* Chaine d'affichage.
+
+            La scene emet desormais de la **radiance lineaire non bornee** : le
+            tone mapping ne vit plus dans les materiaux, il est applique une
+            seule fois ici. Le composeur est donc inconditionnel — son format de
+            tampon ne peut plus dependre d'un reglage d'interface — et rend en
+            demi-flottant pour que les valeurs superieures au blanc survivent
+            jusqu'a la passe d'affichage.
+
+            L'ordre compte : le bloom passe **avant** le transform d'affichage.
+            Un halo lumineux est un phenomene optique, il se produit sur la
+            lumiere et non sur des pixels deja compresses. Son seuil s'exprime
+            de ce fait en radiance — celle qui s'affiche exactement en blanc —
+            la ou l'ancien seuil de 1 se comparait a des valeurs deja ecretees,
+            ce qui interdisait structurellement au ciel de deborder quelle que
+            soit sa luminance reelle.
+
+            Le multisampling reste demande explicitement : le composeur rend
+            hors ecran, ou l'antialiasing du contexte WebGL ne s'applique pas.
+            Sans lui, les traits fins scintillent des que le ciel tourne. */}
+        <EffectComposer multisampling={4} frameBufferType={HalfFloatType}>
+          {layers.bloom ? (
+            <Bloom
+              mipmapBlur
+              luminanceThreshold={RADIANCE_AT_DISPLAY_WHITE}
+              luminanceSmoothing={0.15}
+              intensity={1.2}
+              radius={0.8}
+            />
+          ) : (
+            <></>
+          )}
+          <DisplayEffect />
+        </EffectComposer>
       </Canvas>
       <div className="sky-labels" ref={labelHost} aria-hidden="true" />
     </div>
