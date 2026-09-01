@@ -106,15 +106,39 @@ export const SCENE_DECADES = Math.log10(REFERENCE_SKY_LUMINANCE / ADAPTATION_FLO
  * ⚠️ **Le seul choix de presentation de ce module.**
  *
  * Un ecran sRGB dans une piece eclairee montre utilement deux a trois decades.
- * En consacrer **deux** a l'ecart du jour a la nuit laisse le reste au contraste
- * a l'interieur de chaque image — le disque solaire contre le ciel, une etoile
- * contre le fond.
  *
- * Consequence directe : une nuit rend cent fois plus sombre qu'un midi. C'est
- * peu au regard des huit decades reelles, et c'est precisement ce qu'un ecran
- * peut faire.
+ * ## ⚠️ Deux ne suffisaient pas, et la mesure le dit
+ *
+ * La valeur etait de **deux**, avec ce raisonnement : en consacrer deux a
+ * l'ecart du jour a la nuit laisse le reste au contraste a l'interieur de chaque
+ * image. Le raisonnement tenait ; sa consequence, non.
+ *
+ * Valeur affichee du ciel a un degre au-dessus de l'horizon, dans la direction
+ * du Soleil, pour le **meme ciel physique** :
+ *
+ * | Soleil | 2 decades | 3 decades |
+ * | --- | --- | --- |
+ * | −6° | 161 | 93 |
+ * | −9° | 156 | 66 |
+ * | −12° | **145** | 43 |
+ * | −15° | **106** | 17 |
+ * | −18° | 3 | 0 |
+ *
+ * **A deux decades, la lueur crepusculaire ne s'eteint pas.** Le ciel perd un
+ * facteur mille entre −6° et −15° de hauteur solaire ; l'ecran passe de 161 a
+ * 106. L'ecart jour-nuit n'etait donc pas represente du tout dans la plage ou il
+ * se joue, et une heure et demie apres le coucher il restait un halo blanc franc
+ * la ou l'oeil ne voit qu'une lueur.
+ *
+ * A trois, la decroissance existe. Et le jour ne bouge pas : 250 contre 249 a
+ * quinze degres de hauteur solaire, l'ancrage etant a midi.
+ *
+ * Le prix est reel et assume : la nuit profonde tombe a zero au lieu de rendre
+ * l'airglow a quatre niveaux sur 255. Le fond de ciel naturel n'est plus
+ * discernable — c'est le contraste **a l'interieur** de l'image nocturne qu'on
+ * a paye, exactement comme le raisonnement d'origine l'annoncait.
  */
-export const DISPLAY_DECADES = 2
+export const DISPLAY_DECADES = 3
 
 /**
  * Exposant d'adaptation, sans dimension.
@@ -166,6 +190,78 @@ export const PHOTOPIC_FLOOR = 3
  * La transition est interpolee en logarithme de la luminance, l'oeil travaillant
  * en decades ; sa forme exacte n'est pas mesuree, ses bornes le sont.
  */
+/**
+ * Eclairement produit a l'oeil par une source ponctuelle de magnitude zero, lux.
+ *
+ * Valeur standard de la photometrie stellaire dans la bande V. C'est ce qui
+ * convertit une magnitude en une grandeur physique.
+ */
+export const ZERO_MAGNITUDE_LUX = 2.54e-6
+
+/**
+ * Magnitude apparente au-dela de laquelle la couleur d'une source ponctuelle
+ * cesse d'etre percue.
+ *
+ * ⚠️ **C'est l'ancrage observationnel de tout ce qui suit, et il est
+ * qualitatif.** Les observateurs s'accordent sur le fait : Sirius, Betelgeuse,
+ * Antares, Vega montrent une teinte, et tout ce qui passe sous la premiere ou
+ * la deuxieme magnitude parait blanc. Le seuil exact varie d'un oeil a l'autre.
+ */
+const POINT_COLOUR_THRESHOLD_MAG = 1
+
+/**
+ * Angle solide sur lequel l'oeil etale une source ponctuelle, steradians.
+ *
+ * ## Pourquoi cette grandeur est necessaire
+ *
+ * Une etoile n'a pas de luminance : c'est un point, et son image n'a de taille
+ * que celle que l'optique lui donne. Or la bascule cones/batonnets se joue sur
+ * l'eclairement **retinien**, donc sur une luminance. Il faut donc savoir sur
+ * quelle surface de retine l'etoile se depose.
+ *
+ * ## ⚠️ Elle n'est pas choisie, elle est deduite — parce qu'on ne la connait pas
+ *
+ * La fonction d'etalement de l'oeil **nu et adapte a l'obscurite** est une
+ * grandeur mal definie : la litterature va d'une minute d'arc, pour une pupille
+ * de jour, a une dizaine pour une pupille de sept millimetres ou les
+ * aberrations dominent. Choisir dans cet intervalle serait choisir le resultat.
+ *
+ * On la **deduit** donc de l'ancrage observationnel ci-dessus : la tache est
+ * celle qui place une source de magnitude 1 exactement au plancher photopique,
+ * la ou les cones cessent d'etre seuls.
+ *
+ *     Ω = E(mag 1) / PHOTOPIC_FLOOR
+ *
+ * Le resultat vaut **2,3 minutes d'arc de diametre**, ce qui tombe dans
+ * l'intervalle publie sans avoir ete pris dedans. C'est une verification, pas
+ * une justification.
+ *
+ * ## Ce que ca donne
+ *
+ * | magnitude | luminance retinienne | part des batonnets |
+ * | --- | --- | --- |
+ * | −1,4 (Sirius) | 27,4 cd/m² | 0 % |
+ * | 0 | 7,5 cd/m² | 0 % |
+ * | 2 | 1,19 cd/m² | 7 % |
+ * | 3 | 0,47 cd/m² | 23 % |
+ * | 4 | 0,19 cd/m² | 48 % |
+ * | 6 | 0,03 cd/m² | 90 % |
+ *
+ * Les brillantes gardent leur teinte, le champ profond devient blanc. Le
+ * domaine mesopique est celui du ciel, non un second reglage.
+ */
+export const EYE_POINT_SPREAD_SR =
+  (ZERO_MAGNITUDE_LUX * Math.pow(10, -0.4 * POINT_COLOUR_THRESHOLD_MAG)) / PHOTOPIC_FLOOR
+
+/**
+ * Luminance retinienne d'une source ponctuelle de magnitude donnee, cd/m².
+ *
+ * C'est la grandeur a passer a `scotopicWeight` pour une etoile : elle dit si
+ * l'oeil en voit la couleur ou seulement l'eclat.
+ */
+export const pointSourceRetinalLuminance = (apparentMagnitude: number): number =>
+  (ZERO_MAGNITUDE_LUX * Math.pow(10, -0.4 * apparentMagnitude)) / EYE_POINT_SPREAD_SR
+
 export function scotopicWeight(luminanceCdPerM2: number): number {
   const l = Math.max(1e-12, luminanceCdPerM2)
   if (l <= SCOTOPIC_CEILING) return 1

@@ -15,7 +15,13 @@ import {
 import { useFrame, useThree } from '@react-three/fiber'
 import { BODY_BY_ID } from '@/astro/bodies'
 import { bodyOrientation } from '@/astro/orientation'
-import { extinctionMagnitudes, extinctionTint, pointIntensity, pointSizePixels } from '@/astro/photometry'
+import {
+  earthshineRatio,
+  extinctionMagnitudes,
+  extinctionTint,
+  pointIntensity,
+  pointSizePixels,
+} from '@/astro/photometry'
 import type { BodyState, GeoLocation } from '@/astro/types'
 import { equatorialDirectionToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL, RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
@@ -26,7 +32,14 @@ import {
   verticalScaleFromTable,
 } from '@/atmosphere/refraction/refractionTable'
 import { refractionFor } from './refractionTexture'
+import { RELIEF_MAX_TILT_DEG } from './bodies/surfaceRelief'
 import { aerialUniforms, applyAerialUniforms } from './useAerialLut'
+import {
+  SKY_RADIANCE_GLSL,
+  applySkyRadianceUniforms,
+  skyRadianceState,
+  skyRadianceUniforms,
+} from './display/skyRadiance'
 
 const DEG = Math.PI / 180
 
@@ -90,6 +103,7 @@ function bodyMaterial() {
       uRelief: { value: 0 },
       uTexelSize: { value: 1 / 2048 },
       ...aerialUniforms(),
+      ...skyRadianceUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -111,6 +125,7 @@ function bodyMaterial() {
     fragmentShader: /* glsl */ `
       ${DISPLAY_TONEMAP_GLSL}
       ${AERIAL_LUT_GLSL}
+      ${SKY_RADIANCE_GLSL}
       varying vec3 vNormal;
       varying vec3 vViewDir;
       varying vec3 vDir;
@@ -148,7 +163,34 @@ function bodyMaterial() {
             // Base tangente approchee : suffisante pour une perturbation locale.
             vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), n));
             vec3 bitangent = cross(n, tangent);
-            n = normalize(n - uRelief * (hx * tangent + hy * bitangent));
+            vec3 bump = uRelief * (hx * tangent + hy * bitangent);
+
+            // --- ⚠️ La pente est bornee, et c'est indispensable ----------------
+            //
+            // Sans borne, la perturbation atteignait **quarante-deux degres**.
+            // Une normale ainsi couchee va chercher le Soleil bien au-dela de ce
+            // qu'une pente peut faire, et la face nuit s'allumait — d'autant plus
+            // qu'on grossissait, la difference finie entre texels voisins etant
+            // lissee par le filtrage a faible zoom et pleine a fort zoom.
+            //
+            // Mesure : face nuit d'un croissant, en niveaux au-dessus du ciel.
+            //
+            //     champ 2° a 0,3° : 0     champ 0,15° : +48
+            //
+            // La borne est la pente qu'une surface lunaire presente reellement a
+            // l'echelle d'un texel de la carte — 10 921 km de circonference pour
+            // 2048 texels, soit **5,3 km**. A cette base, les pentes lunaires
+            // restent de quelques degres, une quinzaine dans les hautes terres
+            // les plus rudes.
+            //
+            // Elle suffit a garantir la propriete qui manquait : au-dela de
+            // quinze degres sous l'horizon local, **aucune** bosse ne peut capter
+            // le Soleil, et la face nuit reste noire quel que soit le zoom.
+            float maxTilt = ${Math.tan((RELIEF_MAX_TILT_DEG * Math.PI) / 180).toFixed(6)};
+            float slope = length(bump);
+            if (slope > maxTilt) bump *= maxTilt / slope;
+
+            n = normalize(n - bump);
           }
         }
 
@@ -179,8 +221,21 @@ function bodyMaterial() {
         //   fois la colonne d'air du zenith. Elle remplace ici l'extinction
         //   photometrique en magnitudes, qui reste en revanche a sa place sur
         //   le halo — la, l'objet est une source ponctuelle, pas une surface.
+        // ⚠️ **Le fond derriere un astre est le ciel entier, pas seulement la
+        // diffusion.** Un corps au-dela de l'atmosphere n'occulte rien : les
+        // 384 000 kilometres de la Lune font que toute l'atmosphere — couche
+        // d'airglow comprise, et l'air qui diffuse le clair de lune — se trouve
+        // **devant** elle. Sa face nuit, qui n'emet rien, doit donc rendre
+        // exactement le ciel, comme le montre n'importe quelle photographie.
+        //
+        // Ce nuanceur n'appelait que la table, quand le fond de ciel y ajoutait
+        // l'airglow et les termes peints : la face nuit d'une Lune de jour
+        // ressortait six niveaux sur 255 plus sombre que le bleu voisin.
+        //
+        // Un avion, lui, est **dans** l'atmosphere et cache la couche d'airglow
+        // qui le surplombe : sa place n'est pas ici.
         vec3 transmittance;
-        vec3 haze = aerialPerspectiveToSpace(normalize(vDir), transmittance);
+        vec3 haze = skyRadianceToSpace(normalize(vDir), transmittance);
         // La couleur du disque est encore en espace d'affichage : albedo de carte multiplie
         // par un eclairement sans unite. On la remonte en radiance pour que le
         // produit par la transmittance et la somme avec le voile se fassent
@@ -442,12 +497,46 @@ function Body({
         sunDirection,
         skyExposure,
       )
+      // Le meme etat que le fond de ciel, pour que le fond derriere le disque
+      // soit exactement celui d'a cote.
+      applySkyRadianceUniforms(
+        surface.uniforms as unknown as ReturnType<typeof skyRadianceUniforms>,
+        skyRadianceState,
+      )
       surface.uniforms.uEmissive.value = 0
-      // Lumiere cendree cote nuit — la Terre reflechie sur la face non
-      // eclairee de la Lune. 0,035 la rendait aussi visible qu'un authentique
-      // clair de lune sur la face nuit ; la vraie lumiere cendree est bien
-      // plus discrete, un filet a peine perceptible sur un croissant fin.
-      surface.uniforms.uNightSide.value = state.id === 'moon' ? 0.012 : 0.003
+
+      // --- Lumiere cendree, calculee -----------------------------------------
+      //
+      // ⚠️ **C'etait une constante d'apparence** : 0,012 pour la Lune, 0,003
+      // pour toutes les autres planetes — alors que rien n'eclaire la face nuit
+      // de Venus ou de Mars. La face sombre d'un croissant restait donc
+      // visible, et d'autant plus qu'on grossissait : sous-pixel de loin,
+      // texturee de pres, avec le relief simule qui l'accrochait.
+      //
+      // Elle vient maintenant de la geometrie — voir `earthshineRatio`. Elle
+      // plafonne a 8,4·10⁻⁵, dix magnitudes sous la face jour : la constante
+      // etait **cent cinquante fois trop grande**. Et elle suit la
+      // complementarite des phases, qui n'etait pas modelisee : croissant fin,
+      // Terre presque pleine, cendree maximale.
+      //
+      // L'angle de phase se lit sur les deux directions que l'ephemeride donne
+      // deja : du corps vers le Soleil, et du corps vers l'observateur.
+      const toObserver = [
+        -state.positionEq[0] / state.distanceKm,
+        -state.positionEq[1] / state.distanceKm,
+        -state.positionEq[2] / state.distanceKm,
+      ] as const
+      const cosPhase = Math.max(
+        -1,
+        Math.min(
+          1,
+          state.sunDirectionEq[0] * toObserver[0] +
+            state.sunDirectionEq[1] * toObserver[1] +
+            state.sunDirectionEq[2] * toObserver[2],
+        ),
+      )
+      surface.uniforms.uNightSide.value =
+        state.id === 'moon' ? earthshineRatio(Math.acos(cosPhase), state.distanceKm) : 0
       surface.uniforms.uHasMap.value = texture ? 1 : 0
       surface.uniforms.uMap.value = texture
       // Le relief simule ne sert que sur la Lune : elle seule se resout assez.

@@ -184,7 +184,7 @@ const SUN_MOVEMENT_THRESHOLD_DEG = 0.25
  * Lignes de perspective atmospherique construites par image.
  *
  * Une ligne porte une hauteur de visee et ses **trente-deux** distances, pour
- * 4,8 ms — les distances sortent d'une seule marche, c'est ce qui rend la table
+ * 6,3 ms — les distances sortent d'une seule marche, c'est ce qui rend la table
  * 3D a peine plus chere qu'une table 2D.
  *
  * Elle valait 2,9 ms avec seize distances placees en fractions du trajet propre

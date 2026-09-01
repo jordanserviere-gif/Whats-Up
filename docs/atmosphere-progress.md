@@ -2064,6 +2064,149 @@ table utilisable. Premier ciel a **6,0 s** au lieu de 12,1.
 
 ---
 
+## ⚠️ La table jetait 93 % du ciel crepusculaire
+
+Le « halo blanc post-crepusculaire », audite pixel par pixel.
+
+La table de l'application et son recalcul independant s'accordaient a 6 % : le
+materiau faisait bien ce qu'on croyait. Compare au **solveur direct**, en
+revanche, la table rendait **7 % de la vraie valeur** au ras de l'horizon et
+redevenait exacte au-dela de quatre degres. Le raccord entre les deux formait la
+bande brillante signalee.
+
+Cause : `AERIAL_FAR_M` valait 800 km, borne justifiee sur un rayon rasant **de
+jour**. Au crepuscule, l'air proche est dans l'ombre de la Terre et toute la
+lumiere vient de l'air lointain et haut — 93 % de la radiance est collectee
+au-dela de 800 km a 0,09° de hauteur. La borne est desormais la longueur reelle
+du plus long trajet, 1133 km arrondis a 1200.
+
+Aucun controle ne l'avait vue : « la tranche lointaine est numeriquement le
+ciel » ne tournait qu'a vingt degres de hauteur solaire. Il tourne maintenant
+aussi a -6° et -15°.
+
+Le meme controle a revele 8,5 % de residu de quadrature a -15° — l'ombre de la
+Terre fait une arete franche dans l'integrande. Huit pas par tranche au lieu de
+quatre : 1,0 %, pour 1,2 ms de plus par ligne.
+
+**Echelle crepusculaire remesuree** (les chiffres de la veille passaient par la
+table tronquee) : x0,98 a -6°, x0,72 a -8°, x0,70 a -10°, x0,71 a -12°, x0,33 a
+-14°, x0,11 a -16°. Table et solveur direct s'accordent a 1 %.
+
+L'audit a aussi etabli que le halo **n'est pas l'airglow** — 1 a 2 % du total
+sous trois degres — et qu'il est gris parce que la desaturation scotopique vaut
+100 % dans tout le ciel a ces luminances.
+
+---
+
+## Le halo qui ne s'eteignait pas etait une affaire de presentation
+
+Ce n'etait ni la Lune — le meme halo apparait avec elle a −4° et 1 % eclairee —
+ni un exces de lumiere : le moteur emet ×0,33 de la courbe de reference a −14°.
+Un balayage en azimut montre une lueur strictement directionnelle, rapport neuf
+entre la direction du Soleil et l'opposee : l'arche crepusculaire.
+
+`DISPLAY_DECADES` valait **deux**. Meme ciel physique, a un degre au-dessus de
+l'horizon vers le Soleil :
+
+| Soleil | 2 decades | 3 decades |
+| --- | --- | --- |
+| −6° | 161 | 93 |
+| −12° | **145** | 43 |
+| −15° | **106** | 17 |
+
+Le ciel perd un facteur mille entre −6° et −15° ; l'ecran passait de 161 a 106.
+L'ecart jour-nuit n'etait pas represente dans la plage ou il se joue. A trois
+decades la decroissance existe, et le jour ne bouge pas (250 contre 249).
+
+**Prix assume** : la nuit profonde tombe a zero au lieu de rendre l'airglow a
+quatre niveaux. C'est le contraste a l'interieur de l'image nocturne qu'on paye.
+
+---
+
+## Trois reglages choisis remplaces par trois grandeurs calculees
+
+**Etoiles trop coloriees.** La desaturation scotopique ne vivait que dans le fond
+de ciel ; les etoiles portaient la chromaticite pleine de leur corps noir. Une
+source ponctuelle n'a pas de luminance — c'est l'oeil qui lui en donne une, en
+l'etalant sur sa tache de diffusion. La tache, mal definie dans la litterature,
+est **deduite** du seuil observationnel et vaut 2,25′, dans l'intervalle publie.
+Sirius garde sa couleur, une etoile de sixieme magnitude n'en a plus (90 % de
+batonnets).
+
+**Lumiere cendree cent cinquante fois trop forte.** 0,012 pour la Lune, 0,003
+pour les autres planetes — alors que rien n'eclaire leur face nuit. Elle se
+calcule : `A·(R_T/d)²·Φ(α_terre)` plafonne a 8,4·10⁻⁵, soit 10,2 magnitudes sous
+la face jour. Et la complementarite des phases, qui n'etait pas modelisee, fait
+que la cendree est maximale sur un croissant fin et nulle sur une gibbeuse.
+
+**La carte d'ombre prenait zero degre pour l'horizon.** Faux des qu'on prend de
+l'altitude : un sommet reste eclaire quand la vallee ne l'est plus. Meme faute
+que « les trois horizons », que la correction d'alors n'avait pas atteinte. La
+borne est desormais la depression de l'horizon au point le plus haut du globe.
+
+| Soleil | sommet 3000 m | plaine 500 m |
+| --- | --- | --- |
+| −0,9° | **eclaire** | a l'ombre |
+| −2,6° | **eclaire** | a l'ombre |
+| −3,2° | a l'ombre | a l'ombre |
+
+---
+
+## La radiance du ciel n'a plus qu'une expression
+
+La face sombre de la Lune n'emet rien, et la Lune est **au-dela de toute
+l'atmosphere** : tout ce qui diffuse est devant elle, rien n'est occulte. Sa face
+nuit **est** le ciel, au sens strict — ce que montre n'importe quelle
+photographie.
+
+La grandeur etait ecrite deux fois : le fond de ciel sommait diffusion, airglow
+et termes peints, le disque d'un astre ne reprenait que la diffusion. Six niveaux
+sur 255 d'ecart, prouves en forcant a zero le halo lunaire peint — le ciel
+tombait alors exactement sur la face nuit.
+
+Un avion, lui, est **dans** l'atmosphere et cache la couche d'airglow : sa place
+n'est pas la. La regle est : au-dela de l'atmosphere, le fond est le ciel entier.
+
+| | ciel | face nuit |
+| --- | --- | --- |
+| plein jour | 131,3 | **131,3** |
+| nuit | 21,0 | **20,9** |
+
+Un controle tient desormais l'unicite : `aerialPerspectiveToSpace` ne doit avoir
+qu'un seul appelant. Il a attrape un appelant restant des sa premiere execution.
+⚠️ Il est structurel, non numerique — troisieme fois qu'une propriete vraie « par
+construction » finit par ne plus l'etre faute d'un controle qui la tienne.
+
+---
+
+## Le relief simule inventait de la lumiere, et de plus en plus au zoom
+
+La face a l'ombre d'un astre s'eclairait a mesure qu'on grossissait, jusqu'a
+paraitre pleine. Ni la cendree, ni le halo, ni le voile, ni le bloom.
+
+La carte d'albedo sert de carte de hauteur, et sans borne elle inclinait la
+normale jusqu'a **42°** — bien au-dela de ce qu'une pente peut faire. Le zoom
+l'aggravait : la difference finie entre texels est lissee par le filtrage quand
+le disque est petit, pleine quand il est grand.
+
+| champ | face nuit au-dessus du ciel |
+| --- | --- |
+| 2° a 0,3° | 0 |
+| **0,15°** | **+48 niveaux** |
+
+Preuve directe : a `uRelief = 0`, la face nuit reste au niveau du ciel a tous les
+zooms.
+
+**Pente bornee a 15°** — celle d'une surface lunaire a l'echelle d'un texel,
+5,3 km de base. La propriete qui en decoule est geometrique : sous
+`L = -sin(pente)`, aucune normale du cone ne voit le Soleil. Le controle le
+verifie, et verifie aussi qu'au terminateur le relief accroche encore.
+
+⚠️ L'amplitude reste dependante du zoom : la borne plafonne l'effet, elle ne le
+rend pas invariant.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2108,3 +2251,8 @@ table utilisable. Premier ciel a **6,0 s** au lieu de 12,1.
 | 2026-09-01 | Loi de distance globale — la rupture du voile à la rasance du globe disparaît |
 | 2026-09-01 | Re-saturation ramenée à 1 — le dégradé du crépuscule cesse d'être écrêté |
 | 2026-09-01 | Diffusion multiple itérée — la décroissance crépusculaire redevient régulière |
+| 2026-09-01 | Troncature de la coordonnée de distance — 93 % du ciel crépusculaire était jeté |
+| 2026-09-02 | Trois décades d'écart jour-nuit — la lueur crépusculaire s'éteint enfin |
+| 2026-09-02 | Couleur des étoiles, lumière cendrée et ombre en altitude — trois constantes calculées |
+| 2026-09-02 | Une seule expression de la radiance du ciel — la face nuit d'un astre redevient le ciel |
+| 2026-09-02 | Pente du relief simulé bornée — la face nuit cesse de s'allumer au zoom |
