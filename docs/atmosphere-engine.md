@@ -4242,6 +4242,130 @@ une erreur.
 
 ---
 
+## La diffusion multiple cesse de fermer sa serie sur place
+
+### Ce que la fermeture locale supposait
+
+La table refermait la serie des ordres superieurs cellule par cellule :
+
+    Ψ_ms = L_f / (1 − f_ms)
+
+C'est exact **si le champ est uniforme** : la somme geometrique suppose que ce
+qui repart pour un tour de plus retombe au meme endroit du plan
+(altitude, angle solaire).
+
+De jour, l'atmosphere est eclairee partout et le champ varie lentement :
+l'hypothese tient. Au crepuscule profond elle s'effondre. Sous −10° de hauteur
+solaire, la diffusion simple est **rigoureusement nulle** — toute l'atmosphere
+accessible est dans l'ombre de la Terre — et la lumiere qui eclaire un point
+d'ombre a vingt kilometres vient d'air ensoleille situe a des centaines de
+kilometres, donc a une tout autre altitude et un tout autre angle solaire.
+
+### Ce qui la remplace
+
+    Ψ⁰ = L_f
+    Ψ^{n+1}(x) = ⟨ ∫ T(x,x') σ_s(x') Ψ^n(x') dt ⟩ sur 4π
+    Ψ_ms = Σ Ψ^n
+
+La difference tient dans un seul mot : `Ψ^n(x')` est lu **au point
+d'echantillonnage**, avec sa propre altitude et son propre angle solaire, et non
+au point qu'on calcule. Si le champ etait uniforme on retrouverait exactement
+`f_ms·Ψ`, donc la serie geometrique : l'ancien modele en est le cas particulier.
+
+L'iteration est de type **Jacobi** et non Gauss-Seidel — la table se remplit par
+tranches etalees sur plusieurs images, et lire ce qu'on ecrit rendrait le
+resultat dependant de l'ordre de parcours.
+
+**Deux ordres explicites suffisent**, puis la queue est fermee localement :
+
+| ordres | rapport a −10° | cout |
+| --- | --- | --- |
+| 1 | ×0,62 | 1,8 s |
+| **2** | **×0,64** | **2,4 s** |
+| 4 | ×0,65 | 3,3 s |
+| 6 | ×0,65 | 4,5 s |
+
+La non-localite ne compte que pour les tout premiers transferts, ceux qui font
+entrer la lumiere de l'air ensoleille vers l'ombre. Au-dela le champ est diffus,
+et le troisieme ordre ne deplace plus que 1,5 %.
+
+### L'angle solaire etait echantillonne au mauvais endroit
+
+`mu = 2u − 1` repartissait les colonnes uniformement en cosinus : avec
+trente-deux colonnes, deux voisines sont separees de **3,7 degres d'angle
+zenithal au terminateur**, la ou la luminance change d'un facteur deux par
+degre. La table y etait plus grossiere que le phenomene.
+
+Elle est desormais quadratique de part et d'autre du terminateur — la premiere
+colonne hors terminateur tombe a 0,06 degre — et deux fois plus large.
+
+⚠️ **C'est la largeur qui compte, pas la hauteur** : 64×32 et 64×48 rendent les
+memes chiffres a la troisieme decimale, tandis que 48×48 laisse encore un ×2,17
+au milieu d'une serie a ×3.
+
+### ⚠️ Les deux erreurs se compensaient
+
+Le resultat le plus instructif de ce chantier. Mesure croisee, rapport a la
+courbe d'eclairement du projet :
+
+| configuration | −10° | −14° | decroissance par degre |
+| --- | --- | --- | --- |
+| 32×32, fermeture locale — **l'ancien** | ×0,65 | ×0,30 | 1,90 a 3,92 — **erratique** |
+| 64×32, fermeture locale | ×0,56 | ×0,23 | 2,60 a 3,51 — lisse |
+| 32×32, deux ordres | ×0,79 | ×0,47 | 1,87 a 3,61 — erratique |
+| **64×32, deux ordres — le nouveau** | ×0,64 | ×0,29 | **2,56 a 3,53 — lisse** |
+
+Les magnitudes n'ont presque pas bouge. **Une table sous-resolue surestimait
+d'un cote, une fermeture locale sous-estimait de l'autre**, et leur produit
+tombait a peu pres juste — au prix d'une decroissance qui oscillait entre ×1,5
+et ×9,5 par degre la ou une extinction physique est lisse.
+
+C'est exactement le genre d'accord qu'on ne peut pas garder : il tenait par
+compensation, et rien dans le rendu ne l'aurait signale.
+
+### Ce qui reste, mesure
+
+L'accord est bon jusqu'a −8° et se degrade ensuite : ×0,92 a −6°, ×0,66 a −8°,
+×0,64 a −10°, ×0,29 a −14°, ×0,10 a −16°. La decroissance vaut ×2,56 a ×3,53
+par degre quand l'observation donne ×2 a ×2,5 : le ciel s'eteint encore trop
+vite.
+
+La cause restante est la meme, non levee : une table indexee sur
+(altitude, angle solaire) reste une representation **locale** d'un champ qui ne
+l'est pas. Deux ordres de transport la rendent regulière, pas exacte. Aller plus
+loin demanderait un champ a trois dimensions ou une resolution en harmoniques
+spheriques — un autre chantier.
+
+### Un controle qui l'aurait vu
+
+La suite verifie desormais que **le crepuscule s'eteint sans a-coups** : la
+chute par degre entre −6° et −16° doit rester dans une bande physique. Elle vaut
+×2,72 a ×3,45 ; l'ancienne table donnait ×1,54 a ×9,51 et passait tous les
+controles existants, parce qu'aucun ne regardait la pente.
+
+### Ce que ca coute au demarrage
+
+Trois passes au lieu d'une sur une table deux fois plus large, c'est six fois
+plus d'entrees. Le cout par entree a baisse — 0,38 ms a la premiere passe,
+0,22 ms aux suivantes, contre 1,27 ms auparavant — mais le total montait a six
+secondes, et le ciel n'apparaissait qu'apres.
+
+Deux mesures ont ramene le premier ciel de **12,1 s a 6,0 s** :
+
+- la cadence passe de seize a trente-deux entrees par image, ce qui reste
+  moins cher par image qu'avant ;
+- **la premiere passe est traitee a part.** Elle suffit a rendre la table
+  utilisable — c'est le premier ordre de diffusion, un ciel un peu sombre mais
+  juste dans sa forme. Le ciel se batit dessus, les passes suivantes reprennent
+  ensuite, et le ciel se reconstruit une derniere fois quand la table est
+  complete.
+
+Le sequencement garantit qu'une construction de ciel ne chevauche jamais une
+passe : c'est ce qui evite la bande horizontale que l'en-tete du module
+redoutait, sans avoir a figer une copie de la table.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un
@@ -4290,8 +4414,8 @@ en est.
 | **Le sol** | **résolu**. Le relief est le modèle numérique de terrain réel à trente mètres, et au-delà de sa portée le globe est une sphère résolue par pixel. Les deux reçoivent la même équation du transfert que tout le reste : albédo, cosinus d'incidence, éclairement du ciel, extinction, voile. Plus une seule couleur d'interface sous l'horizon. |
 | **Un seul albédo pour tout le globe** | faute de couverture du sol, la mer, la forêt et le désert partagent `AtmosphereState.groundAlbedo` = 0,1. C'est au moins la valeur qui nourrit déjà la diffusion multiple : le sol qu'on voit et le sol qui éclaire le ciel sont d'accord. Une couverture ESA WorldCover à 10 m serait la suite. |
 | **Le ciel est calculé sur des rayons droits** | la réfraction n'entre pas dans l'intégrale de diffusion : le solveur marche en ligne droite dans une atmosphère sphérique. Nul au niveau de la mer, où le rayon rasant et le rayon courbe partent ensemble. **Croissant avec l'altitude** : visée à l'horizon apparent, le rayon droit passe à 456 m du sol à 3000 m d'altitude et à **1319 m à 12 000 m**, là où le rayon réel rase la surface à 5 m. Il compte donc **13,4 % d'air en trop peu** à douze kilomètres. Le corollaire visible — une rupture du voile à la rasance du globe, posée par-dessus le relief — a été supprimé en rendant la coordonnée de distance globale ; il reste l'écart de colonne, invisible. |
-| **Le crépuscule profond est trop sombre** | ⚠️ **mesuré, non corrigé.** Jusqu'à −8° l'accord est bon (×0,95 à −6°, ×0,82 à −8°, et une décroissance de ×2,19 par degré conforme aux ×2 à 2,5 observés). En dessous, l'éclairement s'effondre : ×0,26 à −10°, ×0,15 à −14°, ×0,11 à −16°. Et la décroissance devient **erratique** — ×3,83 puis ×1,65 puis ×3,71 puis ×1,80 puis ×9,51 par degré — là où une extinction physique est lisse. **Deux causes, mesurées séparément.** *Sous-échantillonnage* : la table de diffusion multiple intègre sur 64 directions réparties uniformément sur 4π, alors qu'en crépuscule profond quelques pour cent seulement de cette sphère voient le Soleil. Porter à 256 directions gagne 20 à 35 % (8,1·10⁻⁴ → 1,09·10⁻³ lx à −14°) et converge — 1024 directions ne changent plus rien — pour un coût de construction de 1,0 s à 3,5 s. *Localité du modèle* : le facteur 4 à 5 restant. Sous −10° la diffusion simple est rigoureusement nulle, toute l'atmosphère accessible étant dans l'ombre de la Terre, et le ciel ne tient plus que par `Ψ_ms(altitude, cos☉)` — une fonction **locale** du point. Or la lumière qui éclaire un point d'ombre à vingt kilomètres vient d'air ensoleillé situé à des centaines de kilomètres, à une tout autre altitude et un tout autre angle solaire. Augmenter la **grille** de la table aggrave d'ailleurs le déficit (8,3·10⁻⁴ à 32×32 contre 4,2·10⁻⁴ à 128×128) : la table grossière surestimait par interpolation. La méthode de Hillaire vise le ciel de jour, et c'est là qu'elle tient. **Trois symptômes, une seule cause.** Le ciel retombe sur le plancher d'airglow entre −14° et −18° au lieu de l'y rejoindre progressivement : d'où (1) une bande d'horizon qui paraît trop intense parce que tout le reste est trop noir — rapport horizon/zénith de 20 à 66 contre 3 à 10 observés ; (2) une transition abrupte entre le halo et la nuit ; (3) un voile uniforme qui ne disparaît jamais, qui est l'airglow rendu à 4-6 niveaux sur 255 — valeur correcte en soi, mais sur laquelle le crépuscule s'écrase trop tôt. |
-| **La courbe d'éclairement crépusculaire de référence** | ⚠️ les valeurs ci-dessus (3,4 lx à −6°, 5,5·10⁻³ à −14°…) sont citées **de mémoire** et n'ont pas été sourcées. Leur **forme** — une décroissance d'un facteur 2 à 2,5 par degré de dépression — est robuste et suffit à établir le déficit ; leurs valeurs absolues ne doivent pas servir à calibrer quoi que ce soit avant d'être reprises d'une source. |
+| **Le crépuscule profond est trop sombre** | ⚠️ **partiellement corrigé.** La fermeture locale de la série a été remplacée par deux ordres de transport explicites, et l'angle solaire est échantillonné deux fois plus finement, en loi quadratique autour du terminateur. La décroissance est redevenue **régulière** — ×2,56 à ×3,53 par degré, contre ×1,54 à ×9,51 auparavant. ⚠️ **Les magnitudes, elles, n'ont presque pas bougé** : une table sous-résolue surestimait, une fermeture locale sous-estimait, et les deux se compensaient. L'accord reste bon jusqu'à −8° (×0,92 à −6°, ×0,66 à −8°) puis se dégrade : ×0,64 à −10°, ×0,29 à −14°, ×0,10 à −16° contre les paliers de `photometry.ts`. La cause restante est inchangée : une table indexée sur (altitude, angle solaire) reste une représentation **locale** d'un champ qui ne l'est pas. Aller plus loin demanderait un champ à trois dimensions ou une résolution en harmoniques sphériques. |
+| **La courbe d'éclairement crépusculaire de référence** | ⚠️ les premières mesures de ce déficit ont été faites contre des valeurs **citées de mémoire**, qui se sont révélées trop hautes d'un facteur 3 à 9 sous −12°. Les comparaisons portent désormais sur `SOLAR_ANCHORS` de `photometry.ts`, les points d'ancrage du projet. Ceux-là sont décrits comme « classiques de la littérature sur les crépuscules » mais ne citent pas leur source : ils sont cohérents avec le reste du moteur, ce qui suffit à mesurer un écart **relatif**, et ne suffirait pas à trancher une calibration absolue. |
 | **Le socle nocturne peint** | le halo lunaire et le halo urbain sont encore des couleurs d'interface. Mesuré au Ventoux une heure et demie après le coucher : ils portent **3 à 25 %** de la luminance du ciel, davantage en haut qu'à l'horizon. Le halo lunaire comporte un **plancher isotrope de 25 %** — `0,25 + 0,75·cos⁶` — qui n'a aucun fondement : la Lune éclaire le ciel par diffusion, exactement comme le Soleil, et sa place est dans le transport. ⚠️ Le retirer assombrirait encore un ciel déjà trop sombre : les deux défauts se compensent partiellement, et il ne faut pas corriger l'un sans l'autre. |
 | **Résolution du relief proche** | la source est native à **trente mètres**. À cinq kilomètres, trente mètres sous-tendent 0,34°, soit une dizaine de pixels : le premier plan reste en blocs. Aucun choix de format ne le relève — seul un MNT national le ferait (RGE ALTI à 1 m, France seulement). |
 | **Bathymétrie écrêtée** | terrarium encode les fonds marins en négatif ; les prendre tels quels creuserait l'océan en cuvette. L'écrêtage à zéro met à plat les dépressions continentales — mer Morte à −430 m, vallée de la Mort à −86 m. Les distinguer demanderait un masque terre/eau. |

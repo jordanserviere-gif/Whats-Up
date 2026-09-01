@@ -36,8 +36,10 @@ import { directSolar } from './directSolar'
 import { diffuseHorizontalIlluminance, skyRadiance } from './singleScattering'
 import {
   buildMultipleScatteringLut,
+  commitMultipleScatteringPass,
   createMultipleScatteringLut,
   fillMultipleScatteringEntries,
+  multipleScatteringPasses,
   msAltitude,
   msCosSun,
   sampleMultipleScattering,
@@ -95,13 +97,22 @@ export function multipleScatteringSuite(): SuiteResult {
       // d'images. Le pas de sept ne divise ni la largeur de la table ni son
       // nombre d'entrees : les coupes tombent donc au milieu des lignes, ce qui
       // est precisement le cas qu'une reprise mal ecrite raterait.
+      //
+      // ⚠️ La table calcule desormais **un ordre de diffusion par passe**, dans
+      // un tampon separe qu'une publication explicite ajoute au total. Le
+      // decoupage doit donc respecter les passes : entrelacer deux ordres
+      // donnerait un resultat dependant de l'ordre de parcours, ce qui est
+      // precisement ce que l'iteration de Jacobi existe pour eviter.
       const sliced = createMultipleScatteringLut(grid)
       const entries = sliced.width * sliced.height
-      for (let from = 0; from < entries; from += 7) {
-        fillMultipleScatteringEntries(sliced, grid, from, Math.min(entries, from + 7), {
-          aerosols: clearAir,
-          columnLut,
-        })
+      for (let pass = 0; pass < multipleScatteringPasses(sliced); pass++) {
+        for (let from = 0; from < entries; from += 7) {
+          fillMultipleScatteringEntries(sliced, grid, from, Math.min(entries, from + 7), {
+            aerosols: clearAir,
+            columnLut,
+          })
+        }
+        commitMultipleScatteringPass(sliced)
       }
       let worstSlice = 0
       for (let i = 0; i < lut.data.length; i++) {
@@ -109,6 +120,54 @@ export function multipleScatteringSuite(): SuiteResult {
         if (ref > 1e-12) worstSlice = Math.max(worstSlice, Math.abs(sliced.data[i] - lut.data[i]) / ref)
       }
       t.check('construction par tranches identique a la construction entiere', worstSlice, 0, 1e-12)
+
+      // --- Le crepuscule doit s'eteindre regulierement ------------------------
+      //
+      // ⚠️ **Le controle que ce module n'avait pas, et qui aurait tout dit.**
+      //
+      // Sous −10° de hauteur solaire, la diffusion simple est rigoureusement
+      // nulle : toute l'atmosphere accessible est dans l'ombre de la Terre, et
+      // le ciel ne tient plus que par cette table. C'est donc ici, et nulle part
+      // ailleurs, que se juge sa capacite a transporter la lumiere depuis l'air
+      // ensoleille lointain.
+      //
+      // La grandeur qui le dit n'est pas une valeur mais une **pente** : un
+      // crepuscule s'eteint d'un facteur deux a deux et demi par degre, et cette
+      // regularite est bien plus robuste que n'importe quelle valeur absolue.
+      //
+      // Avec la table telle qu'elle etait — fermeture locale de la serie et
+      // resolution lineaire en cosinus — la pente mesuree valait x3,83 puis
+      // x1,65 puis x3,71 puis x9,51 par degre. Une extinction physique ne fait
+      // pas cela. La table etait plus grossiere que le phenomene autour du
+      // terminateur, et fermait sa serie sans transporter.
+      const twilight = [-6, -8, -10, -12, -14, -16].map((sunAltitude) => ({
+        sunAltitude,
+        lux: diffuseHorizontalIlluminance(grid, sunAltitude, {
+          ...multiple,
+          zenithSamples: 12,
+          azimuthSamples: 16,
+        }),
+      }))
+
+      let worstRate = 0
+      let bestRate = Infinity
+      for (let i = 1; i < twilight.length; i++) {
+        const rate = Math.pow(twilight[i - 1].lux / twilight[i].lux, 1 / 2)
+        worstRate = Math.max(worstRate, rate)
+        bestRate = Math.min(bestRate, rate)
+      }
+      t.checkTrue(
+        'le crepuscule s’eteint sans a-coups',
+        bestRate > 1.8 && worstRate < 5,
+        `chute de x${bestRate.toFixed(2)} a x${worstRate.toFixed(2)} par degre entre −6° et −16° ` +
+          '— une extinction physique tient dans x2 a x2,5, et l’ancienne table oscillait ' +
+          'de x1,54 a x9,51',
+      )
+      t.checkTrue(
+        'et sans jamais remonter',
+        twilight.every((p, i) => i === 0 || p.lux < twilight[i - 1].lux),
+        twilight.map((p) => `${p.sunAltitude}° ${p.lux.toExponential(1)}`).join(' · '),
+      )
 
       // --- La diffusion multiple ne peut qu'ajouter --------------------------
       // Un seul point ou le ciel s'assombrit signalerait une erreur de signe.

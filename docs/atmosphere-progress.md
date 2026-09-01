@@ -2022,6 +2022,48 @@ plus sombre, parce qu'un ecran ne montre que deux des huit decades de la scene.
 
 ---
 
+## La diffusion multiple cesse de fermer sa serie sur place
+
+La table refermait la serie cellule par cellule — `Ψ_ms = L_f/(1 − f_ms)` —
+ce qui suppose que ce qui repart pour un tour de plus **retombe au meme endroit**
+du plan (altitude, angle solaire). De jour l'hypothese tient. Sous −10°, la
+diffusion simple est nulle et la lumiere qui eclaire un point d'ombre vient d'air
+ensoleille a des centaines de kilometres : elle ne tient plus du tout.
+
+    Ψ^{n+1}(x) = ⟨ ∫ T(x,x') σ_s(x') Ψ^n(x') dt ⟩ sur 4π
+
+`Ψ^n(x')` est lu **au point d'echantillonnage** et non au point calcule. Deux
+ordres explicites suffisent — le troisieme ne deplace plus que 1,5 %.
+
+L'angle solaire etait par ailleurs echantillonne uniformement en cosinus, soit
+3,7° d'angle zenithal entre deux colonnes au terminateur, la ou la luminance
+change d'un facteur deux par degre. Loi quadratique desormais, et deux fois plus
+de colonnes.
+
+### ⚠️ Les deux erreurs se compensaient
+
+| configuration | −10° | −14° | chute par degre |
+| --- | --- | --- | --- |
+| l'ancien | ×0,65 | ×0,30 | **1,90 a 3,92** |
+| le nouveau | ×0,64 | ×0,29 | **2,56 a 3,53** |
+
+Les magnitudes n'ont presque pas bouge : une table sous-resolue surestimait, une
+fermeture locale sous-estimait. Ce qui change est la **regularite** — et c'est
+elle qu'on voyait, sous forme d'une transition abrupte entre le halo et la nuit.
+
+Un controle la tient desormais : « le crepuscule s'eteint sans a-coups ».
+L'ancienne table donnait ×1,54 a ×9,51 et passait tous les controles existants,
+parce qu'aucun ne regardait la pente.
+
+**Reste** : l'accord est bon jusqu'a −8° puis se degrade — ×0,64 a −10°, ×0,29 a
+−14°, ×0,10 a −16°. Une table indexee sur (altitude, angle solaire) reste une
+representation locale d'un champ qui ne l'est pas.
+
+**Demarrage** : la premiere passe est traitee a part, car elle suffit a rendre la
+table utilisable. Premier ciel a **6,0 s** au lieu de 12,1.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2065,3 +2107,4 @@ plus sombre, parce qu'un ecran ne montre que deux des huit decades de la scene.
 | 2026-08-31 | Un seul horizon pour les trois couches — la bande orpheline en altitude disparaît |
 | 2026-09-01 | Loi de distance globale — la rupture du voile à la rasance du globe disparaît |
 | 2026-09-01 | Re-saturation ramenée à 1 — le dégradé du crépuscule cesse d'être écrêté |
+| 2026-09-01 | Diffusion multiple itérée — la décroissance crépusculaire redevient régulière |

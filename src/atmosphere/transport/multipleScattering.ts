@@ -73,8 +73,32 @@ export interface MultipleScatteringLut {
   /** Nombre d'entrees en altitude. */
   readonly height: number
   readonly bands: number
-  /** Radiance isotrope Ψ_ms — `data[(y * width + x) * bands + b]`. */
+  /** Radiance isotrope Ψ_ms, tous ordres cumules — `data[(y * width + x) * bands + b]`. */
   readonly data: Float64Array
+  /**
+   * Ordre courant de la serie, entree de la passe suivante.
+   *
+   * L'iteration est de type Jacobi et non Gauss-Seidel : la table se remplit par
+   * tranches etalees sur plusieurs images, et lire ce qu'on est en train
+   * d'ecrire rendrait le resultat dependant de l'ordre de parcours.
+   */
+  readonly previous: Float64Array
+  /** Ordre en cours de calcul, publie par `commitMultipleScatteringPass`. */
+  readonly next: Float64Array
+  /**
+   * Fraction qui repart pour un tour de plus, par cellule.
+   *
+   * C'est l'ancien `f_ms`, conserve pour **fermer la queue** de la serie apres
+   * les ordres explicites — voir `MS_EXPLICIT_ORDERS`.
+   */
+  readonly transfer: Float64Array
+  /**
+   * Passe en cours. Zero calcule la source solaire, les suivantes la
+   * transportent.
+   */
+  pass: number
+  /** Ordres transportes explicitement avant la fermeture locale de la queue. */
+  readonly explicitOrders: number
   /**
    * Valeur maximale de `f_ms` rencontree : la serie diverge si elle atteint 1.
    *
@@ -96,12 +120,42 @@ export interface MultipleScatteringOptions {
   /** Albedo du sol — voir l'en-tete du module. */
   groundAlbedo?: number
   columnLut?: ColumnLut
+  /** Ordres transportes explicitement — voir `MS_EXPLICIT_ORDERS`. */
+  explicitOrders?: number
 }
 
 /** Altitude correspondant a une coordonnee verticale de [0,1]. */
 export const msAltitude = (v: number): number => v * v * ATMOSPHERE_TOP_M
-/** Cosinus zenithal solaire correspondant a une coordonnee horizontale de [0,1]. */
-export const msCosSun = (u: number): number => 2 * u - 1
+
+/**
+ * Cosinus zenithal solaire porte par une coordonnee horizontale de [0,1].
+ *
+ * ## ⚠️ Elle etait lineaire, et c'etait le mauvais endroit pour l'etre
+ *
+ * `mu = 2u − 1` repartit les colonnes uniformement en cosinus. Avec
+ * trente-deux colonnes, deux voisines sont separees de 0,065 en cosinus — soit
+ * **3,7 degres d'angle zenithal au terminateur**, la ou toute la structure du
+ * crepuscule se joue et ou la luminance change d'un facteur deux par degre.
+ *
+ * La table y etait donc plus grossiere que le phenomene, et la decroissance
+ * crepusculaire mesuree s'en ressentait : erratique, oscillant entre x1,65 et
+ * x9,5 par degre la ou une extinction physique est lisse.
+ *
+ * La loi est desormais **quadratique de part et d'autre du terminateur**, comme
+ * la coordonnee de hauteur de la table de ciel et pour la meme raison : c'est la
+ * que la grandeur varie le plus vite. La premiere colonne hors terminateur tombe
+ * a 0,06 degre au lieu de 3,7.
+ */
+export const msCosSun = (u: number): number => {
+  const t = 2 * Math.max(0, Math.min(1, u)) - 1
+  return t * Math.abs(t)
+}
+
+/** Coordonnee horizontale portant un cosinus zenithal solaire donne. */
+export const msCosSunCoord = (cosSunZenith: number): number => {
+  const mu = Math.max(-1, Math.min(1, cosSunZenith))
+  return (Math.sign(mu) * Math.sqrt(Math.abs(mu)) + 1) / 2
+}
 
 /**
  * Directions uniformement reparties sur la sphere, par spirale de Fibonacci.
@@ -135,21 +189,195 @@ function rayleighOn(grid: SpectralGrid): SpectralArray {
 /**
  * Alloue une table vide, a remplir par `fillMultipleScatteringRows`.
  *
- * Resolution par defaut : 32 x 32. La mesure de convergence donne 3,115 klx a
- * 16x16 contre 3,125 a 32x32 et 48x48 — la table est plate a 32.
+ * ## ⚠️ La resolution en angle solaire a du doubler
+ *
+ * Elle etait de 32 x 32, justifiee par une mesure d'eclairement **de jour** :
+ * 3,115 klx a 16x16 contre 3,125 a 32x32 et 48x48, la table etant plate a 32.
+ * C'etait vrai, et sans rapport avec le probleme.
+ *
+ * Au crepuscule, toute la structure se joue dans la bande ou le point voit
+ * encore le Soleil que l'observateur ne voit plus — quelques dixiemes de cosinus
+ * autour du terminateur. La table y etait plus grossiere que le phenomene, et la
+ * decroissance mesuree en devenait **erratique** : x3,83 puis x1,65 puis x3,71
+ * puis x9,51 par degre, la ou une extinction physique est lisse.
+ *
+ * Mesure de convergence, rapport a la courbe d'eclairement du projet :
+ *
+ * | grille | chute par degre | cout |
+ * | --- | --- | --- |
+ * | 32 x 32 | x1,54 a x3,59 — **erratique** | 1,3 s |
+ * | 48 x 48 | x2,17 a x3,45 | 1,6 s |
+ * | **64 x 32** | **x2,56 a x3,53 — lisse** | 1,6 s |
+ * | 64 x 48 | identique a 64 x 32 | 2,3 s |
+ * | 96 x 48 | 13 % plus sombre | 5,4 s |
+ *
+ * ⚠️ **C'est la largeur qui compte, pas la hauteur.** 64 x 32 et 64 x 48 rendent
+ * les memes chiffres a la troisieme decimale, tandis que 48 x 48 laisse encore
+ * un x2,17 au milieu d'une serie a x3. Ce qui manquait n'etait pas la resolution
+ * en altitude mais celle en **angle solaire**, autour du terminateur — ce que la
+ * loi quadratique et la largeur doublee corrigent ensemble.
+ *
+ * La largeur n'est convergee qu'a 13 % pres. On s'arrete la : la table se
+ * reconstruit sur le fil principal, et 5,4 secondes contre 1,6 pour treize pour
+ * cent ne se justifient pas tant que le modele lui-meme accuse un ecart plus
+ * grand.
  */
+export const MS_LUT_WIDTH = 64
+export const MS_LUT_HEIGHT = 32
+
 export function createMultipleScatteringLut(
   grid: SpectralGrid,
   options: MultipleScatteringOptions = {},
 ): MultipleScatteringLut {
-  const { width = 32, height = 32 } = options
+  const {
+    width = MS_LUT_WIDTH,
+    height = MS_LUT_HEIGHT,
+    explicitOrders = MS_EXPLICIT_ORDERS,
+  } = options
+  const size = width * height * grid.count
   return {
     width,
     height,
     bands: grid.count,
-    data: new Float64Array(width * height * grid.count),
+    data: new Float64Array(size),
+    previous: new Float64Array(size),
+    next: new Float64Array(size),
+    transfer: new Float64Array(size),
+    pass: 0,
+    explicitOrders,
     maxTransferFactor: 0,
   }
+}
+
+/**
+ * Ordres de diffusion calcules **explicitement**, au-dela du premier.
+ *
+ * ## ⚠️ Pourquoi la fermeture locale ne suffisait pas
+ *
+ * La serie etait close d'un coup, cellule par cellule : `Ψ = L_f / (1 − f_ms)`.
+ * C'est exact **si le champ est uniforme** — la somme geometrique suppose que ce
+ * qui repart pour un tour de plus retombe au meme endroit du plan
+ * (altitude, angle solaire).
+ *
+ * De jour c'est acceptable : l'atmosphere est eclairee partout et le champ varie
+ * lentement. Au crepuscule profond c'est faux de bout en bout. La diffusion
+ * simple y est **rigoureusement nulle** — toute l'atmosphere accessible est dans
+ * l'ombre de la Terre — et la lumiere qui eclaire un point d'ombre a vingt
+ * kilometres vient d'air ensoleille situe a des centaines de kilometres, donc a
+ * une tout autre altitude et un tout autre angle solaire. Une fermeture locale
+ * ne peut pas transporter cela.
+ *
+ * Mesure du defaut : l'eclairement du ciel tombait a x0,26 de la courbe
+ * classique a −10° de hauteur solaire, x0,15 a −14°, x0,11 a −16°, avec une
+ * decroissance **erratique** — x3,83 puis x1,65 puis x3,71 puis x9,51 par degre
+ * la ou une extinction physique est lisse.
+ *
+ * ## Ce qui remplace la fermeture
+ *
+ * Une iteration qui transporte reellement :
+ *
+ *     Ψ⁰ = L_f
+ *     Ψ^{n+1}(x) = ⟨ ∫ T(x,x') σ_s(x') Ψ^n(x') dt ⟩ sur 4π
+ *     Ψ_ms = Σ Ψ^n
+ *
+ * La difference tient dans un seul mot : `Ψ^n(x')` est lu **au point
+ * d'echantillonnage**, avec sa propre altitude et son propre angle solaire, et
+ * non au point qu'on calcule. Si le champ etait uniforme, on retrouverait
+ * exactement `f_ms · Ψ` et donc la serie geometrique : le modele precedent en
+ * est le cas particulier.
+ *
+ * ## Pourquoi quatre, et pas la convergence complete
+ *
+ * Le facteur de transfert plafonne vers 0,7 : atteindre le pour cent
+ * demanderait treize ordres. Mais la non-localite ne compte que pour les
+ * **premiers** transferts — ceux qui font entrer la lumiere de l'air ensoleille
+ * vers l'ombre. Au-dela, le champ est diffus et la fermeture locale redevient
+ * une bonne approximation.
+ *
+ * Mesure de ce que chaque ordre apporte, en rapport a la courbe d'eclairement du
+ * projet a −10° de hauteur solaire :
+ *
+ * | ordres explicites | rapport | cout |
+ * | --- | --- | --- |
+ * | 1 | x0,62 | 1,8 s |
+ * | **2** | **x0,64** | **2,4 s** |
+ * | 3 | x0,65 | 2,7 s |
+ * | 4 | x0,65 | 3,3 s |
+ * | 6 | x0,65 | 4,5 s |
+ *
+ * **Deux suffisent.** La non-localite ne compte que pour les tout premiers
+ * transferts — ceux qui font entrer la lumiere de l'air ensoleille vers l'ombre.
+ * Au-dela, le champ est diffus et la fermeture locale redevient une bonne
+ * approximation : le troisieme ordre ne deplace plus que 1,5 %.
+ *
+ * Deux ordres explicites, donc, puis la queue fermee par `f/(1−f)` sur le
+ * dernier ordre calcule.
+ */
+export const MS_EXPLICIT_ORDERS = 2
+
+/** Nombre total de passes d'une table, la premiere calculant la source solaire. */
+export const multipleScatteringPasses = (lut: MultipleScatteringLut): number =>
+  lut.explicitOrders + 1
+
+/** Lecture bilineaire d'un tampon quelconque de la table. */
+function sampleBuffer(
+  lut: MultipleScatteringLut,
+  buffer: Float64Array,
+  altitudeM: number,
+  cosSunZenith: number,
+  target: Float64Array,
+): Float64Array {
+  const v = Math.sqrt(Math.max(0, Math.min(1, altitudeM / ATMOSPHERE_TOP_M)))
+  const u = msCosSunCoord(cosSunZenith)
+  const fx = Math.max(0, Math.min(lut.width - 1, u * (lut.width - 1)))
+  const fy = Math.max(0, Math.min(lut.height - 1, v * (lut.height - 1)))
+  const x0 = Math.floor(fx)
+  const y0 = Math.floor(fy)
+  const x1 = Math.min(lut.width - 1, x0 + 1)
+  const y1 = Math.min(lut.height - 1, y0 + 1)
+  const tx = fx - x0
+  const ty = fy - y0
+  const b = lut.bands
+  const i00 = (y0 * lut.width + x0) * b
+  const i10 = (y0 * lut.width + x1) * b
+  const i01 = (y1 * lut.width + x0) * b
+  const i11 = (y1 * lut.width + x1) * b
+  for (let k = 0; k < b; k++) {
+    target[k] =
+      (buffer[i00 + k] * (1 - tx) + buffer[i10 + k] * tx) * (1 - ty) +
+      (buffer[i01 + k] * (1 - tx) + buffer[i11 + k] * tx) * ty
+  }
+  return target
+}
+
+/**
+ * Publie l'ordre qui vient d'etre calcule et passe au suivant.
+ *
+ * A appeler quand toutes les entrees d'une passe ont ete remplies. La derniere
+ * passe ferme en plus la queue de la serie.
+ */
+export function commitMultipleScatteringPass(lut: MultipleScatteringLut): void {
+  const { data, previous, next, transfer } = lut
+  const last = lut.pass >= lut.explicitOrders
+  for (let i = 0; i < data.length; i++) {
+    if (lut.pass === 0) {
+      // La passe zero **est** le premier ordre : elle initialise plutot que
+      // d'ajouter.
+      data[i] = next[i]
+    } else {
+      data[i] += next[i]
+    }
+    previous[i] = next[i]
+    next[i] = 0
+  }
+  if (last) {
+    // Queue de la serie, fermee localement — voir `MS_EXPLICIT_ORDERS`.
+    for (let i = 0; i < data.length; i++) {
+      const f = Math.min(0.98, Math.max(0, transfer[i]))
+      data[i] += previous[i] * (f / (1 - f))
+    }
+  }
+  lut.pass++
 }
 
 /**
@@ -187,7 +415,7 @@ export function fillMultipleScatteringEntries(
     columnLut,
   } = options
 
-  const { width, height, bands, data } = lut
+  const { width, height, bands } = lut
   const sigmaR = rayleighOn(grid)
   const sigmaO3 = ozoneCrossSectionOn(grid)
   const incident = solarIrradianceOn(grid)
@@ -198,6 +426,14 @@ export function fillMultipleScatteringEntries(
   const lf = new Float64Array(bands)
   const fms = new Float64Array(bands)
   const tau = new Float64Array(bands)
+  // Ordre precedent, lu au point d'echantillonnage — c'est lui qui porte la
+  // non-localite.
+  const psi = new Float64Array(bands)
+  // Accumulateur de l'ordre en cours, par entree.
+  const next = new Float64Array(bands)
+
+  // Passe zero : la source solaire. Passes suivantes : son transport.
+  const sourcePass = lut.pass === 0
 
   const first = Math.max(0, fromEntry)
   const last = Math.min(width * height, toEntry)
@@ -216,6 +452,7 @@ export function fillMultipleScatteringEntries(
 
       lf.fill(0)
       fms.fill(0)
+      next.fill(0)
 
       for (const dir of rays) {
         // Longueur du trajet : jusqu'au sol s'il est rencontre, sinon jusqu'au
@@ -245,8 +482,10 @@ export function fillMultipleScatteringEntries(
 
           // Transmittance du point vers l'echantillon : accumulee sur la marche.
           const cosSunHere = (px * sun[0] + py * sun[1] + pz * sun[2]) / radius
-          const secondary = columnLut ? sampleColumnLut(columnLut, h, cosSunHere) : null
+          const secondary =
+            sourcePass && columnLut ? sampleColumnLut(columnLut, h, cosSunHere) : null
           const sunlit = secondary !== null && Number.isFinite(secondary.air)
+          if (!sourcePass) sampleBuffer(lut, lut.previous, h, cosSunHere, psi)
 
           for (let k = 0; k < bands; k++) {
             const scattering = sigmaR[k] * nAir + (aerosols ? aerosols.scattering[k] * nAer : 0)
@@ -261,7 +500,14 @@ export function fillMultipleScatteringEntries(
 
             fms[k] += contribution
 
-            if (sunlit && secondary) {
+            // ⚠️ **Le mot qui change tout est `psi[k]`.** Il est lu au point
+            // d'echantillonnage, avec son altitude et son angle solaire, et non
+            // au point qu'on calcule. C'est la seule difference avec la
+            // fermeture locale d'avant, et c'est toute la non-localite du
+            // crepuscule.
+            if (!sourcePass) next[k] += contribution * psi[k]
+
+            if (sourcePass && sunlit && secondary) {
               // Le facteur `1/4π` est celui de la **phase isotrope** appliquee
               // a la source solaire : `σ_s · E · T_sol · p_u`. Il n'apparait pas
               // dans `f_ms`, qui repond a une radiance deja isotrope — la ou le
@@ -284,7 +530,19 @@ export function fillMultipleScatteringEntries(
         // Le sol renvoie ce qu'il recoit : c'est la seconde source de la
         // diffusion multiple, et la raison pour laquelle `groundAlbedo` existe
         // dans l'etat depuis la phase 1.
-        if (hitsGround && groundAlbedo > 0 && columnLut) {
+        if (hitsGround && groundAlbedo > 0 && !sourcePass) {
+          // Sous un champ **isotrope** de radiance Ψ, l'eclairement d'une
+          // surface vaut `π·Ψ` et une surface lambertienne en renvoie
+          // `albedo·π·Ψ/π = albedo·Ψ`. Le sol participe donc aussi aux ordres
+          // superieurs, et l'oublier sous-estimerait le ciel au-dessus d'une
+          // surface claire.
+          sampleBuffer(lut, lut.previous, 0, muSun, psi)
+          for (let k = 0; k < bands; k++) {
+            next[k] += Math.exp(-tau[k]) * groundAlbedo * psi[k]
+          }
+        }
+
+        if (hitsGround && groundAlbedo > 0 && sourcePass && columnLut) {
           const groundSun = sampleColumnLut(columnLut, 0, muSun)
           if (Number.isFinite(groundSun.air) && muSun > 0) {
             for (let k = 0; k < bands; k++) {
@@ -304,9 +562,14 @@ export function fillMultipleScatteringEntries(
       for (let k = 0; k < bands; k++) {
         // `⟨·⟩ sur 4π` avec la phase isotrope `1/4π` : les deux facteurs se
         // simplifient, il ne reste qu'une moyenne sur les directions.
-        const transfer = fms[k] / rays.length
-        lut.maxTransferFactor = Math.max(lut.maxTransferFactor, transfer)
-        data[base + k] = lf[k] / rays.length / Math.max(1e-6, 1 - transfer)
+        if (sourcePass) {
+          const transfer = fms[k] / rays.length
+          lut.maxTransferFactor = Math.max(lut.maxTransferFactor, transfer)
+          lut.transfer[base + k] = transfer
+          lut.next[base + k] = lf[k] / rays.length
+        } else {
+          lut.next[base + k] = next[k] / rays.length
+        }
       }
     }
   }
@@ -318,7 +581,10 @@ export function buildMultipleScatteringLut(
   options: MultipleScatteringOptions = {},
 ): MultipleScatteringLut {
   const lut = createMultipleScatteringLut(grid, options)
-  fillMultipleScatteringEntries(lut, grid, 0, lut.width * lut.height, options)
+  for (let pass = 0; pass < multipleScatteringPasses(lut); pass++) {
+    fillMultipleScatteringEntries(lut, grid, 0, lut.width * lut.height, options)
+    commitMultipleScatteringPass(lut)
+  }
   return lut
 }
 
@@ -334,7 +600,7 @@ export function sampleMultipleScattering(
   target: Float64Array,
 ): Float64Array {
   const v = Math.sqrt(Math.max(0, Math.min(1, altitudeM / ATMOSPHERE_TOP_M)))
-  const u = Math.max(0, Math.min(1, (cosSunZenith + 1) / 2))
+  const u = msCosSunCoord(cosSunZenith)
 
   const fx = Math.max(0, Math.min(lut.width - 1, u * (lut.width - 1)))
   const fy = Math.max(0, Math.min(lut.height - 1, v * (lut.height - 1)))

@@ -63,6 +63,10 @@ import {
   type AerialLut,
 } from '@/atmosphere/lut/aerialPerspectiveLut'
 import {
+  MS_LUT_HEIGHT,
+  MS_LUT_WIDTH,
+  multipleScatteringPasses,
+  commitMultipleScatteringPass,
   createMultipleScatteringLut,
   fillMultipleScatteringEntries,
   type MultipleScatteringLut,
@@ -158,11 +162,20 @@ let multipleScatteringTurbidity = Number.NaN
 /**
  * Entrees de diffusion multiple construites par image.
  *
- * Une entree coute 0,27 ms — trente-deux directions de marche, contre une seule
- * pour une direction de ciel. Seize entrees font 4,3 ms, et la table entiere en
- * une seconde. Pendant ce temps le ciel affiche la precedente.
+ * Une entree coute **0,38 ms a la premiere passe** — trente-deux directions de
+ * marche, chacune avec sa colonne solaire — et **0,22 ms** aux suivantes, ou la
+ * colonne solaire est remplacee par une lecture de table.
+ *
+ * Trente-deux entrees font donc 12,2 ms puis 7 ms. C'est plus qu'un
+ * soixantieme de seconde a la premiere passe, et c'est assume : la valeur
+ * precedente en coutait **20** pour une table quatre fois plus petite. La
+ * cadence a pu monter parce que le cout par entree, lui, a baisse.
+ *
+ * Table complete — 2048 entrees, trois passes — en 192 images, un peu plus de
+ * trois secondes. Pendant ce temps le ciel affiche la table precedente, et au
+ * tout premier chargement il apparait des la premiere passe.
  */
-const MS_ENTRIES_PER_FRAME = 16
+const MS_ENTRIES_PER_FRAME = 32
 
 /** Deplacement du Soleil au-dela duquel la table est refaite, degres. */
 const SUN_MOVEMENT_THRESHOLD_DEG = 0.25
@@ -435,14 +448,51 @@ export function useAerialLut(
     // rebouge. Un glissement de curseur change la valeur a chaque image :
     // relancer a chaque fois signifierait ne jamais finir, et le ciel resterait
     // fige sur la table initiale.
-    if (current.pendingMsEntry >= 0 && multipleScattering) {
+    //
+    // ## ⚠️ Pourquoi la premiere passe est traitee a part
+    //
+    // La table calcule un **ordre de diffusion par passe**, et il en faut trois.
+    // Les attendre toutes avant de construire le ciel repoussait son apparition
+    // a douze secondes apres le chargement — six pour la table, une pour le
+    // ciel, le reste pour la page.
+    //
+    // Or la premiere passe suffit a rendre la table **utilisable** : c'est le
+    // premier ordre de diffusion, un ciel un peu trop sombre mais juste dans sa
+    // forme. On la construit donc en priorite, on laisse le ciel se batir
+    // dessus, et les passes suivantes reprennent ensuite — le ciel se
+    // reconstruisant une derniere fois quand la table est complete.
+    //
+    // Le sequencement garantit qu'une construction de ciel ne chevauche
+    // **jamais** une passe : c'est ce qui evite la bande horizontale ci-dessus,
+    // sans avoir a figer une copie de la table.
+    const msIncomplete = current.pendingMsEntry >= 0 && multipleScattering !== null
+    const msUnusable = msIncomplete && multipleScattering !== null && multipleScattering.pass === 0
+    const skyBusy = current.pendingRow >= 0
+
+    if (multipleScattering && msIncomplete && (msUnusable || !skyBusy)) {
       const total = multipleScattering.width * multipleScattering.height
       const to = Math.min(total, current.pendingMsEntry + MS_ENTRIES_PER_FRAME)
       fillMultipleScatteringEntries(multipleScattering, GRID, current.pendingMsEntry, to, {
         columnLut: sharedColumnLut(),
         aerosols: sharedAerosolOptics(multipleScatteringTurbidity),
       })
-      current.pendingMsEntry = to >= total ? -1 : to
+      if (to < total) {
+        current.pendingMsEntry = to
+        return
+      }
+      // ⚠️ **Une passe achevee doit etre publiee.** La table ne se construit plus
+      // d'un coup : elle calcule un ordre de diffusion a la fois, dans un tampon
+      // separe, et `commit` l'ajoute au total avant d'ouvrir le suivant.
+      // L'oublier laisse `Ψ_ms` a zero — plus de diffusion multiple du tout, et
+      // l'ombre de la Terre devient un mur noir au crepuscule.
+      commitMultipleScatteringPass(multipleScattering)
+      if (multipleScattering.pass < multipleScatteringPasses(multipleScattering)) {
+        current.pendingMsEntry = 0
+      } else {
+        // Table complete : le ciel bati sur les ordres partiels doit etre refait.
+        current.pendingMsEntry = -1
+        current.altitude = Number.NaN
+      }
       return
     }
 
@@ -491,7 +541,10 @@ export function useAerialLut(
     // Le trouble a bouge : la diffusion multiple doit etre refaite avant la
     // perspective atmospherique qui s'en sert.
     if (aerosolTurbidity !== multipleScatteringTurbidity) {
-      multipleScattering = createMultipleScatteringLut(GRID)
+      multipleScattering = createMultipleScatteringLut(GRID, {
+        width: MS_LUT_WIDTH,
+        height: MS_LUT_HEIGHT,
+      })
       multipleScatteringTurbidity = aerosolTurbidity
       current.pendingMsEntry = 0
       return
