@@ -90,24 +90,96 @@ export function ringRatio(farRangeM: number, rangeSteps = RANGE_STEPS): number {
 }
 
 /**
- * Pas d'azimut du maillage a un azimut donne, degres.
+ * Marge fine autour de la visee, degres de demi-largeur.
  *
- * ⚠️ **Les trois derniers arguments ne servent a rien aujourd'hui**, et c'est le
- * defaut que ce module sert a exposer : la densite est uniforme sur les trois
- * cent soixante degres, quel que soit le champ et quelle que soit la visee. Un
- * observateur qui resserre son champ a un demi-degre continue donc de payer des
- * colonnes derriere sa tete, et n'en obtient aucune devant lui.
+ * ⚠️ **Ce n'est pas un confort, c'est la latence de reconstruction convertie en
+ * angle.** Le maillage se refait en tache de fond ; entre l'instant ou la
+ * camera bouge et celui ou le nouveau maillage arrive, c'est l'ancien qui est
+ * affiche. La marge doit donc couvrir ce que la camera peut parcourir dans
+ * l'intervalle, faute de quoi un panoramique decouvrirait la zone grossiere.
  *
- * La signature les porte deja pour que la loi puisse changer sans que ses
- * appelants ni ses controles bougent.
+ * Trois degres valent une dizaine de largeurs d'ecran a fort grossissement, et
+ * la vitesse de rotation est elle-meme proportionnelle au champ.
+ *
+ * Elle sert aussi de **plancher** : sous trois degres de champ, c'est elle qui
+ * fixe la concentration, ce qui evite de resserrer indefiniment l'azimut sur un
+ * champ qui tend vers zero.
  */
-export function meshAzimuthPitchDeg(
-  _azimuthDeg: number,
-  _viewAzimuthDeg: number,
-  _fovDeg: number,
+export const AZIMUTH_MARGIN_DEG = 3
+
+/**
+ * Concentration de la loi d'azimut — le seul parametre.
+ *
+ * `1` rend la repartition uniforme sur trois cent soixante degres, celle d'avant
+ * ce chantier. En dessous, les colonnes se resserrent autour de la visee, et le
+ * rapport entre le pas le plus grossier et le plus fin vaut `1/s²`.
+ */
+export function azimuthConcentration(fovDeg: number): number {
+  const halfWidthDeg = Math.max(fovDeg / 2, AZIMUTH_MARGIN_DEG)
+  return Math.min(1, ((halfWidthDeg * Math.PI) / 180) / 2)
+}
+
+/**
+ * Azimut de la colonne `i`, degres.
+ *
+ * ## La deformation, et pourquoi celle-ci
+ *
+ * Les colonnes sont equiréparties dans un parametre `t ∈ [−1, 1[`, puis
+ * deformees par
+ *
+ *     θ(t) = 2·atan( s·tan(π t / 2) )
+ *
+ * autour de la direction visee. Trois proprietes en font le bon choix, et
+ * aucune n'est cosmetique :
+ *
+ * - elle est **exacte et inversible**, sans table ni recherche ;
+ * - elle **referme le cercle** : `t = ±1` donne `θ = ±π`, le meme point ;
+ * - elle **degenere en uniforme** a `s = 1`, donc le comportement d'avant est
+ *   un cas particulier de la loi et non un chemin separe.
+ *
+ * ⚠️ Un secteur fin a bord franc aurait ete plus simple, et faux : la densite y
+ * sauterait d'un facteur dix en une colonne, et cette frontiere balaierait
+ * l'image a chaque panoramique. Ici la densite varie continument.
+ *
+ * La forme `atan2` evite la tangente infinie en `t = ±1`, ou la formule directe
+ * demanderait un cas particulier.
+ */
+export function meshAzimuthDeg(
+  i: number,
+  viewAzimuthDeg: number,
+  fovDeg: number,
   azimuthSteps = AZIMUTH_STEPS,
 ): number {
-  return 360 / azimuthSteps
+  const s = azimuthConcentration(fovDeg)
+  const half = (Math.PI * (-1 + (2 * i) / azimuthSteps)) / 2
+  const offset = 2 * Math.atan2(s * Math.sin(half), Math.cos(half))
+  return viewAzimuthDeg + offset / DEG
+}
+
+/**
+ * Pas d'azimut du maillage a un azimut donne, degres.
+ *
+ * Derivee analytique de `meshAzimuthDeg`, ecrite sans tangente :
+ *
+ *     pas(θ) = (360 / (N·s)) · ( s²·cos²(θ/2) + sin²(θ/2) )
+ *
+ * On y lit directement les deux extremes : `360·s/N` face a la visee, `360/(N·s)`
+ * a l'oppose.
+ */
+export function meshAzimuthPitchDeg(
+  azimuthDeg: number,
+  viewAzimuthDeg: number,
+  fovDeg: number,
+  azimuthSteps = AZIMUTH_STEPS,
+): number {
+  const s = azimuthConcentration(fovDeg)
+  let offsetDeg = (azimuthDeg - viewAzimuthDeg) % 360
+  if (offsetDeg > 180) offsetDeg -= 360
+  if (offsetDeg < -180) offsetDeg += 360
+  const half = (offsetDeg * DEG) / 2
+  const c = Math.cos(half)
+  const sn = Math.sin(half)
+  return ((360 / (azimuthSteps * s)) * (s * s * c * c + sn * sn))
 }
 
 /**

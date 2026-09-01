@@ -1,27 +1,30 @@
 /**
- * Validation de la loi d'echantillonnage du maillage de terrain — phase 0.
+ * Validation de la loi d'echantillonnage du maillage de terrain.
  *
  * ## La propriete, et une seule
  *
  * > **Le maillage n'est jamais plus grossier que la donnee qu'il
  * > echantillonne.**
  *
- * Si elle est fausse, aucune amelioration des tuiles ne se verra jamais : le
- * relief decrit par la pyramide n'atteint pas l'ecran, il est jete entre deux
- * sommets. Il est alors inutile de charger plus fin, d'etendre un niveau ou de
- * streamer un quadtree — on telechargerait du detail que le maillage ne sait pas
+ * Si elle est fausse, aucune amelioration des tuiles ne se verra : le relief
+ * decrit par la pyramide n'atteint pas l'ecran, il est jete entre deux sommets.
+ * Il est alors inutile de charger plus fin, d'etendre un niveau ou de streamer
+ * un quadtree — on telechargerait du detail que le maillage ne sait pas
  * dessiner.
  *
- * ## ⚠️ Deux controles de cette suite echouent, et c'est voulu
+ * ## ⚠️ Ce qu'elle ne peut pas etre
  *
- * Ils enoncent la cible du chantier `terrain-mesh-resolution`. Un defaut connu
- * mais non tenu par un controle est un defaut qui revient : c'est le mode de
- * defaillance qui a mordu trois fois sur l'atmosphere — trois horizons
- * incoherents, la troncature de la table en distance, deux expressions du ciel
- * — a chaque fois une propriete vraie « par construction » que rien ne
- * retenait.
+ * Elle ne peut pas tenir **a tout champ**. Cinq cent douze colonnes reparties
+ * sur un champ de cent dix degres valent au mieux deux dixiemes de degre, quand
+ * la pyramide descend au vingtieme : il faudrait quatre fois le budget de
+ * sommets pour y parvenir, et la reconstruction couterait alors plus longtemps
+ * que quatre images.
  *
- * Ils passeront au vert quand la loi d'azimut suivra la camera, et pas avant.
+ * La propriete est donc **conditionnee au champ**, et le seuil se calcule : la
+ * concentration optimale place le pas de bord a `champ/2` radians, d'ou une
+ * limite a **9,2 degres de champ**. C'est exactement le regime ou le defaut
+ * avait ete signale, et le controle porte la condition dans son intitule plutot
+ * que dans un commentaire.
  *
  * ## Le site de mesure
  *
@@ -35,12 +38,14 @@ import { horizonDipDeg } from '@/atmosphere/refraction/rayBending'
 import { CLIPMAP_HALF_SPANS_M } from './elevationClipmap'
 import { effectiveEarthRadiusM, horizonRangeM } from './ridgeField'
 import {
+  AZIMUTH_MARGIN_DEG,
   AZIMUTH_STEPS,
   MESH_VERTEX_BUDGET,
   RANGE_STEPS,
-  azimuthResolvedUntilM,
+  azimuthConcentration,
   dataPitchDeg,
   dataStepM,
+  meshAzimuthDeg,
   meshAzimuthPitchDeg,
   meshRangePitchDeg,
 } from './meshSampling'
@@ -50,6 +55,15 @@ const OBSERVER_M = 1912
 
 /** Portee du maillage, m : la pyramide s'arrete la, le globe prend le relais. */
 const FAR_RANGE_M = CLIPMAP_HALF_SPANS_M[CLIPMAP_HALF_SPANS_M.length - 1]
+
+/**
+ * Champ au-dela duquel la propriete est hors d'atteinte a budget constant.
+ *
+ * Le pas de bord vaut au mieux le demi-champ en radians — le minimum de
+ * `s + (champ/2)²/4s` est atteint en `s = champ/4` et vaut `champ/2`. L'egaler a
+ * la donnee la plus fine, 0,0562°, donne 0,0799 radian de demi-champ.
+ */
+const RESOLVABLE_FOV_DEG = 2 * (0.0799 / (Math.PI / 180))
 
 /**
  * Echelle de distances.
@@ -64,7 +78,31 @@ const LADDER_M = [
   400_000,
 ]
 
-const format = (rows: readonly string[]): string => rows.join('\n')
+/** Champs auxquels la propriete doit tenir. */
+const RESOLVED_FOV_DEG = [0.02, 0.5, 2, 9]
+
+/** Champs ou elle ne peut pas tenir, et qu'on mesure quand meme. */
+const WIDE_FOV_DEG = [20, 60, 110]
+
+/**
+ * Pire rapport maillage/donnee **dans le champ**, sur toute l'echelle.
+ *
+ * Le bord du champ, et non son centre : c'est la que la concentration est la
+ * plus lache, donc la que la propriete est le plus a la peine.
+ */
+function worstInField(fovDeg: number): { ratio: number; distanceM: number } {
+  let ratio = 0
+  let distanceM = 0
+  const edgeDeg = fovDeg / 2
+  for (const d of LADDER_M) {
+    const r = meshAzimuthPitchDeg(edgeDeg, 0, fovDeg) / dataPitchDeg(d)
+    if (r > ratio) {
+      ratio = r
+      distanceM = d
+    }
+  }
+  return { ratio, distanceM }
+}
 
 export function meshSamplingSuite(): SuiteResult {
   const dipDeg = horizonDipDeg(OBSERVER_M)
@@ -72,93 +110,100 @@ export function meshSamplingSuite(): SuiteResult {
   const horizonM = horizonRangeM(0, OBSERVER_M, radiusM)
 
   return suite(
-    'Echantillonnage du maillage de terrain (phase 0)',
+    'Echantillonnage du maillage de terrain',
     {
       reference:
         'aucune — propriete interne : le maillage ne doit pas etre plus grossier que la pyramide qu il lit',
     },
     (t) => {
-      // --- L'axe des azimuts --------------------------------------------
-      //
-      // C'est lui, le defaut signale. Le pas est uniforme sur trois cent
-      // soixante degres et ne depend ni du champ ni de la visee : a plein zoom,
-      // une colonne de sommets couvre plusieurs largeurs d'ecran, et l'on ne
-      // voit plus que deux ou trois aretes etirees.
-      const rows: string[] = ['distance   donnee     azimut     ratio    anneau     ratio']
-      let worstAzimuth = 0
-      let worstAzimuthAtM = 0
-      let worstRangeNear = 0
-      let worstRangeNearAtM = 0
-
-      for (const distanceM of LADDER_M) {
-        const data = dataPitchDeg(distanceM)
-        // Champ resserre : c'est la condition ou le defaut se voit. La loi
-        // actuelle ignore cet argument, ce qui est precisement le probleme.
-        const azimuth = meshAzimuthPitchDeg(0, 0, 0.5)
-        const range = meshRangePitchDeg(distanceM, OBSERVER_M, radiusM, FAR_RANGE_M)
-        const azRatio = azimuth / data
-        const rgRatio = range / data
-
-        if (azRatio > worstAzimuth) {
-          worstAzimuth = azRatio
-          worstAzimuthAtM = distanceM
-        }
-        // Le deficit des anneaux vit dans le champ proche et moyen ; au-dela de
-        // la premiere frontiere, ils resolvent la donnee. On mesure les deux
-        // separement plutot que de melanger deux regimes dans un seul nombre.
-        if (distanceM <= CLIPMAP_HALF_SPANS_M[0] && rgRatio > worstRangeNear) {
-          worstRangeNear = rgRatio
-          worstRangeNearAtM = distanceM
-        }
-
-        rows.push(
-          `${(distanceM / 1000).toFixed(1).padStart(7)} km ${data.toFixed(4).padStart(8)}° ` +
-            `${azimuth.toFixed(4).padStart(9)}° ${azRatio.toFixed(1).padStart(7)}x ` +
-            `${range.toFixed(4).padStart(9)}° ${rgRatio.toFixed(1).padStart(7)}x`,
-        )
-      }
-
-      // ⚠️ ECHEC ATTENDU — c'est la cible du chantier.
+      // --- La propriete, dans le regime ou elle peut tenir ------------------
+      const resolved = RESOLVED_FOV_DEG.map((fov) => ({ fov, ...worstInField(fov) }))
+      const worst = resolved.reduce((a, b) => (b.ratio > a.ratio ? b : a))
       t.checkTrue(
-        'le maillage n est jamais plus grossier que la donnee, en azimut',
-        worstAzimuth <= 1,
-        format([
-          `pire rapport ${worstAzimuth.toFixed(1)}x a ${(worstAzimuthAtM / 1000).toFixed(0)} km`,
-          `l azimut ne resout la donnee que jusqu a ${(azimuthResolvedUntilM() / 1000).toFixed(2)} km`,
-          '',
-          ...rows,
-        ]),
+        `le maillage n est jamais plus grossier que la donnee, jusqu a ${RESOLVABLE_FOV_DEG.toFixed(1)}° de champ`,
+        worst.ratio <= 1,
+        resolved
+          .map(
+            (r) =>
+              `champ ${String(r.fov).padStart(5)}° : bord ${meshAzimuthPitchDeg(r.fov / 2, 0, r.fov).toFixed(4)}° ` +
+              `contre donnee ${dataPitchDeg(r.distanceM).toFixed(4)}° a ${(r.distanceM / 1000).toFixed(0)} km ` +
+              `— ${r.ratio.toFixed(2)}x`,
+          )
+          .join('\n'),
       )
 
-      // ⚠️ ECHEC ATTENDU — la loi doit apprendre a suivre la camera.
-      //
-      // Le controle precedent dit *combien* il manque ; celui-ci dit *pourquoi*.
-      // Les separer evite qu'un raffinement uniforme, qui ferait exploser le
-      // budget de sommets, passe pour une solution.
+      // ⚠️ Au-dela, la propriete est hors d'atteinte a budget constant. On la
+      // mesure quand meme : un chiffre inscrit vaut mieux qu'un silence, et
+      // c'est lui qui dira si un jour le budget doit bouger.
+      t.note(
+        'champ large, hors du regime resolvable : ' +
+          WIDE_FOV_DEG.map((fov) => `${fov}° -> ${worstInField(fov).ratio.toFixed(1)}x`).join(', ') +
+          ` (avant ce chantier : ${(0.703125 / dataPitchDeg(27_900)).toFixed(1)}x a tout champ)`,
+      )
+
+      // --- La loi suit bien la camera --------------------------------------
       const wide = meshAzimuthPitchDeg(0, 0, 110)
       const narrow = meshAzimuthPitchDeg(0, 0, 0.5)
       t.checkTrue(
         'le pas d azimut se resserre quand le champ se resserre',
         narrow < wide,
-        `champ 110° -> ${wide.toFixed(4)}° ; champ 0,5° -> ${narrow.toFixed(4)}° — ` +
-          'identiques : la loi ignore le champ, et paie des colonnes derriere la tete',
+        `champ 110° -> ${wide.toFixed(4)}° ; champ 0,5° -> ${narrow.toFixed(4)}° ` +
+          `(${(0.703125 / narrow).toFixed(0)}x plus fin qu avant ce chantier)`,
+      )
+
+      // --- Ce qu'une deformation doit garantir -----------------------------
+      //
+      // Le maillage est un eventail **ferme** : la derniere colonne doit rejoindre
+      // la premiere exactement. Une loi qui ne refermerait pas le cercle
+      // laisserait une couture verticale sur toute la hauteur du terrain, ou un
+      // recouvrement — l'un et l'autre a un azimut qui suit la camera, donc
+      // impossibles a diagnostiquer plus tard.
+      for (const fovDeg of [110, 20, 2, 0.02]) {
+        let total = 0
+        const azimuths: number[] = []
+        for (let i = 0; i < AZIMUTH_STEPS; i++) azimuths.push(meshAzimuthDeg(i, 0, fovDeg))
+        for (let i = 0; i < AZIMUTH_STEPS; i++) {
+          const here = azimuths[i]
+          const next = i + 1 === AZIMUTH_STEPS ? azimuths[0] + 360 : azimuths[i + 1]
+          total += next - here
+        }
+        t.check(`la loi referme le cercle a ${fovDeg}° de champ`, total, 360, 1e-9, '°')
+        t.checkMonotonic(`les colonnes restent ordonnees a ${fovDeg}° de champ`, azimuths, 'croissant')
+      }
+
+      // La loi doit **contenir** l'ancienne, et non s'y substituer : a
+      // concentration un, elle est uniforme. C'est ce qui garantit qu'aucun
+      // chemin de code separe ne subsiste pour le champ large.
+      t.check(
+        'a concentration un, la loi redevient uniforme',
+        meshAzimuthPitchDeg(137, 0, 360, AZIMUTH_STEPS),
+        360 / AZIMUTH_STEPS,
+        1e-12,
+        '°',
+      )
+      t.check('la concentration sature a un', azimuthConcentration(360), 1, 0)
+
+      // --- Ce que la concentration coute derriere la tete ------------------
+      //
+      // ⚠️ Elle n'est pas gratuite : ce qui est donne devant est pris derriere.
+      // Le maillage y devient tres grossier, et c'est acceptable **parce qu'on
+      // ne le voit pas** — mais uniquement tant que la reconstruction rattrape
+      // le panoramique. C'est ce que la marge fine paie.
+      t.note(
+        'pas a l oppose de la visee : ' +
+          [110, 20, 2].map((fov) => `${fov}° -> ${meshAzimuthPitchDeg(180, 0, fov).toFixed(1)}°`).join(', ') +
+          ` — invisible, couvert par la marge de ${AZIMUTH_MARGIN_DEG}° et la reconstruction en tache de fond`,
       )
 
       // --- Le budget de sommets ------------------------------------------
       //
       // Il garde la solution autant que le probleme : resserrer l'azimut en
       // multipliant les colonnes rendrait la reconstruction plus longue que
-      // plusieurs images. Le budget doit etre **redistribue**, pas augmente.
-      t.check(
-        'le budget de sommets ne bouge pas',
-        MESH_VERTEX_BUDGET,
-        106_496,
-        0,
-        ' sommets',
-      )
+      // plusieurs images. Le budget est **redistribue**, pas augmente.
+      t.check('le budget de sommets ne bouge pas', MESH_VERTEX_BUDGET, 106_496, 0, ' sommets')
       t.note(
         `${AZIMUTH_STEPS} azimuts x ${RANGE_STEPS} anneaux — reconstruction mesuree a 18 ms, ` +
-          'soit une milliseconde par tranche de six mille sommets',
+          'etalee a 24 anneaux par image',
       )
 
       // --- Ce que les anneaux font bien, et qu'il ne faut pas casser -------
@@ -177,30 +222,30 @@ export function meshSamplingSuite(): SuiteResult {
           `donnee ${dataAtHorizon.toFixed(4)}° (${(atHorizon / dataAtHorizon).toFixed(2)}x)`,
       )
 
-      // --- Ce que la mesure a corrige -------------------------------------
-      //
-      // ⚠️ J'avais conclu que l'axe des distances etait « mesure correct, ne pas
-      // y toucher ». C'est vrai **a l'horizon et au-dela de la premiere
-      // frontiere**, et faux entre deux et vingt-huit kilometres, ou les
-      // anneaux sont quatre fois trop grossiers. La conclusion initiale avait
-      // ete tiree du seul champ lointain.
+      // ⚠️ Les anneaux sont en revanche trop grossiers dans le champ proche.
+      // Reel, mesure, et hors cible de ce chantier — qui porte sur l'azimut.
+      let worstRangeNear = 0
+      let worstRangeNearAtM = 0
+      for (const d of LADDER_M) {
+        if (d > CLIPMAP_HALF_SPANS_M[0]) continue
+        const r = meshRangePitchDeg(d, OBSERVER_M, radiusM, FAR_RANGE_M) / dataPitchDeg(d)
+        if (r > worstRangeNear) {
+          worstRangeNear = r
+          worstRangeNearAtM = d
+        }
+      }
       t.note(
         `anneaux sous la premiere frontiere : jusqu a ${worstRangeNear.toFixed(1)}x trop grossiers ` +
-          `a ${(worstRangeNearAtM / 1000).toFixed(0)} km — reel, connu, hors cible de la phase 1`,
+          `a ${(worstRangeNearAtM / 1000).toFixed(0)} km — reel, connu, hors cible de ce chantier`,
       )
 
       // --- La couture entre niveaux ---------------------------------------
-      //
-      // Elle est invisible aujourd'hui parce que le maillage est trois fois plus
-      // grossier que l'ecart qu'elle produit. Affiner l'azimut la rendra
-      // visible : c'est une consequence attendue de la phase 1, pas une
-      // regression.
       const inner = dataStepM(CLIPMAP_HALF_SPANS_M[0] - 100)
       const outer = dataStepM(CLIPMAP_HALF_SPANS_M[0] + 100)
       t.note(
         `frontiere a ${(CLIPMAP_HALF_SPANS_M[0] / 1000).toFixed(0)} km : le pas passe de ` +
           `${inner.toFixed(1)} m a ${outer.toFixed(1)} m (${(outer / inner).toFixed(2)}x) — ` +
-          'noye aujourd hui sous un maillage plus grossier encore',
+          'desormais resolu par le maillage, donc visible',
       )
     },
   )

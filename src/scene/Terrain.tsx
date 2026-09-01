@@ -72,7 +72,7 @@
  * graine fixe. C'est une surface de test ; ce qui est physique, c'est ce que
  * l'atmosphere en fait.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSkyStore } from '@/state/store'
 import {
   BufferAttribute,
@@ -83,6 +83,7 @@ import {
   FloatType,
   LinearFilter,
   RedFormat,
+  type PerspectiveCamera,
   ShaderMaterial,
   Vector3,
 } from 'three'
@@ -106,7 +107,7 @@ import {
   terrainRevision,
 } from './terrain/elevationField'
 import { CLIPMAP_HALF_SPANS_M } from './terrain/elevationClipmap'
-import { AZIMUTH_STEPS, NEAR_M, RANGE_STEPS } from './terrain/meshSampling'
+import { AZIMUTH_STEPS, NEAR_M, RANGE_STEPS, meshAzimuthDeg } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
@@ -141,6 +142,21 @@ const farRangeM = (observerElevationM: number, effectiveRadiusM: number): number
     CLIPMAP_HALF_SPANS_M[CLIPMAP_HALF_SPANS_M.length - 1],
   )
 
+const DEG = Math.PI / 180
+
+/**
+ * Anneaux poses par image pendant une reconstruction.
+ *
+ * Deux cent huit anneaux coutent dix-huit millisecondes ; vingt-quatre par image
+ * en valent donc deux, et le maillage complet arrive en moins de trois cents
+ * millisecondes. C'est le compromis entre l'a-coup, qu'on refuse, et la latence,
+ * que la marge fine de la loi d'azimut absorbe.
+ */
+const RINGS_PER_FRAME = 24
+
+/** Vecteur de travail pour lire la direction de la camera, sans allouer par image. */
+const viewForward = new Vector3()
+
 /** Profondeur de scene du premier anneau — au-dela du plan rapproche de 0,1. */
 const TERRAIN_NEAR_DEPTH = 0.3
 /** Meme pente que `sceneDepth` : une decade de distance vaut 7,375 de profondeur. */
@@ -155,53 +171,175 @@ const terrainDepth = (distanceM: number): number =>
  * Radial et non cartesien : la resolution qui compte est **angulaire**, et un
  * quadrillage au sol gaspillerait ses sommets au loin tout en manquant de
  * finesse pres de l'observateur. Les anneaux sont espaces en logarithme, ce qui
- * donne a chaque anneau la meme epaisseur apparente.
+ * resserre d'eux-memes ceux qui bordent l'horizon, la ou la hauteur apparente du
+ * sol est stationnaire.
+ *
+ * ## L'azimut, lui, suit la camera
+ *
+ * ⚠️ Il ne l'a pas toujours fait, et c'etait **le** defaut : cinq cent douze
+ * colonnes uniformes sur trois cent soixante degres valent sept dixiemes de
+ * degre chacune, quand la pyramide decrit le relief au vingtieme de degre. Le
+ * maillage jetait donc jusqu'a douze cellules sur treize, et a fort
+ * grossissement il ne restait que deux ou trois aretes etirees.
+ *
+ * Le budget de sommets n'a pas bouge — il est **redistribue** par la
+ * deformation de `meshAzimuthDeg`, qui resserre les colonnes autour de la visee
+ * et les relache derriere. Voir `terrain/meshSampling.ts`.
  */
-function buildGeometry(observerElevationM: number): BufferGeometry {
-  const vertexCount = AZIMUTH_STEPS * RANGE_STEPS
-  const positions = new Float32Array(vertexCount * 3)
-  const normals = new Float32Array(vertexCount * 3)
-  const ranges = new Float32Array(vertexCount)
-  const altitudes = new Float32Array(vertexCount)
-  // Positions **physiques** (est, altitude, −nord), gardees le temps du calcul
-  // des normales. Elles ne partent pas au GPU : la scene, elle, recoit les
-  // positions comprimees en profondeur.
-  const local = new Float64Array(vertexCount * 3)
+/**
+ * Index de la topologie, calcule une fois pour toutes.
+ *
+ * La topologie ne depend d'aucun parametre : deux triangles par cellule, la
+ * meme grille a chaque reconstruction. La recalculer coutait deux cent mille
+ * ecritures par maillage pour un tampon rigoureusement identique.
+ */
+let sharedIndex: BufferAttribute | null = null
+function meshIndex(): BufferAttribute {
+  if (sharedIndex) return sharedIndex
+  const indices = new Uint32Array(AZIMUTH_STEPS * (RANGE_STEPS - 1) * 6)
+  let k = 0
+  for (let r = 0; r < RANGE_STEPS - 1; r++) {
+    for (let a = 0; a < AZIMUTH_STEPS; a++) {
+      const a1 = (a + 1) % AZIMUTH_STEPS
+      const i00 = r * AZIMUTH_STEPS + a
+      const i01 = r * AZIMUTH_STEPS + a1
+      const i10 = (r + 1) * AZIMUTH_STEPS + a
+      const i11 = (r + 1) * AZIMUTH_STEPS + a1
+      indices[k++] = i00
+      indices[k++] = i10
+      indices[k++] = i11
+      indices[k++] = i00
+      indices[k++] = i11
+      indices[k++] = i01
+    }
+  }
+  sharedIndex = new BufferAttribute(indices, 1)
+  return sharedIndex
+}
 
+/**
+ * Reconstruction en cours.
+ *
+ * ## ⚠️ Pourquoi elle est etalee sur plusieurs images
+ *
+ * Le maillage suit desormais la camera : il se refait quand la visee ou le champ
+ * changent, c'est-a-dire **pendant qu'on regarde**. Or le construire coute
+ * dix-huit millisecondes, plus qu'une image entiere : le faire d'un bloc
+ * echangerait un defaut de resolution contre un a-coup a chaque mouvement.
+ *
+ * Il est donc bati par tranches dans un tampon a part, l'ancien maillage restant
+ * affiche jusqu'a ce que le nouveau soit complet. Ce qu'on paie n'est plus un
+ * a-coup mais une **latence**, et la marge fine de `AZIMUTH_MARGIN_DEG` est
+ * precisement la pour la couvrir.
+ *
+ * C'est la meme mecanique que le remplissage des tables atmospheriques, qui
+ * avancent d'une ligne par image pour la meme raison.
+ */
+interface MeshBuild {
+  /** Ce que ce maillage decrit ; une valeur differente en demande un autre. */
+  readonly key: string
+  readonly observerElevationM: number
+  readonly effectiveRadiusM: number
+  readonly logNear: number
+  readonly logSpan: number
+  /** Sinus et cosinus de chaque colonne, la loi d'azimut etant fixee au depart. */
+  readonly sinAz: Float64Array
+  readonly cosAz: Float64Array
+  readonly positions: Float32Array
+  readonly normals: Float32Array
+  readonly ranges: Float32Array
+  readonly altitudes: Float32Array
+  /**
+   * Positions **physiques** (est, altitude, −nord), gardees le temps du calcul
+   * des normales. Elles ne partent pas au GPU : la scene, elle, recoit les
+   * positions comprimees en profondeur.
+   */
+  readonly local: Float64Array
+  /** Anneaux dont les positions sont posees. */
+  placed: number
+  /** Anneaux dont les normales sont calculees. */
+  shaded: number
+}
+
+function createBuild(
+  key: string,
+  observerElevationM: number,
+  viewAzimuthDeg: number,
+  fovDeg: number,
+): MeshBuild {
+  const vertexCount = AZIMUTH_STEPS * RANGE_STEPS
   // Le meme horizon que le sol, par construction : la depression vient de
   // l'integrale du moteur, pas du coefficient de manuel.
-  const effectiveRadiusM = effectiveEarthRadiusM(observerElevationM, cachedHorizonDipDeg(observerElevationM))
+  const effectiveRadiusM = effectiveEarthRadiusM(
+    observerElevationM,
+    cachedHorizonDipDeg(observerElevationM),
+  )
+  const sinAz = new Float64Array(AZIMUTH_STEPS)
+  const cosAz = new Float64Array(AZIMUTH_STEPS)
+  for (let a = 0; a < AZIMUTH_STEPS; a++) {
+    const azimuth = meshAzimuthDeg(a, viewAzimuthDeg, fovDeg) * DEG
+    sinAz[a] = Math.sin(azimuth)
+    cosAz[a] = Math.cos(azimuth)
+  }
   const logNear = Math.log(NEAR_M)
-  const logSpan = Math.log(farRangeM(observerElevationM, effectiveRadiusM)) - logNear
+  return {
+    key,
+    observerElevationM,
+    effectiveRadiusM,
+    logNear,
+    logSpan: Math.log(farRangeM(observerElevationM, effectiveRadiusM)) - logNear,
+    sinAz,
+    cosAz,
+    positions: new Float32Array(vertexCount * 3),
+    normals: new Float32Array(vertexCount * 3),
+    ranges: new Float32Array(vertexCount),
+    altitudes: new Float32Array(vertexCount),
+    local: new Float64Array(vertexCount * 3),
+    placed: 0,
+    shaded: 0,
+  }
+}
 
-  for (let r = 0; r < RANGE_STEPS; r++) {
-    const distanceM = Math.exp(logNear + (logSpan * r) / (RANGE_STEPS - 1))
+/** Avance la construction d'au plus `rings` anneaux. Rend vrai quand elle est finie. */
+function advanceBuild(build: MeshBuild, rings: number): boolean {
+  const { positions, ranges, altitudes, local, sinAz, cosAz } = build
+  let budget = rings
+
+  // --- Les positions ------------------------------------------------------
+  while (build.placed < RANGE_STEPS && budget > 0) {
+    const r = build.placed
+    const distanceM = Math.exp(build.logNear + (build.logSpan * r) / (RANGE_STEPS - 1))
     const depth = terrainDepth(distanceM)
     for (let a = 0; a < AZIMUTH_STEPS; a++) {
-      const azimuth = (2 * Math.PI * a) / AZIMUTH_STEPS
-      const sinAz = Math.sin(azimuth)
-      const cosAz = Math.cos(azimuth)
       // +X vers l'est, −Z vers le nord : la convention de la scene.
-      const eastM = distanceM * sinAz
-      const northM = distanceM * cosAz
+      const eastM = distanceM * sinAz[a]
+      const northM = distanceM * cosAz[a]
 
       const altitudeM = groundAltitudeM(eastM, northM)
-      const elevation = apparentElevationRad(distanceM, altitudeM, observerElevationM, effectiveRadiusM)
+      const elevation = apparentElevationRad(
+        distanceM,
+        altitudeM,
+        build.observerElevationM,
+        build.effectiveRadiusM,
+      )
       const cosEl = Math.cos(elevation)
 
       const i = r * AZIMUTH_STEPS + a
-      positions[i * 3] = depth * cosEl * sinAz
+      positions[i * 3] = depth * cosEl * sinAz[a]
       positions[i * 3 + 1] = depth * Math.sin(elevation)
-      positions[i * 3 + 2] = -depth * cosEl * cosAz
+      positions[i * 3 + 2] = -depth * cosEl * cosAz[a]
       ranges[i] = distanceM
       altitudes[i] = altitudeM
       local[i * 3] = eastM
       local[i * 3 + 1] = altitudeM
       local[i * 3 + 2] = -northM
     }
+    build.placed++
+    budget--
   }
+  if (build.placed < RANGE_STEPS) return false
 
-  // --- Normales, prises sur le maillage lui-meme ---------------------------
+  // --- Les normales, prises sur le maillage lui-meme ----------------------
   //
   // ⚠️ **Un pas fixe de differences finies ne peut pas marcher ici.** La maille
   // s'etire d'un facteur quinze mille entre le premier anneau et le dernier :
@@ -215,7 +353,14 @@ function buildGeometry(observerElevationM: number): BufferGeometry {
   // vectoriel des deux tangentes du maillage, prises en **coordonnees
   // physiques** et non dans la scene, dont la profondeur logarithmique
   // fausserait toutes les pentes.
-  for (let r = 0; r < RANGE_STEPS; r++) {
+  //
+  // ⚠️ Elle vaut aussi pour la **loi d'azimut graduee** : les colonnes n'etant
+  // plus equidistantes, un pas d'azimut suppose constant donnerait des pentes
+  // fausses la ou la densite change. Ici les tangentes sont prises entre les
+  // sommets reels, donc la non-uniformite est portee par les donnees elles-memes.
+  const { normals } = build
+  while (build.shaded < RANGE_STEPS && budget > 0) {
+    const r = build.shaded
     for (let a = 0; a < AZIMUTH_STEPS; a++) {
       const i = r * AZIMUTH_STEPS + a
       const prevA = r * AZIMUTH_STEPS + ((a + AZIMUTH_STEPS - 1) % AZIMUTH_STEPS)
@@ -247,33 +392,22 @@ function buildGeometry(observerElevationM: number): BufferGeometry {
       normals[i * 3 + 1] = len > 0 ? ny * inv : 1
       normals[i * 3 + 2] = nz * inv
     }
+    build.shaded++
+    budget--
   }
+  return build.shaded >= RANGE_STEPS
+}
 
-  // Deux triangles par cellule ; l'azimut boucle, la distance non.
-  const indices = new Uint32Array(AZIMUTH_STEPS * (RANGE_STEPS - 1) * 6)
-  let k = 0
-  for (let r = 0; r < RANGE_STEPS - 1; r++) {
-    for (let a = 0; a < AZIMUTH_STEPS; a++) {
-      const a1 = (a + 1) % AZIMUTH_STEPS
-      const i00 = r * AZIMUTH_STEPS + a
-      const i01 = r * AZIMUTH_STEPS + a1
-      const i10 = (r + 1) * AZIMUTH_STEPS + a
-      const i11 = (r + 1) * AZIMUTH_STEPS + a1
-      indices[k++] = i00
-      indices[k++] = i10
-      indices[k++] = i11
-      indices[k++] = i00
-      indices[k++] = i11
-      indices[k++] = i01
-    }
-  }
-
+/** Rend la geometrie d'une construction achevee. */
+function sealBuild(build: MeshBuild): BufferGeometry {
   const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new BufferAttribute(positions, 3))
-  geometry.setAttribute('normal', new BufferAttribute(normals, 3))
-  geometry.setAttribute('range', new BufferAttribute(ranges, 1))
-  geometry.setAttribute('altitude', new BufferAttribute(altitudes, 1))
-  geometry.setIndex(new BufferAttribute(indices, 1))
+  geometry.setAttribute('position', new BufferAttribute(build.positions, 3))
+  geometry.setAttribute('normal', new BufferAttribute(build.normals, 3))
+  geometry.setAttribute('range', new BufferAttribute(build.ranges, 1))
+  geometry.setAttribute('altitude', new BufferAttribute(build.altitudes, 1))
+  // Deux triangles par cellule ; l'azimut boucle, la distance non. Le tampon est
+  // partage entre tous les maillages : il ne depend pas de la visee.
+  geometry.setIndex(meshIndex())
   return geometry
 }
 
@@ -581,13 +715,62 @@ export function Terrain({
     }
   }, [latitudeDeg, longitudeDeg, setTerrainProgress, setLocation])
 
-  const geometry = useMemo(
-    () => buildGeometry(eyeM),
-    // `revision` ne sert pas au calcul : elle dit seulement que le relief
-    // echantillonne par `buildGeometry` a change sous nos pieds.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [elevationKey, revision],
-  )
+  /**
+   * Maillage affiche, et sa reconstruction en cours.
+   *
+   * Il ne peut plus etre memoise : sa cle depend de la camera, donc de l'etat de
+   * l'image en cours, et il se bâtit sur plusieurs images. C'est `useFrame` qui
+   * le fait avancer, et un rendu React n'a lieu qu'a l'achevement — quelques
+   * fois par seconde au plus, jamais par image.
+   */
+  const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
+  const build = useRef<MeshBuild | null>(null)
+  const shownKey = useRef<string | null>(null)
+
+  // La geometrie precedente est liberee **apres** que React a commis la
+  // nouvelle : la liberer au moment de l'echange laisserait une image ou le
+  // maillage affiche pointe vers des tampons deja rendus.
+  useEffect(() => () => geometry?.dispose(), [geometry])
+
+  useFrame(({ camera }) => {
+    // La camera est la source, et non le magasin : celui-ci n'est ecrit qu'au
+    // franchissement d'un seuil, et le maillage suivrait donc la visee par
+    // paliers decales de ceux qu'il se donne lui-meme.
+    camera.getWorldDirection(viewForward)
+    const viewAzimuthDeg = Math.atan2(viewForward.x, -viewForward.z) / DEG
+    const fovDeg = (camera as PerspectiveCamera).fov ?? 60
+
+    // Quantification de la visee : un quart de champ. En dessous, le maillage
+    // ne changerait pas assez pour se voir, et l'on reconstruirait sans fin.
+    // Elle est **proportionnelle au champ**, comme la vitesse de rotation de la
+    // camera : les deux se compensent, et le nombre de reconstructions par
+    // seconde de panoramique ne depend donc pas du grossissement.
+    const quantum = Math.max(0.02, fovDeg * 0.25)
+    const key =
+      `${elevationKey}:${revision}:${Math.round(viewAzimuthDeg / quantum)}:` +
+      `${Math.round(Math.log2(fovDeg) * 4)}`
+
+    // ⚠️ Une construction en cours n'est **jamais** abandonnee au profit d'une
+    // cle plus recente. Un panoramique continu changerait la cle a chaque image
+    // et le maillage ne serait jamais fini : on termine, puis on recommence si
+    // besoin. Le maillage affiche a donc au plus un quart de champ de retard,
+    // que la marge fine couvre trente fois.
+    if (!build.current && shownKey.current !== key) {
+      build.current = createBuild(key, eyeM, viewAzimuthDeg, fovDeg)
+    }
+    // ⚠️ Le **premier** maillage se batit d'un bloc. L'etaler laisserait un
+    // demi-second sans sol au demarrage, ou l'on verrait le ciel sous ses
+    // pieds ; et il n'y a alors aucun a-coup a craindre puisqu'il n'y a encore
+    // rien a l'ecran. C'est le comportement d'avant ce chantier, conserve la
+    // ou il etait juste.
+    const slice = shownKey.current === null ? RANGE_STEPS : RINGS_PER_FRAME
+    if (build.current && advanceBuild(build.current, slice)) {
+      const done = build.current
+      build.current = null
+      shownKey.current = done.key
+      setGeometry(sealBuild(done))
+    }
+  })
   const material = useMemo(() => terrainMaterial(), [])
 
   /**
@@ -644,5 +827,9 @@ export function Terrain({
   // dans tout le secteur qu'il occupe, et son propre tampon de profondeur fait
   // le reste — une crete proche masque une crete lointaine sans qu'on ait rien
   // a trier.
+  // Tant que le premier maillage n'est pas pose, il n'y a rien a dessiner : le
+  // globe tient le sol.
+  if (!geometry) return null
+
   return <mesh geometry={geometry} material={material} renderOrder={26} frustumCulled={false} />
 }

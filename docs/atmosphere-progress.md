@@ -2281,6 +2281,98 @@ prendrait pour un defaut de rendu.
 
 ---
 
+## L'azimut du maillage suit desormais la camera
+
+Phase 1 du chantier `terrain-mesh-resolution`. **Le budget de sommets n'a pas
+bouge** : 512 colonnes x 208 anneaux, comme avant. Il est redistribue.
+
+### La loi
+
+Les colonnes sont equirepartis dans un parametre `t ∈ [−1, 1[`, puis deformees
+autour de la visee par
+
+    θ(t) = 2·atan( s·tan(π t / 2) )
+
+dont la derivee s'ecrit sans tangente :
+
+    pas(θ) = (360 / (N·s)) · ( s²·cos²(θ/2) + sin²(θ/2) )
+
+Trois proprietes en font le bon choix, et aucune n'est cosmetique : elle est
+**exacte et inversible**, elle **referme le cercle** — `t = ±1` donne le meme
+point, verifie a 10⁻¹³ degre — et elle **degenere en uniforme** a `s = 1`, donc
+le comportement d'avant est un cas particulier de la loi et non un chemin de
+code separe.
+
+⚠️ Un secteur fin a bord franc aurait ete plus simple, et faux : la densite y
+sauterait d'un facteur dix en une colonne, et cette frontiere balaierait l'image
+a chaque panoramique.
+
+La concentration vaut `s = max(champ/2, 3°)/2` en radians. La marge de trois
+degres n'est pas un confort : c'est **la latence de reconstruction convertie en
+angle**, et elle sert de plancher sous trois degres de champ.
+
+### Ce que ca donne
+
+| champ | pas au bord du champ | contre la donnee | avant |
+| --- | --- | --- | --- |
+| 0,02° | 0,0184° | **0,33x** | 12,5x |
+| 0,5° | 0,0185° | **0,33x** | 12,5x |
+| 2° | 0,0205° | **0,36x** | 12,5x |
+| 9° | 0,0552° | **0,98x** | 12,5x |
+| 20° | 0,1221° | 2,2x | 12,5x |
+| 110° | — | 10,3x | 12,5x |
+
+A 0,5° de champ, le maillage est **38 fois plus fin** qu'avant, et il resout
+desormais la donnee avec trois fois de marge.
+
+⚠️ **La propriete ne peut pas tenir a tout champ**, et la limite se calcule : le
+pas de bord vaut au mieux le demi-champ en radians, d'ou **9,2° de champ** a
+budget constant. Le controle porte la condition dans son intitule plutot que
+dans un commentaire.
+
+⚠️ Ce qui est donne devant est pris derriere : a 2° de champ, le pas atteint 27°
+a l'oppose de la visee. Invisible — mais seulement tant que la reconstruction
+rattrape le panoramique.
+
+### La reconstruction ne bloque plus
+
+Le maillage se refait **pendant qu'on regarde**, et il coute dix-huit
+millisecondes : d'un bloc, il aurait echange un defaut de resolution contre un
+a-coup a chaque mouvement. Il est donc bati par tranches de vingt-quatre
+anneaux dans un tampon a part, l'ancien restant affiche jusqu'a l'achevement.
+
+⚠️ Une construction en cours n'est **jamais** abandonnee au profit d'une cle plus
+recente : un panoramique continu changerait la cle a chaque image et le maillage
+ne serait jamais fini.
+
+La quantification de la visee est un quart de champ, donc **proportionnelle au
+champ comme la vitesse de rotation de la camera** : les deux se compensent, et
+le nombre de reconstructions par seconde de panoramique ne depend pas du
+grossissement.
+
+Mesure, panoramique continu de quatre secondes balayant deux champs entiers :
+
+| champ | mediane | p95 | max |
+| --- | --- | --- | --- |
+| 0,5° | 16,6 ms | 19,1 ms | 21,7 ms |
+| 2° | 16,6 ms | 19,2 ms | 21,4 ms |
+| 20° | 16,5 ms | 19,4 ms | 21,9 ms |
+| 110° | 16,7 ms | 19,9 ms | 25,3 ms |
+
+Soixante images par seconde tenues, aucun a-coup.
+
+### Ce que la phase 1 a rendu visible
+
+Deux choses, attendues l'une et l'autre, et qui sont la matiere de la phase 2 :
+
+- la **couture a 28 km**, ou le pas de la pyramide passe de 27 a 110 m. Elle
+  etait noyee sous un maillage plus grossier qu'elle ; elle ne l'est plus.
+- le **deficit des anneaux dans le champ proche**, jusqu'a 4,4x a 14 km. Les
+  silhouettes de cretes y montrent desormais une marche d'escalier en distance,
+  la ou l'azimut, lui, est devenu lisse.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2331,3 +2423,4 @@ prendrait pour un defaut de rendu.
 | 2026-09-02 | Une seule expression de la radiance du ciel — la face nuit d'un astre redevient le ciel |
 | 2026-09-02 | Pente du relief simulé bornée — la face nuit cesse de s'allumer au zoom |
 | 2026-09-01 | Phase 0 du maillage de terrain — le défaut devient un nombre, deux contrôles échouent |
+| 2026-09-01 | Phase 1 — l'azimut suit la caméra : 38x plus fin à fort zoom, budget inchangé |
