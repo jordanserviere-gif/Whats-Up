@@ -4480,6 +4480,69 @@ l'application — trouble, ozone climatologique, altitude de l'oeil.
 
 ---
 
+## Le halo qui ne s'eteignait pas etait une affaire de presentation
+
+Signale trois fois, et les deux premieres enquetes avaient trouve de vrais
+defauts sans supprimer le symptome. La troisieme a change de question.
+
+### Ce que ce n'etait pas
+
+**Ce n'etait pas la Lune.** Le signalement suivant montrait le meme halo avec la
+Lune a −4° et un pour cent eclairee. Un balayage en azimut le confirme : la lueur
+suit le Soleil, pas elle.
+
+| azimut | ecart a l'azimut solaire | ciel a +5° |
+| --- | --- | --- |
+| 45° | 14° | **99** |
+| 90° | 31° | 53 |
+| 135° | 76° | 19 |
+| 225° | 166° | **11** |
+
+Un rapport de neuf entre la direction du Soleil et l'opposee : c'est l'arche
+crepusculaire, strictement directionnelle. Un terme peint isotrope — la lueur
+lunaire, le halo urbain — donnerait la meme valeur partout.
+
+**Ce n'etait pas non plus un exces de lumiere.** Le moteur emet ×0,33 de la
+courbe d'eclairement de reference a −14°, donc **moins** que la litterature.
+
+### Ce que c'etait
+
+`DISPLAY_DECADES`, le seul choix de presentation du module d'adaptation, valait
+**deux**. Voici ce que le meme ciel physique donne a l'ecran, a un degre
+au-dessus de l'horizon dans la direction du Soleil :
+
+| Soleil | 2 decades | 3 decades |
+| --- | --- | --- |
+| −6° | 161 | 93 |
+| −9° | 156 | 66 |
+| −12° | **145** | 43 |
+| −15° | **106** | 17 |
+| −18° | 3 | 0 |
+
+**A deux decades, la lueur crepusculaire ne s'eteint pas.** Le ciel perd un
+facteur mille entre −6° et −15° ; l'ecran passe de 161 a 106. L'ecart jour-nuit
+n'etait donc pas represente du tout dans la plage ou il se joue.
+
+C'est une consequence directe et non un reglage rate : deux decades pour huit
+decades de scene donnent un exposant d'adaptation de 0,751, et une chute d'un
+facteur mille ne rend qu'un facteur `1000^0,249 = 5,6` — dont la courbe filmique
+absorbe encore la moitie.
+
+A trois, la decroissance existe. **Et le jour ne bouge pas** : 250 contre 249 a
+quinze degres de hauteur solaire, l'ancrage etant a midi.
+
+### Le prix, assume
+
+La nuit profonde tombe a zero au lieu de rendre l'airglow a quatre niveaux sur
+255. Le fond de ciel naturel n'est plus discernable — c'est le contraste **a
+l'interieur** de l'image nocturne qu'on a paye, exactement comme le raisonnement
+d'origine l'annoncait en choisissant deux.
+
+Le compromis se regle sur un seul nombre, et il est enonce en termes de ce qu'un
+ecran peut montrer plutot qu'en candelas arbitraires.
+
+---
+
 ## Registre des incertitudes scientifiques
 
 Ce que le moteur **mesure**, ce qu'il **choisit**, et ce qui lui **manque**. Un

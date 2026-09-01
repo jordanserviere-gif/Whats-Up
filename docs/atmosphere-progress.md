@@ -2098,6 +2098,31 @@ sous trois degres — et qu'il est gris parce que la desaturation scotopique vau
 
 ---
 
+## Le halo qui ne s'eteignait pas etait une affaire de presentation
+
+Ce n'etait ni la Lune — le meme halo apparait avec elle a −4° et 1 % eclairee —
+ni un exces de lumiere : le moteur emet ×0,33 de la courbe de reference a −14°.
+Un balayage en azimut montre une lueur strictement directionnelle, rapport neuf
+entre la direction du Soleil et l'opposee : l'arche crepusculaire.
+
+`DISPLAY_DECADES` valait **deux**. Meme ciel physique, a un degre au-dessus de
+l'horizon vers le Soleil :
+
+| Soleil | 2 decades | 3 decades |
+| --- | --- | --- |
+| −6° | 161 | 93 |
+| −12° | **145** | 43 |
+| −15° | **106** | 17 |
+
+Le ciel perd un facteur mille entre −6° et −15° ; l'ecran passait de 161 a 106.
+L'ecart jour-nuit n'etait pas represente dans la plage ou il se joue. A trois
+decades la decroissance existe, et le jour ne bouge pas (250 contre 249).
+
+**Prix assume** : la nuit profonde tombe a zero au lieu de rendre l'airglow a
+quatre niveaux. C'est le contraste a l'interieur de l'image nocturne qu'on paye.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2143,3 +2168,4 @@ sous trois degres — et qu'il est gris parce que la desaturation scotopique vau
 | 2026-09-01 | Re-saturation ramenée à 1 — le dégradé du crépuscule cesse d'être écrêté |
 | 2026-09-01 | Diffusion multiple itérée — la décroissance crépusculaire redevient régulière |
 | 2026-09-01 | Troncature de la coordonnée de distance — 93 % du ciel crépusculaire était jeté |
+| 2026-09-02 | Trois décades d'écart jour-nuit — la lueur crépusculaire s'éteint enfin |

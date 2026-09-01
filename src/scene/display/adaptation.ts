@@ -106,15 +106,39 @@ export const SCENE_DECADES = Math.log10(REFERENCE_SKY_LUMINANCE / ADAPTATION_FLO
  * ⚠️ **Le seul choix de presentation de ce module.**
  *
  * Un ecran sRGB dans une piece eclairee montre utilement deux a trois decades.
- * En consacrer **deux** a l'ecart du jour a la nuit laisse le reste au contraste
- * a l'interieur de chaque image — le disque solaire contre le ciel, une etoile
- * contre le fond.
  *
- * Consequence directe : une nuit rend cent fois plus sombre qu'un midi. C'est
- * peu au regard des huit decades reelles, et c'est precisement ce qu'un ecran
- * peut faire.
+ * ## ⚠️ Deux ne suffisaient pas, et la mesure le dit
+ *
+ * La valeur etait de **deux**, avec ce raisonnement : en consacrer deux a
+ * l'ecart du jour a la nuit laisse le reste au contraste a l'interieur de chaque
+ * image. Le raisonnement tenait ; sa consequence, non.
+ *
+ * Valeur affichee du ciel a un degre au-dessus de l'horizon, dans la direction
+ * du Soleil, pour le **meme ciel physique** :
+ *
+ * | Soleil | 2 decades | 3 decades |
+ * | --- | --- | --- |
+ * | −6° | 161 | 93 |
+ * | −9° | 156 | 66 |
+ * | −12° | **145** | 43 |
+ * | −15° | **106** | 17 |
+ * | −18° | 3 | 0 |
+ *
+ * **A deux decades, la lueur crepusculaire ne s'eteint pas.** Le ciel perd un
+ * facteur mille entre −6° et −15° de hauteur solaire ; l'ecran passe de 161 a
+ * 106. L'ecart jour-nuit n'etait donc pas represente du tout dans la plage ou il
+ * se joue, et une heure et demie apres le coucher il restait un halo blanc franc
+ * la ou l'oeil ne voit qu'une lueur.
+ *
+ * A trois, la decroissance existe. Et le jour ne bouge pas : 250 contre 249 a
+ * quinze degres de hauteur solaire, l'ancrage etant a midi.
+ *
+ * Le prix est reel et assume : la nuit profonde tombe a zero au lieu de rendre
+ * l'airglow a quatre niveaux sur 255. Le fond de ciel naturel n'est plus
+ * discernable — c'est le contraste **a l'interieur** de l'image nocturne qu'on
+ * a paye, exactement comme le raisonnement d'origine l'annoncait.
  */
-export const DISPLAY_DECADES = 2
+export const DISPLAY_DECADES = 3
 
 /**
  * Exposant d'adaptation, sans dimension.
