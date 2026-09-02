@@ -231,6 +231,39 @@ function interpolateLogX(anchors: ReadonlyArray<readonly [number, number]>, x: n
 export const solarIlluminance = (altitudeDeg: number) => interpolate(SOLAR_ANCHORS, altitudeDeg, true)
 
 /**
+ * Rapport de l'eclairement lunaire a l'eclairement solaire, **hors atmosphere**.
+ *
+ * ## A quoi il sert
+ *
+ * La diffusion est **lineaire en l'eclairement de la source** : le ciel eclaire
+ * par la Lune est donc, terme a terme, le ciel eclaire par le Soleil place au
+ * meme endroit, multiplie par ce rapport. C'est ce qui permet de calculer un
+ * clair de lune avec le meme solveur, sans modele separe et sans couleur
+ * d'interface.
+ *
+ * ## Ce qu'il vaut
+ *
+ * Pleine Lune au zenith : 0,267 lux contre environ 128 000 pour le Soleil, soit
+ * **2,1·10⁻⁶**. La dependance en phase suit la magnitude lunaire, dont le terme
+ * en `φ⁴` rend l'effondrement brutal du croissant — au premier quartier il ne
+ * reste qu'environ un dixieme de la pleine Lune, ce qu'on observe.
+ *
+ * ⚠️ **Sans le `sin(hauteur)^0,8` de `lunarLux`.** Ce facteur-la decrit
+ * l'extinction atmospherique sur l'eclairement recu **au sol** ; ici la source
+ * est vue de l'exterieur de l'atmosphere, et c'est le solveur qui applique
+ * l'extinction le long de chaque trajet. L'inclure reviendrait a la compter
+ * deux fois.
+ *
+ * ⚠️ **Le spectre lunaire est suppose solaire.** L'albedo de la Lune croit avec
+ * la longueur d'onde — le clair de lune est en realite un peu plus rouge que la
+ * lumiere solaire. Voir le registre.
+ */
+export function moonToSunIrradianceRatio(phaseAngleDeg: number): number {
+  const moonLux = FULL_MOON_LUX * Math.pow(10, -0.4 * (moonMagnitude(phaseAngleDeg) - FULL_MOON_MAG))
+  return moonLux / solarIlluminance(90)
+}
+
+/**
  * Fraction du disque solaire masquee par la Lune.
  * Aire d'intersection de deux disques, rapportee a celle du Soleil.
  */
@@ -382,6 +415,13 @@ export interface SkyLuminance {
   sunAzimuth: number
   moonAltitude: number
   moonIllumination: number
+  /**
+   * Rapport d'eclairement lunaire sur solaire, hors atmosphere.
+   *
+   * C'est lui qui met a l'echelle le ciel calcule avec la Lune pour source —
+   * voir `moonToSunIrradianceRatio`. Nul quand la Lune est couchee.
+   */
+  moonIrradianceRatio: number
   /** Fraction du Soleil masquee par la Lune : 1 pendant la totalite. */
   obscuration: number
   /** Magnitude la plus faible encore perceptible. */
@@ -460,6 +500,7 @@ export function skyLuminance(date: Date, location: GeoLocation, pollutionLux = 0
     sunAzimuth: sunHor.azimuth,
     moonAltitude: moonHor.altitude,
     moonIllumination,
+    moonIrradianceRatio: moonHor.altitude > 0 ? moonToSunIrradianceRatio(phaseAngle) : 0,
     obscuration,
     // Deux regimes, chacun avec sa loi, et c'est le plus contraignant qui
     // decide : l'eclairement direct (Soleil, Lune) passe par les paliers en

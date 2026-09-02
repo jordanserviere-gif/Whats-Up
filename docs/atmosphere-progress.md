@@ -2565,6 +2565,75 @@ pas un reglage.
 
 ---
 
+## Le clair de lune devient de la diffusion
+
+Le socle nocturne etait peint : `uMoonGlow × uMoonFactor × (0,25 + 0,75·cos⁶)`,
+une couleur d'interface et un cosinus a la puissance six. Il portait **3 a 25 %**
+de la luminance du ciel une heure et demie apres le coucher au Ventoux, et ne
+connaissait ni l'extinction, ni la diffusion de Mie vers l'avant, ni le
+bleuissement loin de la source.
+
+### Aucun modele nouveau
+
+La diffusion est **lineaire en l'eclairement de la source**. Le ciel de pleine
+Lune est donc, terme a terme, le ciel de jour avec le Soleil place ou est la
+Lune, divise par cinq cent mille. Meme solveur, meme diffusion multiple, meme
+colonne de transmittance — une seconde table de ciel, bidimensionnelle,
+soixante-quatre par trente-deux, remplie deux lignes par image apres tout le
+reste.
+
+Tout tient dans un nombre, `moonToSunIrradianceRatio`, qui se recoupe par deux
+chemins independants :
+
+| grandeur | obtenu | publie |
+| --- | --- | --- |
+| eclairement de la pleine Lune au zenith | **0,267 lx** | 0,25 a 0,3 lx |
+| rapport a l'eclairement solaire | 1/449 438 | ~1/400 000 |
+| au premier quartier | 9,1 % de la pleine Lune | ~10 % |
+| **brillance du ciel de pleine Lune** | **6,65·10⁻³ cd/m²** | 2,7 a 6,8·10⁻³ |
+
+Le dernier traverse **tout** le solveur — geometrie, Rayleigh, Mie, ozone,
+diffusion multiple. Une erreur d'echelle nulle part ailleurs ne passerait.
+
+⚠️ Le `sin(hauteur)^0,8` de `lunarLux` n'y figure pas : ce facteur decrit
+l'extinction sur l'eclairement recu **au sol**, et le solveur applique la sienne
+le long de chaque trajet. L'inclure la compterait deux fois.
+
+### ⚠️ L'exposition ne voyait pas la Lune
+
+Premier rendu : le ciel gris uniforme, **toutes les etoiles effacees**. La
+cause n'etait pas la physique mais l'adaptation — `meanSkyLuminanceCdPerM2`
+etait relevee sur la seule table solaire, nulle la nuit. L'oeil restait donc
+regle sur une nuit sans Lune, et le clair de lune y arrivait en saturation.
+
+L'adaptation somme desormais les deux ciels, en une seule expression, pour la
+meme raison que la radiance du ciel n'en a qu'une : deux exposants calcules a
+deux endroits finissent par diverger.
+
+### Ce que la geometrie rend d'elle-meme
+
+Vise vers la Lune, le ciel est clair et s'eclaircit vers l'horizon — le trajet
+y est plus long. Vise a l'oppose, il est nettement plus sombre. Aucun de ces
+deux comportements n'est ecrit : ils sortent du transport, la ou un `cos⁶` peint
+ne pouvait rendre ni l'un ni l'autre.
+
+### ⚠️ Un defaut anterieur, rendu visible
+
+Les etoiles sont eteintes **deux fois** : par `pointIntensity` pres de la
+magnitude limite photometrique, et par l'exposition adaptative. La photometrie
+est juste — 3,57 sous pleine Lune contre 4,0 publie, 6,59 sans Lune contre 6,5 —
+mais le rendu en montre moins que la trentaine attendue. Tant que l'exposition
+ne bougeait pas la nuit, le double comptage restait cache. Au registre.
+
+### Ce qui reste peint
+
+Le halo urbain, et lui seul. C'est une **emission** renvoyee par l'atmosphere,
+que decrit le modele de Garstang (1989). Sa magnitude est deja ancree —
+`lightPollutionLux` par classe de Bortle — c'est sa **distribution angulaire**
+qui manque, et je ne vais pas l'inventer.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2618,3 +2687,4 @@ pas un reglage.
 | 2026-09-01 | Phase 1 — l'azimut suit la caméra : 38x plus fin à fort zoom, budget inchangé |
 | 2026-09-02 | Phase 2 — le maillage obéit à une erreur d'espace écran ; la réparametrisation des anneaux est réfutée |
 | 2026-09-02 | Phase 3 — le nombre d'anneaux suit l'écran ; l'escalier des crêtes disparaît à 2° |
+| 2026-09-02 | Le clair de lune devient de la diffusion calculée ; l'exposition voit enfin la Lune |

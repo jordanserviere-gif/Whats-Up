@@ -187,10 +187,27 @@ export function displayTransformSuite(): SuiteResult {
       )
       t.checkTrue(
         'et le module partage la porte bien en entier',
-        ['aerialPerspectiveToSpace(', 'uAirglowZenith', 'uMoonGlow', 'uPollution'].every((term) =>
-          SKY_RADIANCE_GLSL.includes(term),
+        ['aerialPerspectiveToSpace(', 'uAirglowZenith', 'sampleSkyView(', 'uPollution'].every(
+          (term) => SKY_RADIANCE_GLSL.includes(term),
         ),
-        'diffusion, airglow et termes peints reunis dans skyRadianceToSpace',
+        'diffusion solaire, airglow, ciel lunaire et halo urbain reunis dans skyRadianceToSpace',
+      )
+
+      // --- Le clair de lune n'est plus peint --------------------------------
+      //
+      // ⚠️ Il l'a ete : `uMoonGlow × uMoonFactor × (0,25 + 0,75·cos⁶)`, une
+      // couleur d'interface et un cosinus a la puissance six. Il portait **3 a
+      // 25 %** de la luminance du ciel une heure et demie apres le coucher au
+      // Ventoux, et ne connaissait ni l'extinction, ni la diffusion de Mie vers
+      // l'avant, ni le bleuissement loin de la source.
+      //
+      // Le controle tient l'absence, faute de pouvoir mesurer des pixels hors
+      // du navigateur : un terme peint qui reviendrait porterait a nouveau ces
+      // deux noms.
+      t.checkTrue(
+        'le halo lunaire peint a disparu de l expression du ciel',
+        !SKY_RADIANCE_GLSL.includes('uMoonGlow') && !SKY_RADIANCE_GLSL.includes('uMoonFactor'),
+        'le clair de lune passe par la table de ciel, avec la Lune pour source',
       )
       t.note(
         'le controle est structurel : il tient l’unicite de l’expression, non l’egalite ' +

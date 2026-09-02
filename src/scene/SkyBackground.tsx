@@ -206,9 +206,9 @@ export interface SkyBackgroundProps {
   sunAzimuth: number
   moonAltitude: number
   moonAzimuth: number
-  lunarLux: number
+  /** Rapport d'eclairement lunaire sur solaire — met a l'echelle le ciel lunaire. */
+  moonIrradianceRatio: number
   nightColor: string
-  moonGlowColor: string
   /** Altitude du sol sous l'observateur, m — la table de ciel en depend. */
   observerElevationM: number
   /** Hauteur de l'observateur au-dessus de ce sol, m. */
@@ -249,9 +249,8 @@ export function SkyBackground({
   sunAzimuth,
   moonAltitude,
   moonAzimuth,
-  lunarLux,
+  moonIrradianceRatio,
   nightColor,
-  moonGlowColor,
   observerElevationM,
   extraHeightM,
   sunDistanceAu,
@@ -284,6 +283,7 @@ export function SkyBackground({
     atmosphereEnabled,
     sunDistanceAu,
     ozoneColumnDu,
+    { altitudeDeg: moonAltitude, irradianceRatio: moonIrradianceRatio },
   )
 
   // Le fond de ciel publie l'etat de l'atmosphere pour toutes les couches : les
@@ -339,9 +339,6 @@ export function SkyBackground({
       Math.sin(malt),
       -Math.cos(malt) * Math.cos(maz),
     ]
-    skyRadianceState.moonFactor =
-      moonAltitude > 0 ? Math.min(0.5, Math.max(0, lunarLux * 0.55)) : 0
-    skyRadianceState.moonGlow = moonGlowColor
     skyRadianceState.pollution.set(pollutionColor).multiplyScalar(pollutionGain)
 
     applySkyRadianceUniforms(u as unknown as ReturnType<typeof skyRadianceUniforms>, skyRadianceState)

@@ -50,8 +50,10 @@
  * inclus avant lui : il appelle `aerialPerspectiveToSpace` et
  * `radianceFromDisplay`.
  */
-import { Color, Vector3 } from 'three'
+import { Color, DataTexture, Vector2, Vector3 } from 'three'
 import { HORIZON_MARGIN_DEG } from '@/atmosphere/horizonMargin'
+import { SKY_VIEW_LUT_GLSL } from '@/atmosphere/lut/skyViewLut'
+import { moonSkyTextures } from '../useAerialLut'
 
 /**
  * L'unique expression de la radiance du ciel.
@@ -65,9 +67,12 @@ export const SKY_RADIANCE_GLSL = /* glsl */ `
   uniform vec3 uAirglowZenith;
   uniform float uAirglowRadiusRatio;
   uniform vec3 uMoonDir;
-  uniform float uMoonFactor;
-  uniform vec3 uMoonGlow;
+  uniform sampler2D uMoonSky;
+  uniform vec2 uMoonSkySize;
+  uniform float uMoonSkyScale;
   uniform vec3 uPollution;
+
+  ${SKY_VIEW_LUT_GLSL}
 
   vec3 skyRadianceToSpace(vec3 rayDir, out vec3 transmittance) {
     vec3 dir = normalize(rayDir);
@@ -110,13 +115,31 @@ export const SKY_RADIANCE_GLSL = /* glsl */ `
     // ete ecrite et vaut encore un.
     vec3 airglow = uAirglowZenith * vanRhijn * transmittance * uAerialExposure * horizonFade;
 
-    // --- Ce qui reste peint -------------------------------------------------
-    float toMoon = max(0.0, dot(dir, normalize(uMoonDir)));
-    vec3 painted = uMoonGlow * uMoonFactor * (0.25 + 0.75 * pow(toMoon, 6.0));
-    float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
-    painted += uPollution * (0.3 + 0.7 * lowSky);
+    // --- Le clair de lune ---------------------------------------------------
+    //
+    // La diffusion est **lineaire en l'eclairement de la source** : le ciel
+    // eclaire par la Lune est le meme calcul que le ciel de jour, la source
+    // deplacee et l'echelle divisee par cinq cent mille. On ajoute donc, on ne
+    // melange pas — de jour les deux termes coexistent et le second est
+    // negligeable, de nuit le premier s'eteint dans l'ombre de la Terre.
+    //
+    // La table porte la geometrie, le facteur porte la photometrie : la phase et
+    // la distance de la Lune vivent entierement dans \`uMoonSkyScale\`.
+    vec3 moonlit = uMoonSkyScale > 0.0
+      ? sampleSkyView(uMoonSky, uMoonSkySize, dir, normalize(uMoonDir))
+        * uMoonSkyScale * uAerialExposure * horizonFade
+      : vec3(0.0);
 
-    return radianceFromDisplay(painted) + scattered + airglow;
+    // --- Ce qui reste peint -------------------------------------------------
+    //
+    // ⚠️ Le halo urbain, et lui seul desormais. C'est une **emission** renvoyee
+    // par l'atmosphere, que decrit le modele de Garstang (1989) ; tant qu'il
+    // n'est pas implemente, cette couleur d'interface en tient lieu. Voir le
+    // registre.
+    float lowSky = pow(1.0 - clamp(h, 0.0, 1.0), 2.0);
+    vec3 painted = uPollution * (0.3 + 0.7 * lowSky);
+
+    return radianceFromDisplay(painted) + scattered + airglow + moonlit;
   }
 `
 
@@ -130,10 +153,6 @@ export interface SkyRadianceState {
   airglowRadiusRatio: number
   /** Direction de la Lune dans le repere de la scene. */
   moonDirection: readonly [number, number, number]
-  /** Amplitude de la lueur lunaire peinte. */
-  moonFactor: number
-  /** Teinte de la lueur lunaire peinte. */
-  moonGlow: string
   /** Teinte du halo urbain peint, deja multipliee par son gain. */
   pollution: Color
 }
@@ -145,8 +164,9 @@ export const skyRadianceUniforms = () => ({
   uAirglowZenith: { value: new Vector3() },
   uAirglowRadiusRatio: { value: 1 },
   uMoonDir: { value: new Vector3(0, -1, 0) },
-  uMoonFactor: { value: 0 },
-  uMoonGlow: { value: new Color('#7d8fc4') },
+  uMoonSky: { value: null as DataTexture | null },
+  uMoonSkySize: { value: new Vector2(1, 1) },
+  uMoonSkyScale: { value: 0 },
   uPollution: { value: new Color('#000000') },
 })
 
@@ -169,8 +189,12 @@ export function applySkyRadianceUniforms(
   )
   uniforms.uAirglowRadiusRatio.value = state.airglowRadiusRatio
   uniforms.uMoonDir.value.set(state.moonDirection[0], state.moonDirection[1], state.moonDirection[2])
-  uniforms.uMoonFactor.value = state.moonFactor
-  uniforms.uMoonGlow.value.set(state.moonGlow)
+  // La table lunaire est publiee par `useAerialLut`, comme les autres : elle ne
+  // transite pas par l'etat partage, qui ne porte que ce que le fond de ciel
+  // est seul a connaitre.
+  uniforms.uMoonSky.value = moonSkyTextures.texture
+  uniforms.uMoonSkySize.value.copy(moonSkyTextures.size)
+  uniforms.uMoonSkyScale.value = moonSkyTextures.texture ? moonSkyTextures.scale : 0
   uniforms.uPollution.value.copy(state.pollution)
 }
 
@@ -186,7 +210,5 @@ export const skyRadianceState: SkyRadianceState = {
   airglowZenith: [0, 0, 0],
   airglowRadiusRatio: 1,
   moonDirection: [0, -1, 0],
-  moonFactor: 0,
-  moonGlow: '#7d8fc4',
   pollution: new Color('#000000'),
 }

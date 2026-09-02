@@ -573,9 +573,8 @@ export function SkyCanvas() {
           sunAzimuth={sky.sunAzimuth}
           moonAltitude={layers.atmosphere ? sky.moonAltitude : -90}
           moonAzimuth={moon?.horizontal.azimuth ?? 0}
-          lunarLux={layers.atmosphere ? sky.lunarLux : 0}
+          moonIrradianceRatio={layers.atmosphere ? sky.moonIrradianceRatio : 0}
           nightColor={colors.skyZenith}
-          moonGlowColor={colors.moonGlow}
           pollutionGain={pollutionGain}
           pollutionColor={LIGHT_POLLUTION_TINT ?? NEUTRAL_GLOW}
         />

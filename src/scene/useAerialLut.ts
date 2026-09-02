@@ -42,9 +42,18 @@
  * le format sur** — a prevoir avant tout deploiement iOS.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { ClampToEdgeWrapping, DataTexture, FloatType, LinearFilter, RGBAFormat, Vector3 } from 'three'
+import {
+  ClampToEdgeWrapping,
+  DataTexture,
+  FloatType,
+  LinearFilter,
+  RGBAFormat,
+  Vector2,
+  Vector3,
+} from 'three'
 import { useFrame } from '@react-three/fiber'
 import { createColumnLut, fillColumnLutRows, type ColumnLut } from '@/atmosphere/lut/transmittanceLut'
+import { fillSkyViewRows } from '@/atmosphere/lut/skyViewLut'
 import {
   CONTINENTAL_AEROSOL,
   aerosolOptics,
@@ -248,6 +257,96 @@ export interface AerialTextures {
  * douzaine de composants qui n'en ont que faire. L'objet est stable, seules ses
  * references changent.
  */
+/** Largeur de la table de ciel lunaire — azimut relatif a la Lune. */
+export const MOON_SKY_WIDTH = 64
+/** Hauteur de la table de ciel lunaire — hauteur de visee, en racine. */
+export const MOON_SKY_HEIGHT = 32
+/** Lignes construites par image. La table est la derniere servie. */
+const MOON_ROWS_PER_FRAME = 2
+
+/**
+ * Le ciel eclaire par la Lune — **calcule, et non peint**.
+ *
+ * ## Pourquoi une seconde table, et pourquoi elle est presque gratuite
+ *
+ * La diffusion est **lineaire en l'eclairement de la source**. Le ciel de clair
+ * de lune est donc, terme a terme, le ciel de jour avec le Soleil place ou est
+ * la Lune, multiplie par `moonToSunIrradianceRatio` — deux millioniemes a la
+ * pleine Lune. Rien de nouveau n'est modelise : c'est le meme solveur, la meme
+ * diffusion multiple, la meme colonne de transmittance.
+ *
+ * Elle est **bidimensionnelle** — direction de visee seule — la ou la table de
+ * perspective atmospherique porte en plus la distance. Soixante-quatre par
+ * trente-deux contre trente-deux tranches de la meme surface : elle coute donc
+ * un trentieme, et se construit deux lignes par image apres tout le reste.
+ *
+ * ## ⚠️ Ce qu'elle remplace
+ *
+ * Un halo peint : `uMoonGlow × uMoonFactor × (0,25 + 0,75·cos⁶)`. Une couleur
+ * d'interface et un cosinus a la puissance six, qui portaient **3 a 25 %** de la
+ * luminance du ciel une heure et demie apres le coucher au Ventoux. Il ne
+ * connaissait ni l'extinction, ni la diffusion de Mie vers l'avant, ni le fait
+ * que le ciel bleuit loin de la source.
+ */
+export const moonSkyTextures = {
+  texture: null as DataTexture | null,
+  size: new Vector2(MOON_SKY_WIDTH, MOON_SKY_HEIGHT),
+  /**
+   * Rapport d'eclairement lunaire sur solaire, zero quand la Lune est couchee.
+   *
+   * Il porte **toute** la dependance a la phase et a la distance : la table,
+   * elle, ne connait que la geometrie.
+   */
+  scale: 0,
+  /**
+   * Luminance moyenne de la table **non mise a l'echelle**, cd/m².
+   *
+   * ⚠️ Elle existe pour que l'exposition voie la Lune. Sans elle, l'adaptation
+   * ne lisait que le ciel solaire — nul la nuit — et l'oeil restait regle sur
+   * une nuit sans Lune : le clair de lune saturait alors le ciel en gris et
+   * **effacait toutes les etoiles**, ce qu'aucune pleine Lune ne fait.
+   */
+  meanLuminanceCdPerM2: 0,
+}
+
+/**
+ * Luminance moyenne d'une table de ciel, ponderee par l'angle solide.
+ *
+ * Meme grandeur que `measureMeanSkyLuminance`, sur l'autre parametrisation :
+ * ici `v = sqrt(hauteur/90)`, donc `dhauteur/dv ∝ v`, et le poids vaut
+ * `cos(hauteur)·v`. Le `cos` n'est pas un detail — l'omettre surpondere le
+ * zenith, ou le parametrage s'etire.
+ */
+function measureMoonSkyLuminance(data: Float32Array): number {
+  let total = 0
+  let weightTotal = 0
+  for (let y = 0; y < MOON_SKY_HEIGHT; y++) {
+    const v = MOON_SKY_HEIGHT > 1 ? y / (MOON_SKY_HEIGHT - 1) : 0
+    const altitudeRad = ((90 * v * v) * Math.PI) / 180
+    const weight = Math.cos(altitudeRad) * v
+    for (let x = 0; x < MOON_SKY_WIDTH; x++) {
+      const i = (y * MOON_SKY_WIDTH + x) * 4
+      const y709 = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+      total += Math.max(0, y709) * weight
+      weightTotal += weight
+    }
+  }
+  // La ligne Y de la matrice sRGB : la luminance vaut `683 × Y`.
+  return weightTotal > 0 ? (683 * total) / weightTotal : 0
+}
+
+/**
+ * Luminance a laquelle l'oeil s'adapte, cd/m² — **la somme des deux ciels**.
+ *
+ * Une seule expression, pour la meme raison que la radiance du ciel n'en a
+ * qu'une : deux exposants calcules a deux endroits finissent par diverger. Ici,
+ * l'ecart s'etait manifeste d'un coup — la Lune n'entrant pas dans le calcul,
+ * son ciel arrivait dans un oeil regle sur le noir.
+ */
+export const adaptationSkyLuminance = (): number =>
+  aerialTextures.meanSkyLuminanceCdPerM2 +
+  moonSkyTextures.meanLuminanceCdPerM2 * moonSkyTextures.scale
+
 export const aerialTextures: AerialTextures = {
   scattered: null,
   ambient: null,
@@ -313,7 +412,9 @@ export function applyAerialUniforms(
   // solaire et les avions s'adaptent ensemble. Les laisser calculer chacun la
   // leur les ferait deriver.
   const dimming = exposure / SKY_DISPLAY_EXPOSURE
-  uniforms.uAerialExposure.value = adaptiveSkyExposure(aerialTextures.meanSkyLuminanceCdPerM2) * dimming
+  // ⚠️ **Les deux ciels, pas seulement le solaire.** L'adaptation doit se faire
+  // sur ce que l'oeil recoit reellement ; la nuit, c'est la Lune qui le remplit.
+  uniforms.uAerialExposure.value = adaptiveSkyExposure(adaptationSkyLuminance()) * dimming
   uniforms.uAerialObserverRadius.value = aerialTextures.observerRadiusM
 }
 
@@ -348,6 +449,20 @@ export function useAerialLut(
    * `absorption/ozoneClimatology.ts`.
    */
   ozoneColumnDobsonUnits = 300,
+  /**
+   * Ce que la Lune apporte au ciel.
+   *
+   * ⚠️ **Un objet, et non deux nombres de plus.** La signature en portait deja
+   * cinq a la suite, tous `number` : inserer deux parametres au milieu a laisse
+   * `sunDistanceAu` et la colonne d'ozone glisser dans leurs places sans que le
+   * compilateur ne bronche. Un type distinct rend la faute impossible.
+   */
+  moon: {
+    /** Hauteur de la Lune, degres. Negative, son ciel ne se calcule pas. */
+    readonly altitudeDeg: number
+    /** Rapport d'eclairement lunaire sur solaire — voir `moonToSunIrradianceRatio`. */
+    readonly irradianceRatio: number
+  } = { altitudeDeg: -90, irradianceRatio: 0 },
 ): AerialTextures {
   const rows = AERIAL_LUT_HEIGHT * AERIAL_LUT_DEPTH
 
@@ -375,6 +490,29 @@ export function useAerialLut(
 
   /** Tampon de construction : les textures ne recoivent qu'une table complete. */
   const pending = useMemo<AerialLut>(() => createAerialLut(), [])
+
+  // --- La table de ciel lunaire ------------------------------------------
+  const moonData = useMemo(() => new Float32Array(MOON_SKY_WIDTH * MOON_SKY_HEIGHT * 4), [])
+  const moonPending = useMemo(() => new Float32Array(MOON_SKY_WIDTH * MOON_SKY_HEIGHT * 4), [])
+  const moonSky = useMemo(() => {
+    const texture = new DataTexture(moonData, MOON_SKY_WIDTH, MOON_SKY_HEIGHT, RGBAFormat, FloatType)
+    texture.minFilter = LinearFilter
+    texture.magFilter = LinearFilter
+    texture.wrapS = ClampToEdgeWrapping
+    texture.wrapT = ClampToEdgeWrapping
+    texture.generateMipmaps = false
+    texture.needsUpdate = true
+    return texture
+  }, [moonData])
+  const moonState = useRef({
+    altitude: Number.NaN,
+    elevation: Number.NaN,
+    turbidity: Number.NaN,
+    /** Ligne suivante a construire, ou −1 si aucune construction n'est en cours. */
+    row: -1,
+    pendingAltitude: 0,
+  })
+  useEffect(() => () => moonSky.dispose(), [moonSky])
 
   const state = useRef({
     altitude: Number.NaN,
@@ -560,6 +698,65 @@ export function useAerialLut(
     current.pendingDistanceAu = sunDistanceAu
     current.pendingOzoneDu = ozoneColumnDobsonUnits
     current.pendingRow = 0
+  })
+
+  /**
+   * Le ciel lunaire, servi **en dernier**.
+   *
+   * Sa propre boucle plutot qu'une branche de la precedente : celle-ci sort tot
+   * dans le cas courant — Soleil immobile, rien a refaire — et la table lunaire
+   * n'y serait jamais atteinte. Les priorites restent celles-ci : la colonne,
+   * puis la diffusion multiple, puis le ciel solaire, puis la Lune.
+   */
+  useFrame(() => {
+    const m = moonState.current
+
+    // Lune couchee, atmosphere coupee, ou colonne pas encore prete : rien a
+    // ajouter. Le facteur tombe a zero et le nuanceur n'echantillonne plus.
+    if (!enabled || moon.altitudeDeg <= 0 || moon.irradianceRatio <= 0 || !columnLutReady()) {
+      moonSkyTextures.scale = 0
+      m.altitude = Number.NaN
+      m.row = -1
+      return
+    }
+
+    // Le facteur suit la phase **sans attendre** la table : il ne depend que de
+    // la photometrie, quand la table ne porte que la geometrie.
+    moonSkyTextures.scale = moon.irradianceRatio
+
+    if (m.row >= 0) {
+      const to = Math.min(MOON_SKY_HEIGHT, m.row + MOON_ROWS_PER_FRAME)
+      fillSkyViewRows(moonPending, GRID, m.pendingAltitude, MOON_SKY_WIDTH, MOON_SKY_HEIGHT, m.row, to, {
+        observerElevationM,
+        ozoneColumnDobsonUnits,
+        columnLut: sharedColumnLut(),
+        aerosols: sharedAerosolOptics(aerosolTurbidity),
+        multipleScattering: multipleScattering ?? undefined,
+      })
+      m.row = to
+      if (to >= MOON_SKY_HEIGHT) {
+        // Publiee entiere, comme les autres : pendant la construction, c'est la
+        // precedente qui reste affichee.
+        moonData.set(moonPending)
+        moonSky.needsUpdate = true
+        moonSkyTextures.texture = moonSky
+        // Relevee **au moment de la publication**, sur la table complete : elle
+        // decrit donc exactement le ciel qui va s'afficher.
+        moonSkyTextures.meanLuminanceCdPerM2 = measureMoonSkyLuminance(moonData)
+        m.altitude = m.pendingAltitude
+        m.elevation = observerElevationM
+        m.turbidity = aerosolTurbidity
+        m.row = -1
+      }
+      return
+    }
+
+    const moved = Math.abs(moon.altitudeDeg - m.altitude)
+    const same = observerElevationM === m.elevation && aerosolTurbidity === m.turbidity
+    if (same && moved < SUN_MOVEMENT_THRESHOLD_DEG) return
+
+    m.pendingAltitude = moon.altitudeDeg
+    m.row = 0
   })
 
   return aerialTextures
