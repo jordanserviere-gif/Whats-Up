@@ -36,8 +36,15 @@ const DEG = Math.PI / 180
 /** Secteurs d'azimut du maillage. */
 export const AZIMUTH_STEPS = 512
 
-/** Anneaux de distance, espaces en logarithme. */
-export const RANGE_STEPS = 208
+/**
+ * Anneaux de distance alloues, espaces en logarithme.
+ *
+ * ⚠️ C'est un **plafond**, pas un nombre d'anneaux dessines : `rangeStepsFor`
+ * decide combien on en utilise, et le reste de l'allocation dort. Les tampons
+ * etant recycles d'une reconstruction a l'autre, ce plafond ne coute que de la
+ * memoire — huit megaoctets — jamais du temps.
+ */
+export const RANGE_STEPS = 416
 
 /**
  * Distance du premier anneau, metres.
@@ -78,6 +85,58 @@ export const NEAR_M = 0.5
  * a-coup a chaque mouvement de camera.
  */
 export const MESH_VERTEX_BUDGET = AZIMUTH_STEPS * RANGE_STEPS
+
+/**
+ * Pente caracteristique d'un relief de montagne.
+ *
+ * ⚠️ **Valeur posee, et c'est la seule du module.** Elle sert a convertir un
+ * saut de distance en erreur angulaire : deux anneaux distants de `Δd` peuvent
+ * sauter une crete plus haute qu'eux deux, et la hauteur manquee vaut environ
+ * `pente × Δd`.
+ *
+ * Un cinquieme correspond a une pente de onze degres, ordre de grandeur d'un
+ * versant de moyenne montagne. Une mesure de rugosite par region, calculee avec
+ * la pyramide, la remplacerait avantageusement — c'est ce que fait une erreur
+ * geometrique au sens strict. Voir le registre.
+ */
+export const CHARACTERISTIC_SLOPE = 0.2
+
+/**
+ * Nombre d'anneaux a dessiner pour cette vue.
+ *
+ * ## L'erreur de l'axe des distances n'est pas geometrique, elle est topographique
+ *
+ * Ce qui fait l'erreur en profondeur n'est pas l'ecart de hauteur apparente
+ * entre deux anneaux sur un sol plat — il est minuscule a l'horizon, ou la
+ * hauteur apparente est stationnaire. C'est le relief que deux anneaux
+ * **sautent** : une crete situee entre eux est purement absente de l'image.
+ *
+ * La hauteur manquee vaut `pente × Δd`, vue sous `pente × Δd/d`. Cette erreur
+ * ne depend donc que du **rapport** `Δd/d`, et un espacement logarithmique la
+ * rend constante sur toute la portee.
+ *
+ * ⚠️ **C'est pourquoi la loi des anneaux n'est pas a reparametrer.** Elle est
+ * deja optimale au sens du critere ; equirepartir les anneaux en hauteur
+ * apparente, comme envisage un temps, aurait donne 0,345° de pas partout contre
+ * 0,0028° aujourd'hui a l'horizon — cent fois pire exactement la ou l'oeil
+ * regarde. Le seul levier est leur **nombre**.
+ *
+ * En egalant l'erreur a la cible, `pente·(raison−1) = cible`, il vient
+ *
+ *     anneaux = 1 + ln(portee/proche) / ln(1 + cible/pente)
+ *
+ * A fort grossissement la cible est minuscule et le compte sature au plafond ;
+ * a cent dix degres de champ elle vaut deux degres et quatre-vingt-huit anneaux
+ * suffisent. C'est ce qui evite de televerser un maillage double la ou il
+ * n'apporte rien — l'envoi au GPU rendait alors une image a 127 ms.
+ */
+export function rangeStepsFor(view: MeshView, farRangeM: number): number {
+  const targetRad = ((MAX_SCREEN_ERROR_PX * view.fovDeg) / view.heightPx) * DEG
+  const ratio = 1 + targetRad / CHARACTERISTIC_SLOPE
+  const needed = 1 + Math.log(farRangeM / NEAR_M) / Math.log(ratio)
+  // Deux anneaux au minimum : un maillage a un seul anneau n'a aucune facette.
+  return Math.max(2, Math.min(RANGE_STEPS, Math.ceil(needed)))
+}
 
 /**
  * Raison geometrique entre deux anneaux consecutifs.

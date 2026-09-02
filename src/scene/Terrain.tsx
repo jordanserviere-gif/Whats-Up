@@ -107,7 +107,14 @@ import {
   terrainRevision,
 } from './terrain/elevationField'
 import { CLIPMAP_HALF_SPANS_M } from './terrain/elevationClipmap'
-import { AZIMUTH_STEPS, NEAR_M, RANGE_STEPS, meshAzimuthDeg, type MeshView } from './terrain/meshSampling'
+import {
+  AZIMUTH_STEPS,
+  NEAR_M,
+  RANGE_STEPS,
+  meshAzimuthDeg,
+  rangeStepsFor,
+  type MeshView,
+} from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
@@ -310,6 +317,14 @@ interface MeshBuild {
   readonly effectiveRadiusM: number
   readonly logNear: number
   readonly logSpan: number
+  /**
+   * Anneaux reellement dessines, au plus `RANGE_STEPS`.
+   *
+   * Le reste de l'allocation dort : c'est `setDrawRange` qui borne le rendu, et
+   * l'index etant construit ligne par ligne, ses `(anneaux−1)·N·6` premieres
+   * entrees decrivent exactement les `anneaux` premiers.
+   */
+  readonly rings: number
   /** Anneaux dont les positions sont posees. */
   placed: number
   /** Anneaux dont les normales sont calculees. */
@@ -331,13 +346,15 @@ function createBuild(key: string, observerElevationM: number, view: MeshView): M
     buffers.cosAz[a] = Math.cos(azimuth)
   }
   const logNear = Math.log(NEAR_M)
+  const reachM = farRangeM(observerElevationM, effectiveRadiusM)
   return {
     key,
     buffers,
     observerElevationM,
     effectiveRadiusM,
     logNear,
-    logSpan: Math.log(farRangeM(observerElevationM, effectiveRadiusM)) - logNear,
+    logSpan: Math.log(reachM) - logNear,
+    rings: rangeStepsFor(view, reachM),
     placed: 0,
     shaded: 0,
   }
@@ -349,9 +366,9 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
   let budget = rings
 
   // --- Les positions ------------------------------------------------------
-  while (build.placed < RANGE_STEPS && budget > 0) {
+  while (build.placed < build.rings && budget > 0) {
     const r = build.placed
-    const distanceM = Math.exp(build.logNear + (build.logSpan * r) / (RANGE_STEPS - 1))
+    const distanceM = Math.exp(build.logNear + (build.logSpan * r) / (build.rings - 1))
     const depth = terrainDepth(distanceM)
     for (let a = 0; a < AZIMUTH_STEPS; a++) {
       // +X vers l'est, −Z vers le nord : la convention de la scene.
@@ -380,7 +397,7 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
     build.placed++
     budget--
   }
-  if (build.placed < RANGE_STEPS) return false
+  if (build.placed < build.rings) return false
 
   // --- Les normales, prises sur le maillage lui-meme ----------------------
   //
@@ -402,14 +419,14 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
   // fausses la ou la densite change. Ici les tangentes sont prises entre les
   // sommets reels, donc la non-uniformite est portee par les donnees elles-memes.
   const { normals } = build.buffers
-  while (build.shaded < RANGE_STEPS && budget > 0) {
+  while (build.shaded < build.rings && budget > 0) {
     const r = build.shaded
     for (let a = 0; a < AZIMUTH_STEPS; a++) {
       const i = r * AZIMUTH_STEPS + a
       const prevA = r * AZIMUTH_STEPS + ((a + AZIMUTH_STEPS - 1) % AZIMUTH_STEPS)
       const nextA = r * AZIMUTH_STEPS + ((a + 1) % AZIMUTH_STEPS)
       const prevR = Math.max(0, r - 1) * AZIMUTH_STEPS + a
-      const nextR = Math.min(RANGE_STEPS - 1, r + 1) * AZIMUTH_STEPS + a
+      const nextR = Math.min(build.rings - 1, r + 1) * AZIMUTH_STEPS + a
 
       const ax = local[nextA * 3] - local[prevA * 3]
       const ay = local[nextA * 3 + 1] - local[prevA * 3 + 1]
@@ -438,20 +455,33 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
     build.shaded++
     budget--
   }
-  return build.shaded >= RANGE_STEPS
+  return build.shaded >= build.rings
 }
 
 /** Rend la geometrie d'une construction achevee. */
 function sealBuild(build: MeshBuild): BufferGeometry {
   const geometry = new BufferGeometry()
   const { positions, normals, ranges, altitudes } = build.buffers
-  geometry.setAttribute('position', new BufferAttribute(positions, 3))
-  geometry.setAttribute('normal', new BufferAttribute(normals, 3))
-  geometry.setAttribute('range', new BufferAttribute(ranges, 1))
-  geometry.setAttribute('altitude', new BufferAttribute(altitudes, 1))
+  // ⚠️ **Des vues, et non les tampons entiers.** `setDrawRange` borne le
+  // dessin, pas le televersement : three envoie au GPU tout ce que porte
+  // l'attribut. A cent dix degres de champ, ou quatre-vingt-neuf anneaux
+  // suffisent, on expediait quand meme les quatre cent seize — douze
+  // megaoctets par reconstruction, et une image a 120 ms.
+  //
+  // Une `subarray` ne copie rien : elle expose la portion utile du meme
+  // tampon recycle.
+  const used = build.rings * AZIMUTH_STEPS
+  geometry.setAttribute('position', new BufferAttribute(positions.subarray(0, used * 3), 3))
+  geometry.setAttribute('normal', new BufferAttribute(normals.subarray(0, used * 3), 3))
+  geometry.setAttribute('range', new BufferAttribute(ranges.subarray(0, used), 1))
+  geometry.setAttribute('altitude', new BufferAttribute(altitudes.subarray(0, used), 1))
   // Deux triangles par cellule ; l'azimut boucle, la distance non. Le tampon est
   // partage entre tous les maillages : il ne depend pas de la visee.
   geometry.setIndex(meshIndex())
+  // Seuls les anneaux reellement poses sont dessines. L'index couvre le
+  // plafond ; ses premieres entrees decrivent les premiers anneaux, dans
+  // l'ordre, donc une simple borne suffit.
+  geometry.setDrawRange(0, (build.rings - 1) * AZIMUTH_STEPS * 6)
   return geometry
 }
 

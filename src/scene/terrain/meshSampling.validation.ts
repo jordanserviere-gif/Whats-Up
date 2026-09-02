@@ -43,6 +43,9 @@ import {
   MAX_SCREEN_ERROR_PX,
   MESH_VERTEX_BUDGET,
   RANGE_STEPS,
+  CHARACTERISTIC_SLOPE,
+  rangeStepsFor,
+  ringRatio,
   azimuthConcentration,
   azimuthHalfSpanDeg,
   dataPitchDeg,
@@ -303,13 +306,67 @@ export function meshSamplingSuite(): SuiteResult {
 
       // --- Le budget de sommets ------------------------------------------
       //
-      // Il garde la solution autant que le probleme : resserrer l'azimut en
-      // multipliant les colonnes rendrait la reconstruction plus longue que
-      // plusieurs images. Le budget est **redistribue**, pas augmente.
-      t.check('le budget de sommets ne bouge pas', MESH_VERTEX_BUDGET, 106_496, 0, ' sommets')
+      // ⚠️ **Le plafond a double, deliberement, et la mesure le justifie.** A
+      // deux cent huit anneaux, les silhouettes de crete montraient un escalier
+      // regulier une fois l'azimut assaini ; a quatre cent seize, il disparait.
+      //
+      // Ce que ce plafond coute est de la **memoire** — deux jeux de tampons
+      // recycles, huit megaoctets — et non du temps : le nombre d'anneaux
+      // reellement poses, lui, suit l'ecran.
+      t.check(
+        'le plafond d allocation vaut deux jeux de 416 anneaux',
+        MESH_VERTEX_BUDGET,
+        212_992,
+        0,
+        ' sommets',
+      )
+
+      // --- Le nombre d anneaux suit l ecran, comme l azimut ------------------
+      //
+      // C'est ce qui a supprime le dernier a-coup : a cent dix degres de champ,
+      // televerser un maillage double ne changeait rien a l'image et rendait une
+      // image a 127 ms. Le critere dit lui-meme qu'il n'y en a pas besoin.
+      const ringCounts = [0.02, 0.5, 2, 9, 20, 60, 110].map((fov) => ({
+        fov,
+        rings: rangeStepsFor(view(fov), FAR_RANGE_M),
+      }))
+      t.checkMonotonic(
+        'le nombre d anneaux decroit quand le champ s elargit',
+        ringCounts.map((r) => r.rings),
+        'decroissant',
+      )
+      t.checkTrue(
+        'le maillage sature au plafond a fort grossissement et s allege a champ large',
+        ringCounts[0].rings === RANGE_STEPS && ringCounts[ringCounts.length - 1].rings < RANGE_STEPS / 3,
+        ringCounts.map((r) => `champ ${String(r.fov).padStart(5)}deg : ${r.rings} anneaux`).join(' ; '),
+      )
+
+      // L'erreur que deux anneaux consecutifs laissent passer — la crete qu'ils
+      // sautent — doit rester sous la cible ecran, tant que le plafond n'est pas
+      // atteint. Au-dela, on mesure de combien il manque.
+      const missed = ringCounts.map((r) => {
+        const errorDeg = (CHARACTERISTIC_SLOPE * (ringRatio(FAR_RANGE_M, r.rings) - 1)) / (Math.PI / 180)
+        return { ...r, px: (errorDeg * 900) / r.fov }
+      })
+      const met = missed.filter((m) => m.rings < RANGE_STEPS)
+      t.checkTrue(
+        'la crete sautee entre deux anneaux reste sous la cible, hors saturation',
+        met.every((m) => m.px <= MAX_SCREEN_ERROR_PX * 1.05),
+        missed
+          .map((m) => `champ ${String(m.fov).padStart(5)}deg : ${m.px.toFixed(1)} px${m.rings === RANGE_STEPS ? ' (sature)' : ''}`)
+          .join(' ; '),
+      )
       t.note(
-        `${AZIMUTH_STEPS} azimuts x ${RANGE_STEPS} anneaux — reconstruction mesuree a 18 ms, ` +
-          'etalee a 24 anneaux par image',
+        'a fort grossissement le plafond est atteint et la cible ne l est pas : ' +
+          missed
+            .filter((m) => m.rings === RANGE_STEPS)
+            .map((m) => `champ ${m.fov}deg -> ${m.px.toFixed(0)} px au lieu de ${MAX_SCREEN_ERROR_PX}`)
+            .join(', ') +
+          ' — c est la dette de l axe des distances, un facteur qui ne se rattrape pas a budget raisonnable',
+      )
+      t.note(
+        `${AZIMUTH_STEPS} azimuts x ${RANGE_STEPS} anneaux au plafond — reconstruction etalee ` +
+          'a 24 anneaux par image, tampons recycles entre deux jeux',
       )
 
       // --- Ce que les anneaux font bien, et qu'il ne faut pas casser -------
@@ -319,7 +376,8 @@ export function meshSamplingSuite(): SuiteResult {
       // s'y resserrent donc d'eux-memes en angle — la ou l'oeil regarde. Ce
       // n'est pas un reglage, c'est une consequence de la geometrie, et c'est
       // la meilleure propriete du maillage actuel.
-      const atHorizon = meshRangePitchDeg(horizonM, OBSERVER_M, radiusM, FAR_RANGE_M)
+      const ringsAtZoom = rangeStepsFor(view(2), FAR_RANGE_M)
+      const atHorizon = meshRangePitchDeg(horizonM, OBSERVER_M, radiusM, FAR_RANGE_M, ringsAtZoom)
       const dataAtHorizon = dataPitchDeg(horizonM)
       t.checkTrue(
         'les anneaux se resserrent a l horizon, ou la hauteur apparente est stationnaire',
@@ -334,7 +392,7 @@ export function meshSamplingSuite(): SuiteResult {
       let worstRangeNearAtM = 0
       for (const d of LADDER_M) {
         if (d > CLIPMAP_HALF_SPANS_M[0]) continue
-        const r = meshRangePitchDeg(d, OBSERVER_M, radiusM, FAR_RANGE_M) / dataPitchDeg(d)
+        const r = meshRangePitchDeg(d, OBSERVER_M, radiusM, FAR_RANGE_M, ringsAtZoom) / dataPitchDeg(d)
         if (r > worstRangeNear) {
           worstRangeNear = r
           worstRangeNearAtM = d

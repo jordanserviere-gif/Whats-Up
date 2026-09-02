@@ -2479,6 +2479,92 @@ autre representation le feraient.
 
 ---
 
+## Le nombre d'anneaux suit l'ecran, comme l'azimut
+
+Phase 3. L'axe des distances passe sous le meme critere que l'azimut — non pas
+en reparametrant la loi, ce qui aurait ete faux, mais en choisissant **combien**
+d'anneaux dessiner.
+
+### Ce que la mesure a tranche
+
+Quatre cent seize anneaux au lieu de deux cent huit : a deux degres de champ,
+l'escalier qui restait sur les silhouettes de crete disparait, et les versants
+deviennent des surfaces continues. Le plafond d'allocation double donc,
+**deliberement** — le controle qui l'interdisait a ete mis a jour avec la mesure
+qui le justifie, pas contourne.
+
+Ce plafond coute de la **memoire** — deux jeux de tampons recycles, huit
+megaoctets — et non du temps.
+
+### Le compte, lui, se deduit
+
+L'erreur de l'axe des distances n'est pas geometrique mais **topographique** :
+ce qui manque a l'image, c'est la crete que deux anneaux sautent. La hauteur
+manquee vaut `pente × Δd`, vue sous `pente × Δd/d` — d'ou
+
+    anneaux = 1 + ln(portee/proche) / ln(1 + cible/pente)
+
+| champ | anneaux |
+| --- | --- |
+| 0,02° a 20° | 416 (plafond) |
+| 60° | 156 |
+| 110° | 89 |
+
+⚠️ `CHARACTERISTIC_SLOPE = 0,2` est **la seule valeur posee** du module. Une
+mesure de rugosite par region, calculee avec la pyramide, la remplacerait — c'est
+ce que fait une erreur geometrique au sens strict. Au registre.
+
+### ⚠️ `setDrawRange` borne le dessin, pas le televersement
+
+A cent dix degres de champ, quatre-vingt-neuf anneaux suffisent — mais three
+expediait au GPU tout ce que portait l'attribut, soit les quatre cent seize.
+Douze megaoctets par reconstruction. Les attributs sont desormais construits sur
+des `subarray`, qui n'exposent que la portion utile du meme tampon recycle sans
+rien copier.
+
+### Le transitoire qui reste, et que je n'explique pas
+
+Vingt-quatre secondes de panoramique continu a cent dix degres de champ,
+**1435 images** : une seule au-dessus de cinquante millisecondes, a 132 ms,
+survenue a deux secondes puis jamais reproduite.
+
+Isole par elimination — il ne survient qu'a champ large, **en panoramique**, et
+**avec le terrain** :
+
+| condition | images > 60 ms |
+| --- | --- |
+| 110° panoramique, terrain | **1** sur 355 |
+| 110° panoramique, sans terrain | 0 |
+| 110° statique, terrain | 0 |
+| 20° panoramique, terrain | 0 |
+
+Trois hypotheses ont ete testees et **refutees** : la taille du maillage (le
+compte d'anneaux a ete divise par quatre sans effet), le volume televerse (les
+`subarray` ne l'ont pas supprime), la pression memoire (les tampons sont
+recycles). Ce qui reste plausible est un ramasse-miettes majeur sur les objets
+de trois lui-meme, non mesure. Non explique, non recurrent, consigne.
+
+### La dette de l'axe des distances, en pixels
+
+Le critere permet enfin de la chiffrer. Erreur laissee par la crete sautee entre
+deux anneaux, cible a seize pixels :
+
+| champ | erreur | anneaux |
+| --- | --- | --- |
+| 0,02° | 17 320 px | plafond |
+| 0,5° | 693 px | plafond |
+| 2° | 173 px | plafond |
+| 20° | 17 px | plafond |
+| 60° | 15,9 px | 156 |
+| 110° | 15,8 px | 89 |
+
+Au-dela de vingt degres de champ la cible est tenue ; en deca elle ne l'est pas,
+et **le facteur ne se rattrape pas** : tenir seize pixels a deux degres
+demanderait quatre mille anneaux. C'est la limite de la representation radiale,
+pas un reglage.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2531,3 +2617,4 @@ autre representation le feraient.
 | 2026-09-01 | Phase 0 du maillage de terrain — le défaut devient un nombre, deux contrôles échouent |
 | 2026-09-01 | Phase 1 — l'azimut suit la caméra : 38x plus fin à fort zoom, budget inchangé |
 | 2026-09-02 | Phase 2 — le maillage obéit à une erreur d'espace écran ; la réparametrisation des anneaux est réfutée |
+| 2026-09-02 | Phase 3 — le nombre d'anneaux suit l'écran ; l'escalier des crêtes disparaît à 2° |
