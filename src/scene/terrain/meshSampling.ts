@@ -311,6 +311,75 @@ export function meshAzimuthPitchDeg(
   return (360 / (azimuthSteps * s)) * (s * s * c * c + sn * sn)
 }
 
+/**
+ * Sondages maximum dans la tranche de profondeur d'un anneau.
+ *
+ * Huit : au-dela, le cout croit sans que la silhouette bouge, la donnee elle-
+ * meme finissant par limiter. Mesure a l'appui — voir le journal.
+ */
+export const SLAB_MAX_SAMPLES = 8
+
+/**
+ * Combien de fois sonder le relief dans la tranche d'un anneau.
+ *
+ * ## ⚠️ Pourquoi un anneau ne peut pas se contenter d'un point
+ *
+ * Un logiciel de panorama calcule la ligne d'horizon comme le **maximum** de
+ * hauteur apparente le long du rayon. Le maillage, lui, prenait **un
+ * echantillon** tous les anneaux. Ce ne sont pas deux qualites de la meme
+ * operation, ce sont deux operations differentes.
+ *
+ * Mesure depuis le pic Cassini vers le mont Blanc, a 286 km, ou les anneaux
+ * sont espaces de 9,7 km. Ligne d'horizon vraie : **−0,464°**, portee par le
+ * sommet a 4773 m. Ce que donnait l'echantillonnage, selon ou tombait la phase :
+ *
+ * | decalage | horizon obtenu | distance | ecart |
+ * | --- | --- | --- | --- |
+ * | 0 % | −0,710° | 177 km | −0,246° |
+ * | 20 % | −0,537° | 285 km | −0,073° |
+ * | 40 % | −0,689° | 287 km | −0,225° |
+ * | 60 % | −0,685° | 163 km | −0,221° |
+ * | 80 % | −0,665° | 165 km | −0,201° |
+ *
+ * **Trois fois sur cinq, ce n'etait meme pas la bonne montagne** — et laquelle
+ * dependait d'une phase qui bouge avec l'altitude de l'observateur. C'est ce
+ * qui faisait que « rien ne coincide » avec un panorama calcule.
+ *
+ * ## La regle
+ *
+ * Sonder assez finement pour ne pas sauter de cellule de la pyramide, plafonne.
+ * Pres de l'observateur la tranche est plus mince qu'une cellule et un point
+ * suffit ; a l'horizon elle en couvre vingt et l'on en prend huit.
+ */
+export function slabSamplesFor(nearM: number, farM: number): number {
+  const thicknessM = Math.max(0, farM - nearM)
+  const cellM = dataStepM(farM)
+  return Math.max(1, Math.min(SLAB_MAX_SAMPLES, Math.ceil(thicknessM / cellM)))
+}
+
+/**
+ * Bornes de la tranche de profondeur d'un anneau, metres.
+ *
+ * Les mi-distances **geometriques** avec les anneaux voisins, parce que les
+ * anneaux sont espaces en logarithme : la moyenne arithmetique laisserait des
+ * recouvrements pres de l'observateur et des trous au loin. Ainsi decoupees,
+ * les tranches partitionnent exactement la portee — et le maximum sur leur
+ * union est donc le maximum sur tout le rayon.
+ */
+export function ringSlabM(
+  distances: ArrayLike<number>,
+  index: number,
+  count: number,
+): { nearM: number; farM: number } {
+  const here = distances[index]
+  const before = index > 0 ? distances[index - 1] : here
+  const after = index + 1 < count ? distances[index + 1] : here
+  return {
+    nearM: index > 0 ? Math.sqrt(before * here) : here,
+    farM: index + 1 < count ? Math.sqrt(here * after) : here,
+  }
+}
+
 /** Taille apparente d'un pas angulaire, pixels — l'unite du critere. */
 export const screenErrorPx = (pitchDeg: number, view: MeshView): number =>
   (pitchDeg * view.heightPx) / view.fovDeg

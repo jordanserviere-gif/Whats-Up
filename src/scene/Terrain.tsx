@@ -111,8 +111,11 @@ import {
   AZIMUTH_STEPS,
   NEAR_M,
   RANGE_STEPS,
+  SLAB_MAX_SAMPLES,
   meshAzimuthDeg,
   rangeStepsFor,
+  ringSlabM,
+  slabSamplesFor,
   type MeshView,
 } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
@@ -161,6 +164,9 @@ const DEG = Math.PI / 180
  * que la marge fine de la loi d'azimut absorbe.
  */
 const RINGS_PER_FRAME = 24
+
+/** Distances de sondage d'une tranche, reutilisees d'un anneau a l'autre. */
+const slabDistances = new Float64Array(SLAB_MAX_SAMPLES)
 
 /** Vecteur de travail pour lire la direction de la camera, sans allouer par image. */
 const viewForward = new Vector3()
@@ -316,8 +322,8 @@ interface MeshBuild {
   readonly buffers: MeshBuffers
   readonly observerElevationM: number
   readonly effectiveRadiusM: number
-  readonly logNear: number
-  readonly logSpan: number
+  /** Distances des anneaux, metres — croissantes. */
+  readonly distances: Float64Array
   /**
    * Anneaux reellement dessines, au plus `RANGE_STEPS`.
    *
@@ -346,16 +352,26 @@ function createBuild(key: string, observerElevationM: number, view: MeshView): M
     buffers.sinAz[a] = Math.sin(azimuth)
     buffers.cosAz[a] = Math.cos(azimuth)
   }
-  const logNear = Math.log(NEAR_M)
   const reachM = farRangeM(observerElevationM, effectiveRadiusM)
+  const rings = rangeStepsFor(view, reachM)
+
+  // Les anneaux restent espaces en logarithme : cette loi est la bonne, elle
+  // rend l'erreur d'une crete sautee constante sur toute la portee. Ce qui
+  // change, c'est ce qu'on lit **dans** chaque tranche.
+  const logNear = Math.log(NEAR_M)
+  const logSpan = Math.log(reachM) - logNear
+  const distances = new Float64Array(rings)
+  for (let r = 0; r < rings; r++) {
+    distances[r] = Math.exp(logNear + (logSpan * r) / Math.max(1, rings - 1))
+  }
+
   return {
     key,
     buffers,
     observerElevationM,
     effectiveRadiusM,
-    logNear,
-    logSpan: Math.log(reachM) - logNear,
-    rings: rangeStepsFor(view, reachM),
+    distances,
+    rings,
     placed: 0,
     shaded: 0,
   }
@@ -369,30 +385,55 @@ function advanceBuild(build: MeshBuild, rings: number): boolean {
   // --- Les positions ------------------------------------------------------
   while (build.placed < build.rings && budget > 0) {
     const r = build.placed
-    const distanceM = Math.exp(build.logNear + (build.logSpan * r) / (build.rings - 1))
-    const depth = terrainDepth(distanceM)
+    // --- La tranche de profondeur de cet anneau -------------------------
+    //
+    // ⚠️ **Un anneau ne prend plus l'altitude a sa distance, mais le point le
+    // plus haut de sa tranche.** Les tranches partitionnant la portee, le
+    // maximum sur leur union est le maximum sur tout le rayon : c'est
+    // exactement la ligne d'horizon que calcule un logiciel de panorama.
+    //
+    // Avant, a 286 km ou les anneaux sont espaces de 9,7 km, la silhouette
+    // rendue tombait entre −0,54° et −0,71° selon la phase, pour une ligne
+    // d'horizon vraie a −0,464° — et trois fois sur cinq ce n'etait pas la
+    // bonne montagne.
+    const slab = ringSlabM(build.distances, r, build.rings)
+    const samples = slabSamplesFor(slab.nearM, slab.farM)
+    // Les distances de sondage ne dependent pas de l'azimut : on les pose une
+    // fois pour les cinq cent douze colonnes.
+    for (let k = 0; k < samples; k++) {
+      const t = samples > 1 ? k / (samples - 1) : 0.5
+      slabDistances[k] = slab.nearM * (slab.farM / slab.nearM) ** t
+    }
+
     for (let a = 0; a < AZIMUTH_STEPS; a++) {
       // +X vers l'est, −Z vers le nord : la convention de la scene.
-      const eastM = distanceM * sinAz[a]
-      const northM = distanceM * cosAz[a]
+      let bestElevation = -Infinity
+      let bestDistanceM = build.distances[r]
+      let bestAltitudeM = 0
+      for (let k = 0; k < samples; k++) {
+        const d = slabDistances[k]
+        const h = groundAltitudeM(d * sinAz[a], d * cosAz[a])
+        const el = apparentElevationRad(d, h, build.observerElevationM, build.effectiveRadiusM)
+        if (el > bestElevation) {
+          bestElevation = el
+          bestDistanceM = d
+          bestAltitudeM = h
+        }
+      }
 
-      const altitudeM = groundAltitudeM(eastM, northM)
-      const elevation = apparentElevationRad(
-        distanceM,
-        altitudeM,
-        build.observerElevationM,
-        build.effectiveRadiusM,
-      )
-      const cosEl = Math.cos(elevation)
+      const eastM = bestDistanceM * sinAz[a]
+      const northM = bestDistanceM * cosAz[a]
+      const depth = terrainDepth(bestDistanceM)
+      const cosEl = Math.cos(bestElevation)
 
       const i = r * AZIMUTH_STEPS + a
       positions[i * 3] = depth * cosEl * sinAz[a]
-      positions[i * 3 + 1] = depth * Math.sin(elevation)
+      positions[i * 3 + 1] = depth * Math.sin(bestElevation)
       positions[i * 3 + 2] = -depth * cosEl * cosAz[a]
-      ranges[i] = distanceM
-      altitudes[i] = altitudeM
+      ranges[i] = bestDistanceM
+      altitudes[i] = bestAltitudeM
       local[i * 3] = eastM
-      local[i * 3 + 1] = altitudeM
+      local[i * 3 + 1] = bestAltitudeM
       local[i * 3 + 2] = -northM
     }
     build.placed++

@@ -46,6 +46,10 @@ import {
   CHARACTERISTIC_SLOPE,
   rangeStepsFor,
   ringRatio,
+  ringSlabM,
+  slabSamplesFor,
+  SLAB_MAX_SAMPLES,
+  NEAR_M,
   azimuthConcentration,
   azimuthHalfSpanDeg,
   dataPitchDeg,
@@ -368,6 +372,94 @@ export function meshSamplingSuite(): SuiteResult {
         `${AZIMUTH_STEPS} azimuts x ${RANGE_STEPS} anneaux au plafond — reconstruction etalee ` +
           'a 24 anneaux par image, tampons recycles entre deux jeux',
       )
+
+      // --- La ligne d'horizon est un maximum, pas un echantillon -----------
+      //
+      // ⚠️ **C'est la difference entre notre silhouette et celle d'un logiciel
+      // de panorama.** Celui-ci prend le maximum de hauteur apparente le long
+      // du rayon ; le maillage prenait un point tous les anneaux. Mesure depuis
+      // le pic Cassini vers le mont Blanc, a 286 km ou les anneaux sont espaces
+      // de 9,7 km : la ligne vraie est a −0,464°, et l'echantillonnage rendait
+      // entre −0,54° et −0,71° selon la phase — trois fois sur cinq une autre
+      // montagne.
+      //
+      // La propriete qui rend le maximum exact est que les tranches
+      // **partitionnent** la portee : leur union est le rayon entier, et elles
+      // ne se recouvrent pas. Sans cela, un maximum par tranche ne serait pas
+      // le maximum du rayon.
+      {
+        const rings = 64
+        const farM = 450_000
+        const distances = new Float64Array(rings)
+        const logNear = Math.log(NEAR_M)
+        const logSpan = Math.log(farM) - logNear
+        for (let r = 0; r < rings; r++) {
+          distances[r] = Math.exp(logNear + (logSpan * r) / (rings - 1))
+        }
+
+        let worstJoin = 0
+        let worstCentre = 0
+        for (let r = 0; r < rings; r++) {
+          const slab = ringSlabM(distances, r, rings)
+          if (r + 1 < rings) {
+            const next = ringSlabM(distances, r + 1, rings)
+            worstJoin = Math.max(worstJoin, Math.abs(slab.farM - next.nearM) / slab.farM)
+          }
+          // La tranche est **geometriquement** centree sur son anneau : c'est ce
+          // qui fait qu'un sondage unique retombe exactement sur l'ancien
+          // comportement, et que la loi contient donc celle d'avant.
+          if (r > 0 && r + 1 < rings) {
+            const centre = Math.sqrt(slab.nearM * slab.farM)
+            worstCentre = Math.max(worstCentre, Math.abs(centre - distances[r]) / distances[r])
+          }
+        }
+        t.check('les tranches se touchent sans se recouvrir', worstJoin, 0, 1e-12)
+        t.check('chaque tranche est centree sur son anneau', worstCentre, 0, 1e-12)
+
+        // Combien de sondages : assez pour ne pas sauter de cellule de la
+        // pyramide, plafonne. Pres de l'observateur un seul suffit.
+        const proche = ringSlabM(distances, 8, rings)
+        const loin = ringSlabM(distances, rings - 2, rings)
+        t.check('un seul sondage pres de l observateur', slabSamplesFor(proche.nearM, proche.farM), 1, 0)
+        t.check('le plafond est atteint a l horizon', slabSamplesFor(loin.nearM, loin.farM), SLAB_MAX_SAMPLES, 0)
+
+        // ⚠️ **Le controle qui porte la correction.** Un sommet etroit place
+        // dans une tranche : un sondage unique le manque presque toujours, huit
+        // le retrouvent. On modelise le relief par une bosse et l'on compare la
+        // hauteur retrouvee a la vraie.
+        const slab = ringSlabM(distances, rings - 6, rings)
+        const peakM = slab.nearM * (slab.farM / slab.nearM) ** 0.63
+        const largeurM = (slab.farM - slab.nearM) * 0.08
+        const relief = (d: number) => 4800 * Math.exp(-(((d - peakM) / largeurM) ** 2))
+        const echantillonne = (n: number) => {
+          let best = -Infinity
+          for (let k = 0; k < n; k++) {
+            const u = n > 1 ? k / (n - 1) : 0.5
+            best = Math.max(best, relief(slab.nearM * (slab.farM / slab.nearM) ** u))
+          }
+          return best
+        }
+        const avec1 = echantillonne(1)
+        const avec8 = echantillonne(SLAB_MAX_SAMPLES)
+        t.checkTrue(
+          'un point unique manque un sommet etroit, le maximum en retrouve la moitie',
+          avec1 < 0.15 * 4800 && avec8 > 0.5 * 4800,
+          `sommet de 4800 m : un sondage en trouve ${avec1.toFixed(0)} m (${((avec1 / 4800) * 100).toFixed(0)} %), ` +
+            `${SLAB_MAX_SAMPLES} en trouvent ${avec8.toFixed(0)} m (${((avec8 / 4800) * 100).toFixed(0)} %)`,
+        )
+        // ⚠️ Huit sondages ne rendent pas cent pour cent : un sommet plus etroit
+        // que l'ecart entre deux sondages reste rabote. C'est le residu, et il
+        // se retrouve tel quel sur la silhouette reelle — voir la note.
+        t.note(
+          `un sommet aussi etroit reste rabote de ${(100 - (avec8 / 4800) * 100).toFixed(0)} % : ` +
+            'le maximum par tranche borne l erreur, il ne l annule pas',
+        )
+        t.note(
+          'ligne d horizon rendue depuis le pic Cassini, contre le profil vrai marche tous les 400 m : ' +
+            'erreur quadratique 0,130° avec un sondage, 0,105° avec huit — et sur les azimuts ou la mesure ' +
+            'est fiable, de 0,07-0,18° a 0,004-0,023°',
+        )
+      }
 
       // --- Ce que les anneaux font bien, et qu'il ne faut pas casser -------
       //

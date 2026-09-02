@@ -2856,6 +2856,106 @@ a l'horizontale. Au registre.
 
 ---
 
+## La ligne d'horizon devient un maximum
+
+C'est la reponse au constat de Jordan : zoome sur le mont Blanc et compare a un
+logiciel de panorama, **rien ne coincide**. Ce n'etait pas la resolution, ni la
+geodesie.
+
+### Deux operations, pas deux qualites
+
+Un logiciel de panorama calcule la ligne d'horizon comme le **maximum** de
+hauteur apparente le long du rayon. Le maillage prenait **un echantillon** tous
+les anneaux. Ce ne sont pas deux qualites de la meme chose.
+
+A 286 kilometres, les anneaux sont espaces de 9,7 km. Ligne d'horizon vraie,
+marchee tous les 400 metres : **−0,464°**, portee par le mont Blanc. Ce que
+donnait l'echantillonnage, selon ou tombait la phase :
+
+| decalage | horizon obtenu | distance | ecart |
+| --- | --- | --- | --- |
+| 0 % | −0,710° | 177 km | −0,246° |
+| 20 % | −0,537° | 285 km | −0,073° |
+| 40 % | −0,689° | 287 km | −0,225° |
+| 60 % | −0,685° | 163 km | −0,221° |
+| 80 % | −0,665° | 165 km | −0,201° |
+
+**Trois fois sur cinq, ce n'etait meme pas la bonne montagne** — et laquelle
+dependait d'une phase qui bouge avec l'altitude de l'observateur. D'ou
+l'impression, juste, que rien ne correspond.
+
+### Le geste
+
+Chaque anneau ne prend plus l'altitude **a** sa distance, mais le point le plus
+haut de **sa tranche de profondeur** — les mi-distances geometriques avec ses
+voisins. Les tranches partitionnant exactement la portee, le maximum sur leur
+union est le maximum sur tout le rayon.
+
+Le nombre de sondages se deduit : assez pour ne sauter aucune cellule de la
+pyramide, plafonne a huit. Pres de l'observateur la tranche est plus mince
+qu'une cellule et **un seul sondage suffit** — la loi contient donc exactement
+celle d'avant.
+
+### La mesure
+
+Ligne d'horizon rendue depuis le pic Cassini, comparee au profil vrai sur
+vingt-cinq azimuts :
+
+| | erreur quadratique |
+| --- | --- |
+| un sondage | **0,130°** |
+| huit sondages | **0,105°** |
+
+La moyenne dit peu ; le detail dit tout :
+
+| azimut | avant | apres |
+| --- | --- | --- |
+| 53,54° | −0,181° | **−0,014°** |
+| 54,33° | −0,069° | **−0,004°** |
+| 55,93° | −0,068° | **−0,006°** |
+| 56,73° | −0,070° | **−0,023°** |
+
+Quatre azimuts sur cinq passent d'un dixieme de degre a quelques millièmes.
+
+⚠️ Le cinquieme — celui du mont Blanc — reste a 0,18°. Deux explications
+plausibles, non departagees : son contraste est si faible, transmittance 9,8 %
+et voile a 96,7 %, que le detecteur de silhouette lui prefere probablement une
+crete plus proche et plus nette ; et un sommet plus etroit que l'ecart entre
+deux sondages reste rabote — le controle le chiffre a 43 % sur une bosse de
+synthese.
+
+**Le maximum par tranche borne l'erreur, il ne l'annule pas.**
+
+### Ce que ca coute
+
+Trois fois et demie plus de sondages du relief. Panoramique continu, huit
+secondes par champ :
+
+| champ | mediane | p99 | max |
+| --- | --- | --- | --- |
+| 0,5° | 16,7 ms | 23,7 ms | 27,2 ms |
+| 2° | 16,8 ms | 24,2 ms | 26,6 ms |
+| 20° | 16,7 ms | 23,2 ms | 24,5 ms |
+| 110° | 16,7 ms | 27,5 ms | 91,1 ms |
+
+Aucune degradation : la construction etant deja etalee sur plusieurs images,
+elle absorbe le surcout. Le pic de 91 ms a champ large est le transitoire connu,
+une image sur 476.
+
+### ⚠️ Deux erreurs de mesure, de moi, sur le chemin
+
+**J'ai vise le mauvais azimut.** J'avais calcule 56,43° en projetant a plat ; le
+vrai azimut geodesique est **55,13°**. Un degre et demi d'ecart, soit 6,5 km de
+cote a 286 km — une autre montagne. Ma conclusion precedente « le mont Blanc est
+rendu au bon endroit » etait une coincidence, et elle est retiree.
+
+**Mon detecteur de silhouette mesurait le ciel.** Il comparait chaque ligne au
+ciel pris tout en haut de l'image ; le ciel ayant son propre degrade, il
+declenchait dessus des que la crete etait basse. Il cherche desormais la
+**marche** verticale.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2913,3 +3013,4 @@ a l'horizontale. Au registre.
 | 2026-09-02 | Carte d'ombre : cascade construite puis retirée faute de gain mesurable ; tolérance déduite |
 | 2026-09-02 | Relief proche à 3 m par le RGE ALTI de l'IGN ; le goulot passe à l'axe des distances |
 | 2026-09-02 | Loi d'anneaux suivant la caméra : essayée, cassait l'horizon, retirée. Banc longue distance au pic Cassini |
+| 2026-09-02 | La ligne d'horizon devient un maximum par tranche — l'erreur passe de 0,07-0,18° à 0,004-0,023° |
