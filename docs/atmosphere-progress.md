@@ -2634,6 +2634,83 @@ qui manque, et je ne vais pas l'inventer.
 
 ---
 
+## La carte d'ombre : ce que la mesure a refuse
+
+J'avais annonce que la carte d'ombre etait devenue le maillon faible visible, et
+qu'il fallait la traiter en priorite. **La mesure ne le confirme pas**, et cette
+page existe pour que personne n'y revienne sans raison.
+
+### Le raisonnement de depart
+
+La carte porte, en chaque point du sol, l'altitude a laquelle le Soleil se leve
+au-dessus du relief. Elle couvre 120 km sur 512 points, soit **234 metres par
+texel** — huit fois plus grossier que le relief lui-meme. Ramene a l'ecran, un
+texte de cette carte couvre 201 pixels a trente kilometres et **1209 a cinq**,
+quand une maille du terrain en occupe seize.
+
+Le chiffre est juste. La conclusion qu'on en tire ne l'etait pas.
+
+### Ce qui a ete construit, puis retire
+
+Une seconde carte, dix fois plus etroite et donc dix fois plus fine — sept
+kilometres, 27 metres par texel, exactement le pas du relief. Elle **herite** de
+la carte large a sa frontiere : la recurrence du balayage ne demande au monde
+exterieur qu'une seule chose, la hauteur d'ombre du voisin situe un pas vers le
+Soleil, et tout ce qui est au-dela y est deja resume. Une carte etroite n'a donc
+pas besoin de s'etendre vers le Soleil pour connaitre l'ombre d'un sommet
+lointain.
+
+C'etait juste, ca compilait, ca coutait cinq millisecondes de plus, et **ca ne
+changeait rien** :
+
+| comparaison | pixels modifies |
+| --- | --- |
+| banc synthetique, 10 000 points testes | **0** |
+| relief reel, trois vues au lever du Soleil | **0,00 a 0,01 %** |
+
+### Ce que la recherche a quand meme trouve
+
+Le nuanceur appliquait une **tolerance de 300 metres** sur l'altitude avant de
+tester l'ombre. Sans tolerance, une surface s'ombre elle-meme : la hauteur lue
+est interpolee entre des points distants de 234 metres et depasse localement le
+sol. Mais 300 metres, c'est deux fois et demie ce que cette raison exige, et
+c'est pose et non deduit.
+
+Or **une tolerance de trois cents metres interdit a toute ombre plus fine
+d'exister**. Affiner la carte sans y toucher ne pouvait rien donner — ce qui
+explique les zeros ci-dessus. Elle vaut desormais un demi-texel, calcule depuis
+l'etendue de la carte : 117 metres.
+
+Mesure du seul changement de tolerance, cascade constante : **0,92 %** des
+pixels sur une vue au lever du Soleil, rien sur deux autres. Reel, mais petit.
+
+### Pourquoi la cascade ne prend pas, et ce qu'il faudrait pour le savoir
+
+Trois explications restent en lice, et **je ne les ai pas departagees** :
+
+- le relief est lisse a ces echelles — le banc synthetique le montre nettement,
+  zero point sur dix mille change de verdict ;
+- le sol a moins de sept kilometres est rarement a l'ecran depuis un sommet : a
+  six degres sous l'horizon on regarde deja dix-huit kilometres ;
+- mes trois cadrages etaient mauvais, et un quatrieme montrerait autre chose.
+
+Ce qu'il faudrait pour trancher : une vue ou une crete proche porte une ombre
+franche sur une pente eclairee, a fort grossissement. Je n'ai pas su la
+construire.
+
+### La lecon, qui vaut au-dela de ce cas
+
+**Un texel grossier n'est pas une erreur visible.** Le rapport 1209 pixels est
+une propriete geometrique de la carte ; il ne dit rien de l'ecart entre l'image
+obtenue et l'image juste. Les deux se confondent quand le contenu varie a
+l'echelle du texel — ce qui etait vrai du maillage, ou l'azimut jetait douze
+cellules de relief sur treize, et faux ici, ou l'ombre portee varie lentement.
+
+C'est la difference entre mesurer une **resolution** et mesurer une **erreur**.
+La premiere se calcule au tableau, la seconde se constate.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2688,3 +2765,4 @@ qui manque, et je ne vais pas l'inventer.
 | 2026-09-02 | Phase 2 — le maillage obéit à une erreur d'espace écran ; la réparametrisation des anneaux est réfutée |
 | 2026-09-02 | Phase 3 — le nombre d'anneaux suit l'écran ; l'escalier des crêtes disparaît à 2° |
 | 2026-09-02 | Le clair de lune devient de la diffusion calculée ; l'exposition voit enfin la Lune |
+| 2026-09-02 | Carte d'ombre : cascade construite puis retirée faute de gain mesurable ; tolérance déduite |

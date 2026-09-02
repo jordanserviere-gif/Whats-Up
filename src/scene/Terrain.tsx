@@ -554,6 +554,7 @@ function terrainMaterial(): ShaderMaterial {
       // seize tranches de distance, et un pas plus fin qu'elles ne ferait
       // qu'interpoler du vide.
       const int SHADOW_STEPS = 8;
+      const int SHADOW_SIZE = 512;
       varying vec3 vNormal;
       varying vec3 vView;
       varying float vRange;
@@ -630,7 +631,12 @@ function terrainMaterial(): ShaderMaterial {
         // rester dans l'ombre de la crete qui la domine. Le biais vaut un demi
         // texel de la carte, sans quoi la surface s'ombrerait elle-meme.
         float cosIncidence = max(0.0, dot(N, normalize(uSunDirection)));
-        if (!sunlitAt(vView, vRange, 300.0)) cosIncidence = 0.0;
+        // Le biais est **un demi-texel de la carte**, et il se deduit d'elle
+        // plutot que d'etre pose : sans lui, la hauteur d'ombre interpolee
+        // depasse localement le sol et la surface s'ombre elle-meme.
+        //
+        // ⚠️ Il valait 300 m en dur, soit deux fois et demie ce qu'il fallait.
+        if (!sunlitAt(vView, vRange, uShadowHalfSpan / float(SHADOW_SIZE - 1))) cosIncidence = 0.0;
         float skyView = 0.5 * (1.0 + N.y);
         vec3 irradiance = uSunIrradiance * cosIncidence + uSkyIrradiance * skyView;
 
