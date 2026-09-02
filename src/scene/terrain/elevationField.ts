@@ -23,6 +23,7 @@ import {
   readyLevelCount,
 } from './elevationSource'
 import { RIDGE_PEAK_M, ridgeAltitudeM } from './ridgeField'
+import { nearAltitudeM, nearFieldRevision, nearFieldWeight } from './nearField'
 
 export type TerrainSource = 'reel' | 'banc'
 
@@ -43,7 +44,19 @@ export const terrainSource = (): TerrainSource => source
  * corrige de soi-meme des que les tuiles arrivent.
  */
 export function groundAltitudeM(eastM: number, northM: number): number {
-  return source === 'banc' ? ridgeAltitudeM(eastM, northM) : realElevationM(eastM, northM)
+  if (source === 'banc') return ridgeAltitudeM(eastM, northM)
+  const coarse = realElevationM(eastM, northM)
+
+  // --- Le champ proche, quand il existe ----------------------------------
+  //
+  // Sept kilometres a trois metres, en France seulement. Il se **compose** avec
+  // la pyramide au lieu de s'y inserer : les deux sources n'ont ni la meme
+  // resolution ni tout a fait le meme systeme altimetrique, et un basculement
+  // franc dessinerait un anneau. Le poids tombe donc a zero sur la frange.
+  const fine = nearAltitudeM(eastM, northM)
+  if (fine === null) return coarse
+  const w = nearFieldWeight(eastM, northM)
+  return fine * w + coarse * (1 - w)
 }
 
 /** Vrai quand le relief affiche est celui du monde reel. */
@@ -56,7 +69,7 @@ export const groundIsReal = (): boolean => source === 'reel' && elevationReady()
  * cette cle, il ne serait jamais reconstruit.
  */
 export const terrainRevision = (): string =>
-  source === 'banc' ? 'banc' : `reel:${readyLevelCount()}`
+  source === 'banc' ? 'banc' : `reel:${readyLevelCount()}:${nearFieldRevision()}`
 
 /**
  * Point le plus haut du relief charge, m.

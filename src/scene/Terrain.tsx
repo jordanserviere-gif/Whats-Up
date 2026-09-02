@@ -116,6 +116,7 @@ import {
   type MeshView,
 } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
+import { loadNearField } from './terrain/nearField'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
 // `terrain/meshSampling.ts` : ce sont des choix de discretisation, ils doivent
@@ -770,6 +771,14 @@ export function Terrain({
 
   useEffect(() => {
     let alive = true
+    // Le champ proche part **en parallele** de la pyramide : il ne depend pas
+    // d'elle, il ne couvre que la France, et l'attendre retarderait un relief
+    // mondial qui, lui, arrive toujours. Sa revision declenche a elle seule la
+    // reconstruction du maillage quand il se pose.
+    void loadNearField(latitudeDeg, longitudeDeg).then((got) => {
+      if (alive && got) setRevision(terrainRevision())
+    })
+
     void loadElevationAround(latitudeDeg, longitudeDeg, (progress) => {
       if (!alive) return
       setTerrainProgress(progress)

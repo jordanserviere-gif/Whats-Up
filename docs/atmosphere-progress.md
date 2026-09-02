@@ -2711,6 +2711,76 @@ La premiere se calcule au tableau, la seconde se constate.
 
 ---
 
+## Le relief proche passe a trois metres
+
+Tu m'as demande le quadtree et le lidar. J'ai pris le lidar d'abord, et pour la
+raison que la carte d'ombre venait de nous apprendre : **le quadtree sert a mieux
+repartir la donnee, donc il faut d'abord prouver qu'une donnee plus fine change
+quelque chose.** Si elle ne change rien, le quadtree meurt a bon compte.
+
+### Ce que la source vaut
+
+L'IGN diffuse pour la France un modele de terrain bien plus fin que les tuiles
+mondiales. Mesure faite sur la tuile du Ventoux avant d'ecrire la moindre ligne
+de rendu — denivele type entre deux points voisins :
+
+| ecart entre points | denivele type |
+| --- | --- |
+| 27,4 m — ce qu'on avait | 7,81 m |
+| 13,7 m | 3,98 m |
+| 6,9 m | 2,01 m |
+| **3,4 m** | **1,01 m** |
+
+Le relief garde de la structure a toutes les echelles jusqu'en bas. Ce n'est pas
+de l'interpolation lissee : c'est du terrain qu'on n'avait pas.
+
+Le service repond sans clef d'acces, autorise les requetes depuis le navigateur,
+et dit proprement « pas de donnee ici » par un 404 partout hors de France.
+**Quatre-vingt-dix-neuf tuiles servies, aucun refus** au Ventoux.
+
+### Ce qui a ete construit
+
+Un champ proche de sept kilometres de cote a 3,42 metres — le pas exact de la
+source a cette latitude. Huit megaoctets.
+
+⚠️ **Il n'est pas un quatrieme niveau de la pyramide**, et ce n'etait pas un
+detail d'organisation. Cette grille vient d'une autre source, d'une autre
+projection — geographique et non Mercator —, stocke ses altitudes au quart de
+metre et non au metre, et **n'existe qu'en France**. Prendre trois de ces
+differences pour des details afin de gagner une case dans un tableau aurait
+produit une abstraction qui ment. Elle se compose donc avec la pyramide au lieu
+de s'y inserer, avec un fondu sur son bord.
+
+⚠️ **Le quart de metre n'est pas de la coquetterie.** Le denivele type a 3,4
+metres vaut 1,01 metre : arrondir au metre, comme le fait la pyramide, aurait
+detruit la moitie de ce qu'on venait chercher.
+
+### Ce que ca donne, et ce que ca ne donne pas encore
+
+**Soixante-quatre pour cent des pixels changent.** La donnee passe, elle arrive
+a l'ecran, elle n'est pas jetee en route.
+
+Mais le sol proche reste **visuellement plat**. La raison est celle qu'on avait
+deja chiffree et consignee : l'axe des distances du maillage. A trois kilometres
+sept, deux anneaux consecutifs sont distants de cent vingt-quatre metres, quand
+la donnee en decrit un tous les trois. En baissant les yeux on ne voit donc que
+deux ou trois anneaux sur toute la hauteur de l'ecran — le meme defaut que les
+« trois aretes » de l'azimut, transpose a la profondeur.
+
+### Ce que ca dit du quadtree
+
+Que **ce n'est toujours pas le moment**. Le goulot n'est pas l'allocation de la
+donnee : c'est le maillage qui ne sait pas la montrer de pres. La suite logique
+est de faire suivre la **repartition des anneaux** a la camera, exactement comme
+l'azimut le fait depuis la phase 1 — concentrer les anneaux sur la bande de
+distance regardee au lieu de les etaler du demi-metre a quatre cent cinquante
+kilometres.
+
+Le quadtree viendra apres, s'il vient : il repond a une question — quelles
+tuiles charger — que personne ne se pose encore.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2766,3 +2836,4 @@ La premiere se calcule au tableau, la seconde se constate.
 | 2026-09-02 | Phase 3 — le nombre d'anneaux suit l'écran ; l'escalier des crêtes disparaît à 2° |
 | 2026-09-02 | Le clair de lune devient de la diffusion calculée ; l'exposition voit enfin la Lune |
 | 2026-09-02 | Carte d'ombre : cascade construite puis retirée faute de gain mesurable ; tolérance déduite |
+| 2026-09-02 | Relief proche à 3 m par le RGE ALTI de l'IGN ; le goulot passe à l'axe des distances |

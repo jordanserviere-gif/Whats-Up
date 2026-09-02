@@ -43,6 +43,7 @@ import { adaptationSuite } from '@/scene/display/adaptation.validation'
 import { moonSkySuite } from '@/scene/display/moonSky.validation'
 import { terrainSuite } from '@/scene/terrain/terrain.validation'
 import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
+import { nearFieldSuite } from '@/scene/terrain/nearField.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -108,5 +109,7 @@ export function allSuites(): SuiteResult[] {
     // Chantier : resolution du maillage de terrain — deux controles echouent
     // volontairement, ils enoncent la cible.
     meshSamplingSuite(),
+    // Dette : resolution du relief proche — la source IGN a trois metres.
+    nearFieldSuite(),
   ]
 }
