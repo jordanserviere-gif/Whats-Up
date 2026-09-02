@@ -25,6 +25,11 @@ const REYKJAVIK = { name: 'Reykjavík', latitude: 64.1466, longitude: -21.9426, 
 // le relief lointain occupe reellement l'image, donc le seul ou la resolution
 // du maillage se juge.
 const VENTOUX = { name: 'Mont Ventoux', latitude: 44.1739, longitude: 5.2786, elevation: 1912 }
+// Le pic Cassini domine le mont Lozere. Par temps clair on y voit le mont
+// Blanc a 288 km, qui definit l'horizon vers le nord-est : c'est le banc de
+// mesure des conditions extremes, et une observation **documentee** plutot
+// qu'un jugement a l'oeil.
+const CASSINI = { name: 'Pic Cassini', latitude: 44.40143975241239, longitude: 3.846697756340477, elevation: 1680 }
 
 const BODY_BY_NAME = {
   sun: A.Body.Sun,
@@ -110,6 +115,31 @@ function findTime(
 
 /** `fov` en degres ; `az`/`alt` en degres ; `time` en ISO UTC. */
 const SCENARIOS = [
+  // --- Longue distance : le mont Blanc depuis le pic Cassini -------------
+  //
+  // Visee au nord-est, Soleil au couchant **dans le dos** : c'est la geometrie
+  // de retrodiffusion, ou le voile est minimal. Prise a l'aube face au Soleil,
+  // la meme vue est entierement delavee.
+  //
+  // Le mont Blanc culmine a 4808 m ; la source le donne a 4638 m au niveau le
+  // plus grossier. Depuis 1695 m et 288 km, il doit apparaitre a **-0,50°**,
+  // soit 0,71° au-dessus de l'horizon apparent. Mesure : la silhouette y monte
+  // a -0,517°.
+  //
+  // ⚠️ Son contraste est au ras du seuil — transmittance 9,8 %, voile a 96,7 %
+  // du ciel — donc il ne se **voit** presque pas. C'est probablement juste, et
+  // c'est ce que ces captures servent a surveiller.
+  ...[6, 2].map((fov) => ({
+    name: `terrain-cassini-fov-${String(fov).replace('.', '')}`,
+    time: '2026-09-01T17:30:00Z',
+    location: CASSINI,
+    az: 56.4,
+    alt: -0.45,
+    fov,
+    layers: { terrain: true },
+    waitTerrain: true,
+    note: `pic Cassini vers le mont Blanc a 288 km, champ ${fov}°`,
+  })),
   // --- Reference de resolution du terrain -------------------------------
   //
   // Meme instant, meme visee, trois champs. Tout y est constant sauf le

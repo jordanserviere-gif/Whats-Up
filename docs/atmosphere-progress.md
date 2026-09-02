@@ -2781,6 +2781,81 @@ tuiles charger — que personne ne se pose encore.
 
 ---
 
+## Le mont Blanc a 288 kilometres, et une loi d'anneaux qui n'a pas tenu
+
+### La loi essayee, et retiree
+
+Apres le relief a trois metres, le goulot etait l'axe des distances : a
+3,7 kilometres, un anneau tous les 124 metres pour une donnee tous les trois.
+L'idee etait la meme que pour l'azimut — faire suivre la repartition a la
+camera, en sondant le relief le long de la visee pour trouver la bande de
+distances que l'ecran couvre reellement.
+
+Sur le papier elle donnait ce qu'il fallait : un anneau tous les 2,8 metres a
+3,1 kilometres au lieu de 124.
+
+⚠️ **Elle a casse la vue a l'horizon**, franchement. Vu d'un sommet, l'ecran vise
+l'horizon et la bande visible commence alors vers seize kilometres ; les
+anneaux laisses en dessous doivent couvrir du demi-metre a seize kilometres, ce
+qui donne **28 % d'ecart entre anneaux voisins**. Le relief proche devient une
+facette geante qui masque tout le paysage.
+
+Elle est retiree. Le principe reste juste, et l'erreur est identifiee : les
+queues, en dehors de la bande, ne peuvent pas etre reparties en logarithme de la
+distance. Elles doivent l'etre en **hauteur apparente**, qui est ce qui compte
+pour ce qui sort de l'ecran. C'est la meme distinction resolution/erreur que
+pour la carte d'ombre.
+
+### Le banc que Jordan a propose
+
+Le pic Cassini, sur le mont Lozere. Par temps clair on y voit le mont Blanc a
+**288 kilometres**, et il y definit l'horizon vers le nord-est. C'est une
+observation documentee, donc un temoin — pas un jugement a l'oeil.
+
+**La geometrie tombe juste.** Le mont Blanc culmine a 4808 m ; la source le donne
+a 4638 m au niveau le plus grossier. Depuis 1695 m, il doit apparaitre a
+**-0,50°**, soit 0,71° au-dessus de l'horizon apparent. La silhouette rendue y
+monte a **-0,517°** — un pixel d'ecart au champ de trois degres.
+
+⚠️ **Sans preuve que ce soit lui.** Sa reponse a la hauteur de l'observateur
+correspond plutot a une crete vers quarante-quatre kilometres, qui se trouverait
+a la meme hauteur apparente. Distinguer les deux demanderait de suivre le sommet
+en changeant d'azimut, ce qui n'a pas ete fait.
+
+### Ce que la geometrie de l'eclairage change
+
+La meme vue, deux heures :
+
+| moment | ce qu'on voit |
+| --- | --- |
+| a l'aube, face au Soleil levant | tout delave, aucune crete lisible |
+| au couchant, Soleil dans le dos | cretes etagees en bleu jusqu'a l'horizon |
+
+Ce n'est pas un reglage : c'est le pic de diffusion avant de Mie. Viser le
+Soleil, c'est regarder dans la direction ou l'air renvoie le plus de lumiere.
+
+Sur le trajet reel vers le mont Blanc — qui monte a 4808 m et traverse donc de
+l'air bien plus mince qu'un rayon rasant :
+
+| distance | transmittance | voile / ciel |
+| --- | --- | --- |
+| 50 km | 46 % | 55 % |
+| 120 km | 22 % | 82 % |
+| 288 km | **9,8 %** | **96,7 %** |
+
+Un sommet enneige eclaire par le couchant ressort donc **plus clair** que le
+ciel, de quelques pour cent. C'est au ras du seuil de l'oeil, et c'est
+probablement juste : ces observations demandent des conditions exceptionnelles.
+
+### Une couture trouvee en chemin
+
+Une **ligne sombre horizontale traverse l'image a zero degre d'elevation exact**,
+visible sur toutes les vues lointaines. Ce n'est pas l'horizon — qui est a
+-1,21° depuis cette altitude — mais le bord de la calotte du globe, qui s'ouvre
+a l'horizontale. Au registre.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -2837,3 +2912,4 @@ tuiles charger — que personne ne se pose encore.
 | 2026-09-02 | Le clair de lune devient de la diffusion calculée ; l'exposition voit enfin la Lune |
 | 2026-09-02 | Carte d'ombre : cascade construite puis retirée faute de gain mesurable ; tolérance déduite |
 | 2026-09-02 | Relief proche à 3 m par le RGE ALTI de l'IGN ; le goulot passe à l'axe des distances |
+| 2026-09-02 | Loi d'anneaux suivant la caméra : essayée, cassait l'horizon, retirée. Banc longue distance au pic Cassini |
