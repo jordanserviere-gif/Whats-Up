@@ -48,6 +48,7 @@
  *
  * Voir le registre.
  */
+import { solarIlluminance } from '@/astro/photometry'
 import type { SpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { planckRadiance } from '@/atmosphere/spectral/blackbody'
 import { luminance, spectralToLinearSrgb, type LinearRgb } from '@/atmosphere/spectral/SpectralSensor'
@@ -114,6 +115,103 @@ export function cityLightEmission(grid: SpectralGrid): LinearRgb {
   for (let i = 0; i < grid.count; i++) spectrum[i] *= facteur
   return spectralToLinearSrgb(grid, spectrum)
 }
+
+/**
+ * Eclairement au-dessus duquel plus aucun eclairage public n'est en service, lux.
+ *
+ * ## ⚠️ Ce n'est pas le seuil d'une cellule, c'est l'etalement de toutes
+ *
+ * Une cellule photoelectrique bascule couramment entre vingt et quarante lux.
+ * Prendre ces bornes donnait une transition **d'un degre de hauteur solaire** —
+ * quatre minutes — parce que l'eclairement chute de plusieurs decades en
+ * quelques degres autour du coucher. C'est le comportement d'**une** lampe.
+ *
+ * Un paysage en porte des dizaines de milliers, sur des circuits differents, des
+ * cellules reglees differemment, des orientations differentes, et une part sur
+ * horloge astronomique plutot que sur mesure. L'ensemble s'allume donc bien plus
+ * progressivement qu'aucune de ses lampes, sur un quart d'heure a une demi-heure.
+ *
+ * Les bornes retenues, cinq et cent lux, couvrent trois degres de hauteur
+ * solaire — l'ordre de grandeur observe. ⚠️ **C'est un elargissement assume**,
+ * pas une mesure : ce qui est mesure, c'est le seuil d'une cellule ; ce qui est
+ * pose, c'est la dispersion du parc.
+ *
+ * L'essentiel reste que le critere soit **photometrique et non angulaire** : il
+ * ne depend pas de la hauteur du Soleil mais de l'eclairement qu'il produit, donc
+ * il suit de lui-meme la saison et la latitude.
+ */
+export const LIGHTING_OFF_LUX = 100
+
+/** Eclairement en dessous duquel le parc est pleinement en service, lux. */
+export const LIGHTING_ON_LUX = 5
+
+/**
+ * Part de l'eclairage public en service, entre zero et un.
+ *
+ * ## Pourquoi passer par l'eclairement plutot que par la hauteur du Soleil
+ *
+ * L'eclairement solaire horizontal chute de plusieurs decades en quelques degres
+ * autour du coucher. Une bascule sur la hauteur du Soleil serait donc soit
+ * brutale, soit calee sur une valeur arbitraire ; sur l'eclairement, elle suit ce
+ * que mesure reellement la cellule qui commande la lampe.
+ *
+ * La transition est lissee — derivee nulle aux deux bouts — pour qu'aucune arete
+ * ne se lise au sol quand le Soleil descend.
+ */
+export function cityLightFactor(sunAltitudeDeg: number): number {
+  const lux = solarIlluminance(sunAltitudeDeg)
+  if (lux <= LIGHTING_ON_LUX) return 1
+  if (lux >= LIGHTING_OFF_LUX) return 0
+  const t = (lux - LIGHTING_ON_LUX) / (LIGHTING_OFF_LUX - LIGHTING_ON_LUX)
+  return 1 - t * t * (3 - 2 * t)
+}
+
+/**
+ * Rayon de l'etalement lumineux au sol, metres.
+ *
+ * ⚠️ La carte rend des traits nets ; une lampe, elle, eclaire une tache. Ce
+ * rayon floute la carte **en metres au sol**, pas en pixels d'ecran : le flou
+ * appartient donc au paysage et ne bouge pas quand on zoome.
+ *
+ * Cinquante metres est l'ordre de grandeur de la portee utile d'un lampadaire
+ * urbain — hauteur de feu de huit a dix metres, espacement de trente a
+ * quarante.
+ */
+export const CITY_GLOW_RADIUS_M = 50
+
+/**
+ * Exposant liant la densite batie a la densite d'eclairage.
+ *
+ * ⚠️ **La carte dit bati, pas eclaire.** Une route de montagne y est aussi
+ * claire qu'une rue de ville, alors qu'elle n'a pas un lampadaire. Mesure au
+ * sommet du mont Ventoux, dont OSM connait la route, la tour et l'observatoire :
+ * le premier plan y rendait trente niveaux sur 255, quand le Causse Mejean
+ * desert rendait zero — le modele fait ce qu'il annonce, c'est le proxy qui
+ * sur-attribue.
+ *
+ * Le flou donne deja la **densite locale** du bati : un trait isole y perd son
+ * amplitude, un centre-ville la garde. Elever cette densite a une puissance
+ * accentue l'ecart, ce qui traduit le fait que l'eclairage se concentre plus vite
+ * que le bati.
+ *
+ * Balayage mesure depuis le Ventoux, part de pixels allumes et maximum :
+ *
+ * | exposant | plaine (villes) | premier plan (route isolee) |
+ * | --- | --- | --- |
+ * | 1,0 | 13,5 %, max 139 | **100 %**, max 38 |
+ * | 1,3 | 13,3 %, max 120 | **100 %**, max 14 |
+ * | **1,6** | **4,4 %, max 102** | **13 %, max 4** |
+ * | 2,0 | 0,02 %, max 48 | 0 %, max 0 |
+ *
+ * ⚠️ **Aucun exposant ne separe proprement**, et c'est le signe que la
+ * correction ne traite pas la cause : la carte dit *bati*, pas *eclaire*. A 1,6
+ * le premier plan s'eteint et les coeurs de villes tiennent, mais des villages
+ * disparaissent au passage. C'est une correction de proxy, pas une loi, et elle
+ * est posee.
+ *
+ * Une carte de radiance nocturne mesuree — VIIRS — la rendrait inutile.
+ */
+export const CITY_DENSITY_EXPONENT = 1.6
 
 /** Cote de la mosaique, en pixels. */
 export const CITY_MOSAIC_SIZE = 2048
@@ -238,16 +336,13 @@ export const CITY_LIGHTS_GLSL = /* glsl */ `
   uniform vec2 uCityHalfSpans;
   uniform vec3 uCityEmission;
   uniform float uCityStrength;
+  uniform float uCityDensityExponent;
 
-  /**
-   * Part batie d'un pixel, dans une carte donnee.
-   *
-   * ⚠️ **Le fond de la carte n'est pas noir.** Il vaut 48 sur 255, du desert au
-   * centre-ville : on le nivelle, sans quoi la campagne entiere brillerait
-   * presque autant que les villes.
-   */
-  float cityBuilt(sampler2D carte, float halfSpan, float eastM, float northM) {
-    vec2 uv = vec2(eastM, -northM) / (2.0 * halfSpan) + 0.5;
+  const float CITY_GLOW_RADIUS_M = ${CITY_GLOW_RADIUS_M}.0;
+
+  /** Part batie d'un pixel, dans une carte donnee. */
+  float cityTap(sampler2D carte, float halfSpan, vec2 ground) {
+    vec2 uv = ground / (2.0 * halfSpan) + 0.5;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
     vec3 c = texture2D(carte, uv).rgb;
     // La carte arrive en sRGB ; sa clarte perceptuelle est ce que le style
@@ -258,29 +353,92 @@ export const CITY_LIGHTS_GLSL = /* glsl */ `
   }
 
   /**
-   * Radiance emise par le sol, en unites du moteur.
+   * Part batie, floutee en metres au sol.
    *
-   * ⚠️ **Deux echelles.** Une seule carte ne peut pas servir cent metres et cent
-   * kilometres : a la resolution qu'exige la seconde, le sol proche tient dans
-   * quelques texels autour de l'observateur, et une route qui passe pres de lui
-   * allume tout le paysage. La carte proche prend donc la main dans son domaine.
+   * ⚠️ **La carte rend des traits nets ; une lampe eclaire une tache.** Sans
+   * cet etalement, un village lointain apparait comme un point dur, et une route
+   * comme un fil — ce qu'aucune lumiere ne fait.
+   *
+   * Le rayon est en **metres au sol** et non en pixels d'ecran : le flou
+   * appartient donc au paysage, et ne se deforme pas quand on zoome. Neuf
+   * prelevements, deux couronnes — assez pour effacer le trait, assez peu pour
+   * ne pas couter.
    */
-  vec3 cityEmission(float eastM, float northM) {
-    if (uCityStrength <= 0.0) return vec3(0.0);
+  float cityBuilt(sampler2D carte, float halfSpan, vec2 ground) {
+    float somme = cityTap(carte, halfSpan, ground) * 2.0;
+    float poids = 2.0;
+    for (int k = 0; k < 8; k++) {
+      float a = 6.2831853 * float(k) / 8.0;
+      // Deux couronnes : l'une au rayon, l'autre a mi-rayon, decalee d'un
+      // demi-secteur pour que les prelevements ne s'alignent pas.
+      vec2 dir = vec2(cos(a), sin(a));
+      somme += cityTap(carte, halfSpan, ground + dir * CITY_GLOW_RADIUS_M);
+      vec2 dir2 = vec2(cos(a + 0.3926991), sin(a + 0.3926991));
+      somme += cityTap(carte, halfSpan, ground + dir2 * (CITY_GLOW_RADIUS_M * 0.5)) * 1.5;
+      poids += 2.5;
+    }
+    return pow(somme / poids, uCityDensityExponent);
+  }
 
-    float loin = cityBuilt(uCityFar, uCityHalfSpans.y, eastM, northM);
+  /**
+   * Part batie sous un point du plan local, les deux echelles composees.
+   *
+   * ⚠️ **Une seule carte ne peut pas servir cent metres et cent kilometres.** A
+   * la resolution qu'exige la seconde, le sol proche tient dans quelques texels
+   * autour de l'observateur, et une route qui passe pres de lui allume tout le
+   * paysage. La carte proche prend donc la main dans son domaine.
+   */
+  float cityBuiltAt(float eastM, float northM) {
+    vec2 ground = vec2(eastM, -northM);
+    float loin = cityBuilt(uCityFar, uCityHalfSpans.y, ground);
     float reachProche = max(abs(eastM), abs(northM)) / uCityHalfSpans.x;
     float bati = loin;
     if (reachProche < 1.0) {
-      float proche = cityBuilt(uCityNear, uCityHalfSpans.x, eastM, northM);
-      // Fondu sur la frange, les deux cartes ne rendant pas exactement la meme
-      // chose a la limite de resolution.
+      float proche = cityBuilt(uCityNear, uCityHalfSpans.x, ground);
       bati = mix(proche, loin, smoothstep(0.85, 1.0, reachProche));
     }
-
-    // Fondu du bord exterieur, pour que la carte ne dessine pas un carre au sol.
     float reachLoin = max(abs(eastM), abs(northM)) / uCityHalfSpans.y;
-    float fade = 1.0 - smoothstep(0.9, 1.0, reachLoin);
-    return uCityEmission * (bati * uCityStrength * fade);
+    return bati * (1.0 - smoothstep(0.9, 1.0, reachLoin));
+  }
+
+  /**
+   * Radiance emise par le sol, en unites du moteur.
+   *
+   * uCityStrength porte la part de l'eclairage en service — voir
+   * cityLightFactor. Elle vaut zero en plein jour, un la nuit, et traverse le
+   * crepuscule continument.
+   */
+  vec3 cityEmission(float eastM, float northM) {
+    if (uCityStrength <= 0.0) return vec3(0.0);
+    return uCityEmission * (cityBuiltAt(eastM, northM) * uCityStrength);
+  }
+
+  /**
+   * Emission au sol, en un seul prelevement.
+   *
+   * ⚠️ **Pour la lueur dans l'air, et elle seule.** Celle-ci se calcule sur
+   * chaque segment du trajet : y appeler la version floutee reviendrait a
+   * dix-sept prelevements par carte et par segment, soit plus de deux cent
+   * soixante-dix par pixel. Le flou n'y sert de toute facon a rien — une
+   * integrale le long du rayon lisse deja tout ce qu'il lissait.
+   */
+  vec3 cityEmissionCoarse(float eastM, float northM) {
+    if (uCityStrength <= 0.0) return vec3(0.0);
+    vec2 ground = vec2(eastM, -northM);
+
+    // ⚠️ **La cascade vaut ici aussi.** Ne lire que la carte lointaine
+    // reintroduisait le defaut qu'elle avait ete ecrite pour corriger : pres de
+    // l'observateur, tous les segments retombent sur les quelques texels
+    // centraux, et la route qui passe a cote allume l'air de tout le paysage
+    // proche. Un seul prelevement par carte, mais les deux cartes.
+    float reachProche = max(abs(eastM), abs(northM)) / uCityHalfSpans.x;
+    float loin = cityTap(uCityFar, uCityHalfSpans.y, ground);
+    float bati = loin;
+    if (reachProche < 1.0) {
+      float proche = cityTap(uCityNear, uCityHalfSpans.x, ground);
+      bati = mix(proche, loin, smoothstep(0.85, 1.0, reachProche));
+    }
+    float reach = max(abs(eastM), abs(northM)) / uCityHalfSpans.y;
+    return uCityEmission * (bati * uCityStrength * (1.0 - smoothstep(0.9, 1.0, reach)));
   }
 `

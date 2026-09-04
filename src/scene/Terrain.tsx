@@ -127,8 +127,10 @@ import { loadNearField } from './terrain/nearField'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
 import {
   CITY_HALF_SPANS_M,
+  CITY_DENSITY_EXPONENT,
   CITY_LIGHTS_GLSL,
   cityLightEmission,
+  cityLightFactor,
   cityLightsCanvas,
   cityLightsReady,
   loadCityLights,
@@ -618,6 +620,8 @@ function terrainMaterial(): ShaderMaterial {
       uCityEmission: { value: CITY_EMISSION },
       /** Zero tant qu'aucune carte n'est disponible. */
       uCityStrength: { value: 0 },
+      /** Exposant liant densite batie et densite d'eclairage. */
+      uCityDensityExponent: { value: CITY_DENSITY_EXPONENT },
     },
     vertexShader: /* glsl */ `
       attribute float range;
@@ -803,10 +807,11 @@ function terrainMaterial(): ShaderMaterial {
         vec3 haze = vec3(0.0);
         vec3 previousTotal = vec3(0.0);
         vec3 previousAmbient = vec3(0.0);
-        vec3 ignored;
+        vec3 previousT = vec3(1.0);
+        vec3 stepT;
         for (int i = 1; i <= SHADOW_STEPS; i++) {
           float t = vRange * float(i) / float(SHADOW_STEPS);
-          vec3 total = aerialPerspective(vView, t, ignored);
+          vec3 total = aerialPerspective(vView, t, stepT);
           vec3 ambient = aerialAmbient(vView, t);
           // Le milieu du segment decide pour lui : c'est la quadrature du point
           // milieu, la meme que celle du solveur.
@@ -814,8 +819,33 @@ function terrainMaterial(): ShaderMaterial {
           haze += sunlitAt(vView, middle, 0.0)
             ? total - previousTotal
             : ambient - previousAmbient;
+
+          // --- La lueur des villes dans l'air --------------------------------
+          //
+          // ⚠️ **Les lampes n'eclairent pas que le sol : elles eclairent l'air
+          // au-dessus.** C'est ce qui fait le halo qu'on voit d'une ville a
+          // distance, et il ne vient pas de ses pixels mais de l'atmosphere
+          // entre elle et l'oeil.
+          //
+          // Le compte se boucle sans constante libre. Un sol lambertien de
+          // radiance L emet une exitance πL ; au-dessus d'un plan emetteur
+          // etendu, l'eclairement ne depend pas de la hauteur. L'air en diffuse
+          // une part vers l'oeil, et cette part vaut ce qu'il **eteint** : la
+          // chute de transmittance du segment. En diffusion isotrope, le
+          // quatrieme de 1/4π compense le π de l'exitance, et il reste
+          //
+          //     lueur = L × (T_avant − T_apres) / 4
+          //
+          // ⚠️ Trois approximations, toutes assumees : diffusion **isotrope**
+          // — vraie pour Rayleigh, fausse pour le pic avant de Mie ; albedo de
+          // diffusion suppose **unite**, donc pas d'absorption ; et **plan
+          // emetteur infini**, ce qui surestime pres du bord d'une ville.
+          vec3 lueur = cityEmissionCoarse(middle * vView.x, -middle * vView.z);
+          haze += lueur * (previousT - stepT) * 0.25;
+
           previousTotal = total;
           previousAmbient = ambient;
+          previousT = stepT;
         }
 
         gl_FragColor = vec4(outgoing * transmittance * uAerialExposure + haze, 1.0);
@@ -1089,7 +1119,12 @@ export function Terrain({
     u.uOrthoHalfSpan.value = Math.max(1, orthoSpanM())
     u.uCityNear.value = cityLights?.[0] ?? null
     u.uCityFar.value = cityLights?.[1] ?? null
-    u.uCityStrength.value = cityLights && cityLightsReady() ? 1 : 0
+    // ⚠️ Le terminateur n'est pas une limite en degres mais un **seuil
+    // d'eclairement** : c'est ce que mesure la cellule qui commande la lampe, et
+    // c'est ce qui fait que la bascule s'etale sur le crepuscule au lieu de
+    // dessiner une frontiere nette au sol.
+    u.uCityStrength.value =
+      cityLights && cityLightsReady() ? cityLightFactor(sunAltitudeDeg) : 0
     // L'oeil, encore : le nuanceur reconstruit la position d'un point de la
     // visee, et doit partir d'ou part reellement le regard.
     u.uObserverAltitude.value = eyeM

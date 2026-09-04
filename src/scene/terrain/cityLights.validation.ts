@@ -22,13 +22,18 @@ import {
   luminance,
 } from '@/atmosphere/spectral/SpectralSensor'
 import {
+  CITY_DENSITY_EXPONENT,
+  CITY_GLOW_RADIUS_M,
   CITY_HALF_SPANS_M,
   CITY_LIGHTS_GLSL,
   CITY_LIGHT_BACKGROUND,
   CITY_MOSAIC_SIZE,
   LAMP_TEMPERATURE_K,
   ROAD_LUMINANCE_CD_M2,
+  LIGHTING_OFF_LUX,
+  LIGHTING_ON_LUX,
   cityLightEmission,
+  cityLightFactor,
   cityLightsUrl,
   mercator,
 } from './cityLights'
@@ -146,6 +151,69 @@ export function cityLightsSuite(): SuiteResult {
         'l adresse porte la couche, la projection et le format',
         ['LAYERS=Dark', 'CRS=EPSG:3857', 'image/png'].every((s) => url.includes(s)),
         'aucune clef d acces n est requise',
+      )
+
+      // --- Le terminateur, et pourquoi il n'est pas une limite en degres ------
+      //
+      // ⚠️ Une bascule sur la **hauteur du Soleil** serait soit brutale, soit
+      // calee sur une valeur arbitraire. Sur l'**eclairement**, elle suit ce que
+      // mesure la cellule qui commande la lampe, et elle s'adapte d'elle-meme a
+      // la saison et a la latitude.
+      t.checkTrue(
+        'l eclairage est eteint en plein jour et allume la nuit',
+        cityLightFactor(20) === 0 && cityLightFactor(-12) === 1,
+        `${LIGHTING_OFF_LUX} lux eteint, ${LIGHTING_ON_LUX} lux allume`,
+      )
+      // La rampe stationne a zero puis a un : ce qu'on demande n'est pas une
+      // croissance stricte mais qu'elle ne **redescende** jamais.
+      const hauteurs = [2, 0, -1, -2, -3, -4, -5, -6]
+      const rampe = hauteurs.map((h) => cityLightFactor(h))
+      t.checkTrue(
+        'la part allumee ne redescend jamais quand le Soleil descend',
+        rampe.every((v, i) => i === 0 || v >= rampe[i - 1] - 1e-12),
+        hauteurs.map((h, i) => `${h}° ${(rampe[i] * 100).toFixed(0)} %`).join(' ; '),
+      )
+      // ⚠️ La transition doit s'**etaler**. Bornee aux vingt et quarante lux
+      // d'une seule cellule, elle tenait dans un degre de hauteur solaire —
+      // quatre minutes — et dessinait une frontiere nette au sol. Un paysage
+      // porte des dizaines de milliers d'installations reglees differemment.
+      const partielle = [2, 0, -1, -2, -3, -4, -5, -6].filter((h) => {
+        const f = cityLightFactor(h)
+        return f > 0.02 && f < 0.98
+      })
+      t.checkTrue(
+        'la bascule s etale sur plusieurs degres de hauteur solaire',
+        partielle.length >= 1,
+        partielle.length > 0
+          ? `partiellement allume entre ${Math.max(...partielle)}° et ${Math.min(...partielle)}° — ` +
+            `une seule cellule basculerait en moins d un degre`
+          : 'aucune hauteur intermediaire : la bascule est nette',
+      )
+
+      // --- Le flou et la densite ---------------------------------------------
+      //
+      // ⚠️ La carte rend des traits nets ; une lampe eclaire une tache. Le rayon
+      // est en **metres au sol** et non en pixels : le flou appartient donc au
+      // paysage et ne se deforme pas au zoom.
+      t.checkTrue(
+        'le flou est plus large qu un texel de la carte proche',
+        CITY_GLOW_RADIUS_M > (2 * CITY_HALF_SPANS_M[0]) / CITY_MOSAIC_SIZE,
+        `${CITY_GLOW_RADIUS_M} m contre ${((2 * CITY_HALF_SPANS_M[0]) / CITY_MOSAIC_SIZE).toFixed(1)} m ` +
+          'par texel — sans quoi il ne flouterait rien',
+      )
+      // ⚠️ L'exposant est une **correction de proxy**, pas une loi : la carte dit
+      // bati, pas eclaire. Balaye depuis le Ventoux, il n'existe aucune valeur
+      // qui separe proprement une route de montagne d'un village.
+      t.checkTrue(
+        'l exposant de densite reste entre le lineaire et le carre',
+        CITY_DENSITY_EXPONENT > 1 && CITY_DENSITY_EXPONENT < 2,
+        `${CITY_DENSITY_EXPONENT} — a 1,0 le premier plan du Ventoux s allume en entier, ` +
+          `a 2,0 les villages disparaissent`,
+      )
+      t.checkTrue(
+        'le nuanceur applique bien cet exposant au flou',
+        /pow\(somme \/ poids, uCityDensityExponent\)/.test(CITY_LIGHTS_GLSL),
+        'sans quoi la constante ne serait qu un commentaire',
       )
 
       // --- Le nuanceur --------------------------------------------------------

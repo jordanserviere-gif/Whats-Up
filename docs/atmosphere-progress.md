@@ -3222,6 +3222,101 @@ d'Avignon diffusee par l'air, au bon azimut et a la bonne distance.
 
 ---
 
+## Les lumieres s'allument au crepuscule, eclairent l'air, et cessent d'etre des points
+
+Trois defauts du premier jet, corriges.
+
+### Le terminateur n'est pas une limite en degres
+
+Les lampes etaient allumees en permanence. Elles suivent desormais un **seuil
+d'eclairement** — ce que mesure la cellule photoelectrique qui les commande —
+et non la hauteur du Soleil. Le critere s'adapte ainsi de lui-meme a la saison
+et a la latitude.
+
+⚠️ Premiere tentative avec les bornes d'**une** cellule, vingt et quarante lux :
+la bascule tenait dans **un degre** de hauteur solaire, quatre minutes, et
+dessinait une frontiere nette au sol. C'est le comportement d'une lampe, pas
+d'un paysage — qui en porte des dizaines de milliers, sur des circuits
+differents, des cellules reglees differemment, une part sur horloge.
+
+Bornes elargies a cinq et cent lux, ce qui etale la bascule sur trois degres :
+
+| hauteur du Soleil | part allumee |
+| --- | --- |
+| −2° | 0 % |
+| **−3°** | **47 %** |
+| −4° | 92 % |
+| −5° | 100 % |
+
+⚠️ L'elargissement est **assume** : ce qui est mesure, c'est le seuil d'une
+cellule ; ce qui est pose, c'est la dispersion du parc.
+
+### Les lampes eclairent l'air, pas seulement le sol
+
+C'est ce qui fait le halo qu'on voit d'une ville a distance, et il ne vient pas
+de ses pixels mais de l'atmosphere entre elle et l'oeil.
+
+Le compte se boucle **sans constante libre**. Un sol lambertien de radiance `L`
+emet une exitance `πL` ; au-dessus d'un plan emetteur etendu, l'eclairement ne
+depend pas de la hauteur. L'air en diffuse vers l'oeil ce qu'il **eteint**,
+c'est-a-dire la chute de transmittance du segment. En diffusion isotrope, le
+quart de `1/4π` compense le `π` de l'exitance :
+
+    lueur = L × (T_avant − T_apres) / 4
+
+⚠️ Trois approximations, toutes assumees : diffusion **isotrope** — vraie pour
+Rayleigh, fausse pour le pic avant de Mie ; albedo de diffusion suppose
+**unite**, donc pas d'absorption ; **plan emetteur infini**, ce qui surestime
+pres du bord d'une ville.
+
+### Le flou, en metres au sol
+
+La carte rend des traits nets ; une lampe eclaire une tache. Dix-sept
+prelevements sur deux couronnes, de rayon cinquante metres — la portee utile
+d'un lampadaire urbain. Le rayon etant en **metres au sol** et non en pixels, le
+flou appartient au paysage et ne se deforme pas au zoom.
+
+⚠️ Il ne pouvait pas etre applique a la lueur dans l'air : celle-ci se calcule
+sur chaque segment du trajet, et dix-sept prelevements par carte et par segment
+faisaient **plus de deux cent soixante-dix par pixel**. La lueur prend donc un
+seul prelevement — une integrale le long du rayon lisse deja tout ce que le flou
+lissait.
+
+### ⚠️ Et une limite que la correction ne traite pas
+
+Le premier plan du Ventoux s'allumait en entier. Verification en changeant de
+site : **Causse Mejean 0,0 niveau, Ventoux 29,9** — le modele faisait ce qu'il
+annonce, et c'est le proxy qui sur-attribue. OSM connait la route du sommet, la
+tour et l'observatoire ; il ne sait pas qu'aucun n'est eclaire la nuit.
+
+Le flou donnant deja la densite locale, l'elever a une puissance separe le trait
+isole du tissu dense. Balayage depuis le Ventoux :
+
+| exposant | plaine (villes) | premier plan (route isolee) |
+| --- | --- | --- |
+| 1,0 | 13,5 %, max 139 | **100 %**, max 38 |
+| 1,3 | 13,3 %, max 120 | **100 %**, max 14 |
+| **1,6** | **4,4 %, max 102** | **13 %, max 4** |
+| 2,0 | 0,02 %, max 48 | 0 %, max 0 |
+
+⚠️ **Aucun exposant ne separe proprement**, et c'est le signe que la correction
+ne traite pas la cause : la carte dit *bati*, pas *eclaire*. A 1,6 le premier
+plan s'eteint et les coeurs de villes tiennent, mais des villages disparaissent
+au passage. Une carte de radiance nocturne mesuree — VIIRS — rendrait tout ceci
+inutile.
+
+Cout de nuit, panoramique continu : mediane 16,6 ms, p99 22,5 ms.
+
+### ⚠️ Une lecon de methode, deux fois payee
+
+Un premier balayage de l'exposant a donne des chiffres **non monotones** —
+exposant 1 et 2 rendant le meme resultat. La cause n'etait pas physique : les
+modifications du fichier n'atteignaient pas le navigateur assez vite, et je
+mesurais l'etat precedent. Le balayage n'a ete refait qu'apres avoir **verifie
+ce que le serveur servait reellement** a chaque pas.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -3283,3 +3378,4 @@ d'Avignon diffusee par l'air, au bon azimut et a la bonne distance.
 | 2026-09-02 | Micro-relief du sol : texture inventée, amplitude mesurée sur cinq sites RGE ALTI |
 | 2026-09-02 | Orthophoto IGN drapée sur le terrain — sa teinte seulement, jamais sa clarté |
 | 2026-09-02 | Le sol émet : lumières urbaines depuis OSM, calibrées par l'EN 13201 et un spectre de Planck |
+| 2026-09-02 | Les lumières s'allument au crépuscule, éclairent l'air, et sont floutées en mètres au sol |
