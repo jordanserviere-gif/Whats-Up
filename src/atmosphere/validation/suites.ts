@@ -46,6 +46,7 @@ import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
 import { nearFieldSuite } from '@/scene/terrain/nearField.validation'
 import { microReliefSuite } from '@/scene/terrain/microRelief.validation'
 import { orthophotoSuite } from '@/scene/terrain/orthophoto.validation'
+import { cityLightsSuite } from '@/scene/terrain/cityLights.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -117,5 +118,7 @@ export function allSuites(): SuiteResult[] {
     microReliefSuite(),
     // Dette : drape orthophotographique — la teinte du sol reel, pas sa clarte.
     orthophotoSuite(),
+    // Dette : le sol emet — les lumieres urbaines, en unites photometriques.
+    cityLightsSuite(),
   ]
 }

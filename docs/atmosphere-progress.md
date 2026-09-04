@@ -3150,6 +3150,78 @@ efface la couleur du sol comme elle efface sa texture.
 
 ---
 
+## Le sol emet — les lumieres des villes
+
+Jusqu'ici le sol ne faisait que **renvoyer** de la lumiere. Il en **emet**
+desormais la nuit, la ou les hommes en mettent. Le terme s'ajoute a la radiance
+sortante, donc il traverse l'atmosphere par le meme chemin que le reste : une
+ville a trente kilometres sort attenuee et rougie sans qu'on ecrive une ligne
+pour cela, et une crete qui la masque la masque.
+
+### Trois questions, trois reponses independantes
+
+**Ou ?** Le fond de carte OSM sombre de terrestris, en WMS, sans clef.
+
+**Combien ?** L'**EN 13201-2** fixe la luminance moyenne d'une chaussee
+eclairee : 2,0 cd/m² en classe M1, 1,5 en M2, **1,0 en M3**, 0,75 en M4, 0,5 en
+M5. La M3 est la classe urbaine courante.
+
+**De quelle couleur ?** Un spectre de Planck a 2700 K, **remis a l'echelle pour
+porter exactement la luminance de la norme**, puis converti par le meme
+operateur spectral que le Soleil et le ciel. Ce n'est pas une couleur choisie
+dans un nuancier : la couleur et l'intensite sortent ensemble d'une chaine
+photometrique, sans constante d'ajustement.
+
+Verification : le spectre remis a l'echelle porte 1,0000 cd/m², sa temperature
+de couleur se retrouve a 2700 K, et son rapport rouge/bleu vaut 10.
+
+### ⚠️ La carte n'est pas noire
+
+Elle est gris fonce. Le mode de son histogramme vaut **48 sur 255**, identique
+au Causse Mejean desert, en foret de la Sainte-Baume, a Avignon et a Marseille —
+c'est une constante du style, pas une estimation. On la nivele donc a zero, sans
+quoi la campagne entiere brillerait presque autant que les villes.
+
+Ce qui depasse suit l'urbanisation : 4,8 % du Causse, 13 % de la foret, 26 %
+d'Avignon et de Marseille.
+
+### ⚠️ Une seule carte ne pouvait pas suffire
+
+La premiere version en avait une, a cent kilometres, soit 98 metres par pixel.
+Le resultat etait juste au loin — villages et routes a leur place — et **faux au
+premier plan** : le sol proche visible tient dans une poignee de texels autour du
+centre de la carte, et le centre, c'est l'observateur. La route qui monte au
+Ventoux allumait alors tout le paysage proche d'un seul tenant.
+
+Deux echelles desormais : quatorze kilometres a 13,7 metres par pixel, ou une
+route occupe un texel et non une region ; cent kilometres a 98 metres, qui porte
+les villes que la premiere ne voit plus. Fondu sur la frange.
+
+### Ce qui reste approche
+
+⚠️ **La temperature de couleur est un choix dans un intervalle reglementaire.**
+L'arrete du 27 decembre 2018 plafonne l'eclairage exterieur francais a 3000 K,
+2700 K en peripherie de parc national, 2400 K dans les coeurs. Le sodium haute
+pression encore en service tire vers 2000 K.
+
+⚠️ **Un spectre de Planck n'est pas un spectre de lampe.** Le sodium emet des
+raies, un blanc LED un pic bleu et un phosphore. La courbe de Planck en
+reproduit la couleur, pas la structure — et l'extinction dependant de la
+longueur d'onde, l'ecart n'est pas nul.
+
+⚠️ **La carte exagere la surface eclairee.** Une route y est dessinee a la
+largeur du trait cartographique, pas a la sienne. La repartition est juste,
+l'aire eclairee surestimee.
+
+### Ce que ca ouvre
+
+Le halo urbain reste **peint** — la derniere couleur d'interface du ciel de
+nuit. Une carte d'emission geolocalisee est precisement l'entree qui manque pour
+le calculer : le dome cesserait d'etre une teinte pour devenir la lumiere
+d'Avignon diffusee par l'air, au bon azimut et a la bonne distance.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -3210,3 +3282,4 @@ efface la couleur du sol comme elle efface sa texture.
 | 2026-09-02 | La ligne d'horizon devient un maximum par tranche — l'erreur passe de 0,07-0,18° à 0,004-0,023° |
 | 2026-09-02 | Micro-relief du sol : texture inventée, amplitude mesurée sur cinq sites RGE ALTI |
 | 2026-09-02 | Orthophoto IGN drapée sur le terrain — sa teinte seulement, jamais sa clarté |
+| 2026-09-02 | Le sol émet : lumières urbaines depuis OSM, calibrées par l'EN 13201 et un spectre de Planck |

@@ -88,6 +88,7 @@ import {
   type PerspectiveCamera,
   SRGBColorSpace,
   ShaderMaterial,
+  Vector2,
   Vector3,
 } from 'three'
 import { useFrame } from '@react-three/fiber'
@@ -124,6 +125,15 @@ import {
 import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
+import {
+  CITY_HALF_SPANS_M,
+  CITY_LIGHTS_GLSL,
+  cityLightEmission,
+  cityLightsCanvas,
+  cityLightsReady,
+  loadCityLights,
+} from './terrain/cityLights'
+import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import {
   ORTHO_GLSL,
   loadOrthophoto,
@@ -178,6 +188,19 @@ const RINGS_PER_FRAME = 24
 
 /** Distances de sondage d'une tranche, reutilisees d'un anneau a l'autre. */
 const slabDistances = new Float64Array(SLAB_MAX_SAMPLES)
+
+/**
+ * Radiance des lampes, calculee une fois.
+ *
+ * Un spectre de Planck a la temperature des lampes, remis a l'echelle sur la
+ * luminance que prescrit la norme EN 13201, puis converti par **le meme
+ * operateur spectral que le Soleil et le ciel** — c'est ce qui rend l'eclairage
+ * urbain commensurable avec le reste.
+ */
+const CITY_EMISSION = (() => {
+  const [r, g, b] = cityLightEmission(uniformSpectralGrid(360, 830, 16))
+  return new Vector3(r, g, b)
+})()
 
 /** Vecteur de travail pour lire la direction de la camera, sans allouer par image. */
 const viewForward = new Vector3()
@@ -585,6 +608,16 @@ function terrainMaterial(): ShaderMaterial {
       uOrthoHalfSpan: { value: 1 },
       /** Zero tant qu'aucune orthophoto n'est disponible — hors de France. */
       uOrthoStrength: { value: 0 },
+      /** Carte proche des lumieres urbaines — voir `cityLights.ts`. */
+      uCityNear: { value: null as CanvasTexture | null },
+      /** Carte lointaine, qui porte les villes que la proche ne voit plus. */
+      uCityFar: { value: null as CanvasTexture | null },
+      /** Demi-etendues des deux cartes, metres au sol. */
+      uCityHalfSpans: { value: new Vector2(CITY_HALF_SPANS_M[0], CITY_HALF_SPANS_M[1]) },
+      /** Radiance d'un pixel pleinement eclaire, unites du moteur. */
+      uCityEmission: { value: CITY_EMISSION },
+      /** Zero tant qu'aucune carte n'est disponible. */
+      uCityStrength: { value: 0 },
     },
     vertexShader: /* glsl */ `
       attribute float range;
@@ -611,6 +644,7 @@ function terrainMaterial(): ShaderMaterial {
       ${AERIAL_LUT_GLSL}
       ${MICRO_RELIEF_GLSL}
       ${ORTHO_GLSL}
+      ${CITY_LIGHTS_GLSL}
       // Pas de la sommation par segments. Huit suffisent : la table ne porte que
       // seize tranches de distance, et un pas plus fin qu'elles ne ferait
       // qu'interpoler du vide.
@@ -721,6 +755,15 @@ function terrainMaterial(): ShaderMaterial {
         // Surface lambertienne : la radiance sortante vaut l'eclairement recu
         // divise par pi, quelle que soit la direction de sortie.
         vec3 outgoing = albedo * irradiance / 3.14159265;
+
+        // --- Ce que le sol **emet** -----------------------------------------
+        //
+        // Jusqu'ici il ne faisait que renvoyer. La nuit, les hommes en mettent,
+        // et le terme s'ajoute ici pour qu'il subisse ensuite le meme trajet que
+        // le reste : attenue par l'air, occulte par les cretes, expose comme
+        // tout le reste. Sa valeur vient de la norme EN 13201 et d'un spectre de
+        // Planck, pas d'une couleur choisie. Voir terrain/cityLights.ts.
+        outgoing += cityEmission(vRange * vView.x, -vRange * vView.z);
 
         // --- Le trajet jusqu'a l'oeil ---------------------------------------
         //
@@ -858,6 +901,25 @@ export function Terrain({
 
     // L'orthophoto suit le meme chemin : en parallele, France seulement, et
     // sans que rien ne l'attende.
+    // Les lumieres urbaines : une seule requete, cent kilometres de rayon.
+    void loadCityLights(latitudeDeg, longitudeDeg).then((got) => {
+      if (!alive || !got) return
+      const faites = [0, 1].map((i) => {
+        const canvas = cityLightsCanvas(i)
+        if (!canvas) return null
+        const texture = new CanvasTexture(canvas as unknown as HTMLCanvasElement)
+        texture.colorSpace = SRGBColorSpace
+        texture.wrapS = ClampToEdgeWrapping
+        texture.wrapT = ClampToEdgeWrapping
+        texture.minFilter = LinearMipmapLinearFilter
+        texture.magFilter = LinearFilter
+        texture.generateMipmaps = true
+        texture.needsUpdate = true
+        return texture
+      })
+      if (faites[0] && faites[1]) setCityLights(faites as [CanvasTexture, CanvasTexture])
+    })
+
     void loadOrthophoto(latitudeDeg, longitudeDeg).then((got) => {
       if (!alive || !got) return
       const canvas = orthoCanvas()
@@ -976,6 +1038,10 @@ export function Terrain({
   const [ortho, setOrtho] = useState<CanvasTexture | null>(null)
   useEffect(() => () => ortho?.dispose(), [ortho])
 
+  /** La carte des lumieres urbaines. */
+  const [cityLights, setCityLights] = useState<[CanvasTexture, CanvasTexture] | null>(null)
+  useEffect(() => () => cityLights?.forEach((t) => t.dispose()), [cityLights])
+
   /**
    * Carte d'ombre, refaite quand le Soleil a sensiblement bouge.
    *
@@ -1021,6 +1087,9 @@ export function Terrain({
     u.uOrtho.value = ortho
     u.uOrthoStrength.value = ortho && orthoReady() ? 1 : 0
     u.uOrthoHalfSpan.value = Math.max(1, orthoSpanM())
+    u.uCityNear.value = cityLights?.[0] ?? null
+    u.uCityFar.value = cityLights?.[1] ?? null
+    u.uCityStrength.value = cityLights && cityLightsReady() ? 1 : 0
     // L'oeil, encore : le nuanceur reconstruit la position d'un point de la
     // visee, et doit partir d'ou part reellement le regard.
     u.uObserverAltitude.value = eyeM
