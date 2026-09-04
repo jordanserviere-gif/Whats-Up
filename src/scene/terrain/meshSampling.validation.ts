@@ -49,6 +49,7 @@ import {
   ringSlabM,
   slabSamplesFor,
   SLAB_MAX_SAMPLES,
+  ENVELOPE_FROM_M,
   NEAR_M,
   azimuthConcentration,
   azimuthHalfSpanDeg,
@@ -422,6 +423,28 @@ export function meshSamplingSuite(): SuiteResult {
         const loin = ringSlabM(distances, rings - 2, rings)
         t.check('un seul sondage pres de l observateur', slabSamplesFor(proche.nearM, proche.farM), 1, 0)
         t.check('le plafond est atteint a l horizon', slabSamplesFor(loin.nearM, loin.farM), SLAB_MAX_SAMPLES, 0)
+
+        // ⚠️ **Le controle qui retient la regression.** L'enveloppe ne doit pas
+        // toucher la ou la surface se lit encore : la premiere version prenait
+        // le maximum partout, et le relief proche devenait des plateaux plats
+        // separes de falaises.
+        // La regle porte sur le bord **lointain** de la tranche : l'anneau qui
+        // chevauche le seuil est enveloppe, et c'est voulu — sa tranche s'etend
+        // au-dela. Aucune tranche entierement en deca ne doit l'etre.
+        const fautives: number[] = []
+        let premiereEnveloppe = Infinity
+        for (let r = 0; r < rings; r++) {
+          const slab = ringSlabM(distances, r, rings)
+          if (slabSamplesFor(slab.nearM, slab.farM) <= 1) continue
+          premiereEnveloppe = Math.min(premiereEnveloppe, slab.farM)
+          if (slab.farM < ENVELOPE_FROM_M) fautives.push(slab.farM)
+        }
+        t.checkTrue(
+          'la surface proche garde son echantillon, l enveloppe ne commence qu au loin',
+          fautives.length === 0,
+          `premiere tranche enveloppee jusqu a ${(premiereEnveloppe / 1000).toFixed(0)} km, ` +
+            `seuil ${(ENVELOPE_FROM_M / 1000).toFixed(0)} km — la surface y a moins de 10 % de son contraste`,
+        )
 
         // ⚠️ **Le controle qui porte la correction.** Un sommet etroit place
         // dans une tranche : un sondage unique le manque presque toujours, huit

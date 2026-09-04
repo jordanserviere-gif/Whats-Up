@@ -2903,10 +2903,17 @@ vingt-cinq azimuts :
 
 | | erreur quadratique |
 | --- | --- |
-| un sondage | **0,130°** |
-| huit sondages | **0,105°** |
+| un sondage partout | 0,130° |
+| enveloppe partout | 0,105° |
+| **enveloppe au-dela de 130 km** | **0,067°** |
 
-La moyenne dit peu ; le detail dit tout :
+⚠️ **La premiere version enveloppait partout, et c'etait faux deux fois.** Elle
+degradait la surface proche — plateaux plats separes de falaises, la capture de
+reference l'a montre sans appel — et elle degradait aussi la **silhouette** la
+ou celle-ci est portee par une crete proche, que l'enveloppe relevait a tort.
+Restreindre l'enveloppe au-dela de 130 km corrige les deux.
+
+Le detail, sur la version retenue :
 
 | azimut | avant | apres |
 | --- | --- | --- |
@@ -2916,6 +2923,27 @@ La moyenne dit peu ; le detail dit tout :
 | 56,73° | −0,070° | **−0,023°** |
 
 Quatre azimuts sur cinq passent d'un dixieme de degre a quelques millièmes.
+
+### Ou s'arrete l'enveloppe, et pourquoi la
+
+Prendre le point le plus haut d'une tranche remplace le relief par son
+**enveloppe superieure**. C'est ce qu'on veut au loin, ou seule la silhouette se
+lit ; c'est un desastre de pres, ou les versants deviennent des mesas.
+
+C'est le contraste qui tranche — ce qui reste de la luminance propre du relief
+apres l'extinction, mesure au Ventoux :
+
+| distance | contraste restant |
+| --- | --- |
+| 56 km | 40 % |
+| 113 km | 15 % |
+| **175 km** | **5 %** |
+| 250 km | 1,9 % |
+
+⚠️ Le seuil de dix pour cent est un **jugement**, pas une mesure : il place la
+bascule vers 130 km. En deca on echantillonne, au-dela on enveloppe. Les
+silhouettes fautives mesurees se trouvaient a 163, 165, 177 et 286 km — toutes
+au-dela.
 
 ⚠️ Le cinquieme — celui du mont Blanc — reste a 0,18°. Deux explications
 plausibles, non departagees : son contraste est si faible, transmittance 9,8 %

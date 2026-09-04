@@ -320,6 +320,37 @@ export function meshAzimuthPitchDeg(
 export const SLAB_MAX_SAMPLES = 8
 
 /**
+ * Distance au-dela de laquelle l'enveloppe remplace la surface, metres.
+ *
+ * ## ⚠️ Pourquoi le maximum ne peut pas s'appliquer partout
+ *
+ * Prendre le point le plus haut de chaque tranche remplace le relief par son
+ * **enveloppe superieure**. Au loin c'est ce qu'on veut : seule la silhouette
+ * se lit. Pres de l'observateur c'est un desastre — les versants deviennent des
+ * plateaux plats separes de falaises, et le paysage se change en mesas.
+ *
+ * La premiere version le faisait partout, et la capture de reference l'a
+ * montre. C'est le contraste qui tranche : ce qui reste de la luminance propre
+ * du relief apres l'extinction, mesure au Ventoux.
+ *
+ * | distance | contraste restant |
+ * | --- | --- |
+ * | 56 km | 40 % |
+ * | 113 km | 15 % |
+ * | **175 km** | **5 %** |
+ * | 250 km | 1,9 % |
+ *
+ * ⚠️ **Le seuil de dix pour cent est un jugement**, pas une mesure : il place la
+ * bascule vers 130 km, la ou l'ombrage de la surface ne porte plus qu'un
+ * dixieme de son contraste et ou la silhouette fait tout le travail. En deca on
+ * echantillonne, au-dela on enveloppe.
+ *
+ * Les silhouettes fautives mesurees depuis le pic Cassini se trouvaient a 163,
+ * 165, 177 et 286 km — toutes au-dela.
+ */
+export const ENVELOPE_FROM_M = 130_000
+
+/**
  * Combien de fois sonder le relief dans la tranche d'un anneau.
  *
  * ## ⚠️ Pourquoi un anneau ne peut pas se contenter d'un point
@@ -352,6 +383,8 @@ export const SLAB_MAX_SAMPLES = 8
  * suffit ; a l'horizon elle en couvre vingt et l'on en prend huit.
  */
 export function slabSamplesFor(nearM: number, farM: number): number {
+  // En deca, la surface se lit encore et son enveloppe la detruirait.
+  if (farM < ENVELOPE_FROM_M) return 1
   const thicknessM = Math.max(0, farM - nearM)
   const cellM = dataStepM(farM)
   return Math.max(1, Math.min(SLAB_MAX_SAMPLES, Math.ceil(thicknessM / cellM)))
