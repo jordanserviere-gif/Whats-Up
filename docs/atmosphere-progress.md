@@ -3068,6 +3068,88 @@ Si les plaines lointaines paraissent uniformes, c'est parce qu'elles le sont.
 
 ---
 
+## Le sol prend la couleur du sol reel — sa couleur seulement
+
+L'orthophotographie de l'IGN est drapee sur le terrain. Pas comme une image :
+comme une **teinte**.
+
+### ⚠️ Une orthophoto n'est pas un albedo
+
+C'est une image deja eclairee. Elle porte le Soleil du jour de la prise de vue,
+ses ombres portees, et la balance des couleurs du traitement. La brancher telle
+quelle sur `sortante = albedo × eclairement / π` reviendrait a **compter la
+lumiere deux fois** — on descendrait le Soleil au couchant, et les ombres de
+midi resteraient cuites dans le sol, contredisant tout le travail d'ombre porte.
+
+On n'en garde donc que la **chrominance** :
+
+    teinte = ortho / luminance(ortho)
+    albedo = albedoPhysique × teinte
+
+Les champs, les bois, la roche nue, l'eau et les villages peignent la couleur ;
+le moteur garde toute la brillance. Un controle tient la propriete qui separe ce
+drape d'une astuce : **la teinte est de luminance exactement un**, donc l'image
+ne peut pas apporter de lumiere. Une ombre cuite dans la photo a une teinte
+presque neutre, et son effet est presque nul.
+
+⚠️ Ce qu'on perd avec la luminance : les vrais ecarts d'albedo, une foret a 0,08
+contre un calcaire a 0,35. Au registre.
+
+### La source
+
+`HR.ORTHOIMAGERY.ORTHOPHOTOS` sur la Geoplateforme — la meme que le RGE ALTI,
+sans clef, avec CORS ouvert. Sa grille est `PM_6_19`, le **pseudo-Mercator** :
+la meme projection que les tuiles d'altitude, donc aucune trigonometrie
+nouvelle.
+
+⚠️ Le satellite proprement dit — SPOT 2025, Pleiades 2025 — repond 400 : acces
+restreint. L'imagerie aerienne est de toute facon plus fine.
+
+### ⚠️ La couverture comptait plus que la finesse
+
+Premiere version : zoom quinze, 3,4 metres par pixel sur sept kilometres, la
+maille du champ proche d'altitude. Mesure depuis le mont Ventoux — le drape ne
+changeait que **0,2 %** de la chrominance.
+
+La raison etait bete : depuis un sommet a 1912 metres, **presque rien de ce
+qu'on voit n'est a moins de trois kilometres et demi**. Le domaine ne croisait
+pas l'image.
+
+Zoom treize : 13,7 metres par pixel sur vingt-huit kilometres, l'etendue exacte
+du niveau fin de la pyramide. A cinq kilometres un pixel y sous-tend 0,16 degre
+— amplement suffisant pour une couleur, qui n'a pas besoin de la resolution
+qu'exige une silhouette. Quatre-vingt-une tuiles, comme avant.
+
+⚠️ La demi-etendue **depend de la latitude** : le pseudo-Mercator se resserre en
+`cos(latitude)`. Vingt-huit kilometres en France, vingt a Reykjavik. Ce n'est
+donc pas une constante mais une valeur publiee avec la mosaique.
+
+### La mesure
+
+Depuis Carpentras, dans la plaine du Comtat :
+
+| | |
+| --- | --- |
+| pixels changes | **100 %** |
+| chrominance | **+3,0 %** |
+| luminance | +6 niveaux sur 255 |
+
+⚠️ La luminance devait rester intacte, et elle bouge de trois pour cent. **Ce
+n'est pas un defaut** : la teinte est bien de luminance unite, mais l'eclairement
+solaire est spectral. Un albedo decale vers le vert renvoie moins sous une
+lumiere rougie par l'atmosphere. C'est la couleur de l'illuminant qui parle, et
+c'est physiquement juste.
+
+### Ce qui reste
+
+⚠️ **France seulement**, comme le RGE ALTI. Ailleurs le service repond 404 et
+l'albedo reste celui du modele.
+
+Et **rien au-dela de vingt-huit kilometres**, ou de toute facon la transmittance
+efface la couleur du sol comme elle efface sa texture.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -3127,3 +3209,4 @@ Si les plaines lointaines paraissent uniformes, c'est parce qu'elles le sont.
 | 2026-09-02 | Loi d'anneaux suivant la caméra : essayée, cassait l'horizon, retirée. Banc longue distance au pic Cassini |
 | 2026-09-02 | La ligne d'horizon devient un maximum par tranche — l'erreur passe de 0,07-0,18° à 0,004-0,023° |
 | 2026-09-02 | Micro-relief du sol : texture inventée, amplitude mesurée sur cinq sites RGE ALTI |
+| 2026-09-02 | Orthophoto IGN drapée sur le terrain — sa teinte seulement, jamais sa clarté |

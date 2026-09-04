@@ -77,13 +77,16 @@ import { useSkyStore } from '@/state/store'
 import {
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
   ClampToEdgeWrapping,
   DataTexture,
   DoubleSide,
   FloatType,
   LinearFilter,
+  LinearMipmapLinearFilter,
   RedFormat,
   type PerspectiveCamera,
+  SRGBColorSpace,
   ShaderMaterial,
   Vector3,
 } from 'three'
@@ -121,6 +124,13 @@ import {
 import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
+import {
+  ORTHO_GLSL,
+  loadOrthophoto,
+  orthoCanvas,
+  orthoReady,
+  orthoSpanM,
+} from './terrain/orthophoto'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
 // `terrain/meshSampling.ts` : ce sont des choix de discretisation, ils doivent
@@ -569,6 +579,12 @@ function terrainMaterial(): ShaderMaterial {
       uObserverAltitude: { value: 0 },
       /** Rayon terrestre effectif sous refraction, metres. */
       uEffectiveRadius: { value: 6_371_000 },
+      /** Orthophoto drapee — sa **teinte** seulement, voir `orthophoto.ts`. */
+      uOrtho: { value: null as CanvasTexture | null },
+      /** Demi-etendue de la mosaique, metres. */
+      uOrthoHalfSpan: { value: 1 },
+      /** Zero tant qu'aucune orthophoto n'est disponible — hors de France. */
+      uOrthoStrength: { value: 0 },
     },
     vertexShader: /* glsl */ `
       attribute float range;
@@ -594,6 +610,7 @@ function terrainMaterial(): ShaderMaterial {
       ${DISPLAY_TONEMAP_GLSL}
       ${AERIAL_LUT_GLSL}
       ${MICRO_RELIEF_GLSL}
+      ${ORTHO_GLSL}
       // Pas de la sommation par segments. Huit suffisent : la table ne porte que
       // seize tranches de distance, et un pas plus fin qu'elles ne ferait
       // qu'interpoler du vide.
@@ -671,6 +688,18 @@ function terrainMaterial(): ShaderMaterial {
         float snowCover = smoothstep(uSnowLine - 150.0, uSnowLine + 150.0, altitudeM)
                         * (1.0 - smoothstep(0.18, 0.38, slope));
         albedo = mix(albedo, snow, snowCover);
+
+        // --- La teinte du sol reel -----------------------------------------
+        //
+        // ⚠️ **Sa teinte, pas sa clarte.** Une orthophoto est deja eclairee : sa
+        // luminance porte le Soleil du jour de la prise de vue et ses ombres
+        // portees. La garder ferait compter la lumiere deux fois, et l'on
+        // verrait des ombres de midi sous un Soleil couchant. On ne prend donc
+        // que ses rapports de couleur, et le moteur garde toute la brillance.
+        //
+        // Ce qu'on perd avec la luminance : les vrais ecarts d'albedo, une foret
+        // a 0,08 contre un calcaire a 0,35. Au registre.
+        albedo *= orthoTint(vRange * vView.x, -vRange * vView.z);
 
         // --- Eclairement ----------------------------------------------------
         //
@@ -827,6 +856,24 @@ export function Terrain({
       if (alive && got) setRevision(terrainRevision())
     })
 
+    // L'orthophoto suit le meme chemin : en parallele, France seulement, et
+    // sans que rien ne l'attende.
+    void loadOrthophoto(latitudeDeg, longitudeDeg).then((got) => {
+      if (!alive || !got) return
+      const canvas = orthoCanvas()
+      if (!canvas) return
+      const texture = new CanvasTexture(canvas as unknown as HTMLCanvasElement)
+      texture.colorSpace = SRGBColorSpace
+      texture.wrapS = ClampToEdgeWrapping
+      texture.wrapT = ClampToEdgeWrapping
+      texture.minFilter = LinearMipmapLinearFilter
+      texture.magFilter = LinearFilter
+      texture.generateMipmaps = true
+      texture.anisotropy = 8
+      texture.needsUpdate = true
+      setOrtho(texture)
+    })
+
     void loadElevationAround(latitudeDeg, longitudeDeg, (progress) => {
       if (!alive) return
       setTerrainProgress(progress)
@@ -921,6 +968,15 @@ export function Terrain({
   const material = useMemo(() => terrainMaterial(), [])
 
   /**
+   * L'orthophoto, publiee des qu'elle arrive.
+   *
+   * Une `CanvasTexture` et non un tableau : la mosaique n'est jamais lue pixel
+   * par pixel, elle est seulement echantillonnee.
+   */
+  const [ortho, setOrtho] = useState<CanvasTexture | null>(null)
+  useEffect(() => () => ortho?.dispose(), [ortho])
+
+  /**
    * Carte d'ombre, refaite quand le Soleil a sensiblement bouge.
    *
    * Le pas de quantification est **une consequence, pas un confort** : l'ombre
@@ -962,6 +1018,9 @@ export function Terrain({
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     ;(u.uSunIrradiance.value as Vector3).set(sunIrradiance[0], sunIrradiance[1], sunIrradiance[2])
     u.uShadowMap.value = shadowTexture
+    u.uOrtho.value = ortho
+    u.uOrthoStrength.value = ortho && orthoReady() ? 1 : 0
+    u.uOrthoHalfSpan.value = Math.max(1, orthoSpanM())
     // L'oeil, encore : le nuanceur reconstruit la position d'un point de la
     // visee, et doit partir d'ou part reellement le regard.
     u.uObserverAltitude.value = eyeM

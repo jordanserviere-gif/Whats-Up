@@ -45,6 +45,7 @@ import { terrainSuite } from '@/scene/terrain/terrain.validation'
 import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
 import { nearFieldSuite } from '@/scene/terrain/nearField.validation'
 import { microReliefSuite } from '@/scene/terrain/microRelief.validation'
+import { orthophotoSuite } from '@/scene/terrain/orthophoto.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -114,5 +115,7 @@ export function allSuites(): SuiteResult[] {
     nearFieldSuite(),
     // Dette : micro-relief du sol — une texture inventee, d amplitude mesuree.
     microReliefSuite(),
+    // Dette : drape orthophotographique — la teinte du sol reel, pas sa clarte.
+    orthophotoSuite(),
   ]
 }
