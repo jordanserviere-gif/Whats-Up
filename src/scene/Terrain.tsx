@@ -120,6 +120,7 @@ import {
 } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
+import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
 // `terrain/meshSampling.ts` : ce sont des choix de discretisation, ils doivent
@@ -592,6 +593,7 @@ function terrainMaterial(): ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${DISPLAY_TONEMAP_GLSL}
       ${AERIAL_LUT_GLSL}
+      ${MICRO_RELIEF_GLSL}
       // Pas de la sommation par segments. Huit suffisent : la table ne porte que
       // seize tranches de distance, et un pas plus fin qu'elles ne ferait
       // qu'interpoler du vide.
@@ -636,7 +638,12 @@ function terrainMaterial(): ShaderMaterial {
       }
 
       void main() {
-        vec3 N = normalize(vNormal);
+        // ⚠️ Le micro-relief est une **texture inventee**, appliquee aux seules
+        // normales. Sans elle, une plaine lointaine rend un aplat de lumiere
+        // uniforme sur des centaines de pixels, sa normale y etant rigoureusement
+        // constante. Son amplitude est prise dans l'intervalle mesure des
+        // plaines francaises ; son motif ne decrit rien. Voir microRelief.ts.
+        vec3 N = microRelief(normalize(vNormal), normalize(vView), vRange);
 
         // --- Albedo ---------------------------------------------------------
         //

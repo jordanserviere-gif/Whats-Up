@@ -2984,6 +2984,90 @@ declenchait dessus des que la crete etait basse. Il cherche desormais la
 
 ---
 
+## Le sol recoit une texture de normales, assumee fausse
+
+Demande : une gestion plus fine de la lumiere sur le terrain, pour ne plus avoir
+de grands aplats en plaine. Le motif est **invente** et c'est assume — ce qui ne
+l'est pas, c'est son amplitude.
+
+### L'amplitude sort d'une mesure
+
+Pente efficace relevee sur des tuiles RGE ALTI a 3,4 metres :
+
+| site | pente efficace |
+| --- | --- |
+| Beauce, plaine cerealiere | 0,012 — 0,7° |
+| Camargue, delta | 0,017 — 1,0° |
+| Landes, plaine boisee | 0,017 — 1,0° |
+| Vallee du Rhone | 0,087 — 5,0° |
+| Mont Ventoux | 0,291 — 16,2° |
+
+Une plaine francaise vit donc entre un et cinq degres. La valeur retenue, 0,06,
+tombe dedans : le motif ne decrit rien, son ampleur est celle d'une vraie
+plaine.
+
+⚠️ Elle reste un **choix**, pas une deduction. Au registre.
+
+Et la pente ne depend pas de l'echelle — exposant de Hurst **0,980** sur un
+facteur huit — ce qui rend l'extrapolation sous la resolution du modele
+numerique legitime en statistique, sinon en geographie.
+
+### Trois pieges, tous rencontres
+
+**La frequence collee au pixel fait nager le motif.** Premiere version : la
+maille du bruit suivait continument l'empreinte du pixel, donc son echelle
+changeait avec la distance et le motif se deformait des que la camera bougeait,
+comme une salissure sur l'ecran. Les echelles sont desormais **quantifiees en
+octaves**, comme un mipmap : le motif est ancre dans le monde, et l'on ne fait
+que fondre d'une octave a la suivante.
+
+**Le hachage ecrit d'instinct a une structure.** `sin(a·x + b·y)` est constant
+le long des droites `a·x + b·y = cte`, et le sol se couvrait de hachures
+obliques bien visibles. Le remplacant — melange de composantes — n'etait pas
+meilleur sur une grille d'entiers. Mesure sur quarante mille noeuds :
+
+| hachage | moyenne | pire correlation |
+| --- | --- | --- |
+| melange puis repliement | 0,374 | 0,336 |
+| sinus d'une somme | 0,501 | 0,013 |
+| **treillis entier** | **0,502** | **0,005** |
+
+**Un entier injecte dans le GLSL casse le nuanceur en silence.** JavaScript rend
+`0.0` comme `"0"`, et GLSL refuse de l'affecter a un `float` : le fragment ne
+compile plus et le terrain disparait. Le defaut ne se montre jamais pendant
+qu'on regle une valeur fractionnaire, et toujours quand on la met a zero pour
+comparer — ce qui est arrive, et a produit une mesure de reference invalide.
+Un controle verifie desormais que chaque constante porte son point decimal.
+
+### Ce que ca donne
+
+Contraste local, mesure au Ventoux vers la plaine du Comtat :
+
+| vue et zone | avant | apres |
+| --- | --- | --- |
+| champ 25°, sol proche | 0,16 | **5,64** |
+| champ 25°, plaine lointaine | 0,27 | 0,28 |
+| champ 6°, sol proche | 0,14 | 0,42 |
+| champ 6°, plaine lointaine | 0,22 | 0,26 |
+
+Aucun cout mesurable : mediane 16,7 ms, maximum 26 ms a tous les champs.
+
+### ⚠️ Ce que ca ne donne pas, et pourquoi c'est correct
+
+**Au loin, presque rien.** La demande portait surtout sur les plaines
+lointaines, et c'est la que l'effet est le plus faible — un facteur 1,0 a 1,2
+contre 3 a 36 de pres.
+
+Ce n'est pas un defaut du micro-relief : c'est que **la texture d'une surface
+est attenuee par la transmittance**, qui vaut 15 % a 113 km et 5 % a 175 km. A
+ces distances, ce qu'on voit n'est plus le sol mais le voile. Forcer du contraste
+la reviendrait a peindre ce que l'atmosphere retire — exactement l'astuce que le
+projet s'interdit.
+
+Si les plaines lointaines paraissent uniformes, c'est parce qu'elles le sont.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -3042,3 +3126,4 @@ declenchait dessus des que la crete etait basse. Il cherche desormais la
 | 2026-09-02 | Relief proche à 3 m par le RGE ALTI de l'IGN ; le goulot passe à l'axe des distances |
 | 2026-09-02 | Loi d'anneaux suivant la caméra : essayée, cassait l'horizon, retirée. Banc longue distance au pic Cassini |
 | 2026-09-02 | La ligne d'horizon devient un maximum par tranche — l'erreur passe de 0,07-0,18° à 0,004-0,023° |
+| 2026-09-02 | Micro-relief du sol : texture inventée, amplitude mesurée sur cinq sites RGE ALTI |

@@ -44,6 +44,7 @@ import { moonSkySuite } from '@/scene/display/moonSky.validation'
 import { terrainSuite } from '@/scene/terrain/terrain.validation'
 import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
 import { nearFieldSuite } from '@/scene/terrain/nearField.validation'
+import { microReliefSuite } from '@/scene/terrain/microRelief.validation'
 import type { SuiteResult } from './harness'
 
 /** Toutes les suites, dans l'ordre des phases. */
@@ -111,5 +112,7 @@ export function allSuites(): SuiteResult[] {
     meshSamplingSuite(),
     // Dette : resolution du relief proche — la source IGN a trois metres.
     nearFieldSuite(),
+    // Dette : micro-relief du sol — une texture inventee, d amplitude mesuree.
+    microReliefSuite(),
   ]
 }
