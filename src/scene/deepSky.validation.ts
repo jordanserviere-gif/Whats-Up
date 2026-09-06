@@ -24,6 +24,14 @@ import {
   surfaceBrightnessLuminance,
 } from './display/adaptation'
 import { EXTINCTION_COEFFICIENT, airmass } from '@/astro/photometry'
+import { DEEP_SKY_INDEX, findDeepSkyObject } from '@/astro/deepsky'
+import {
+  DSO_ATLAS_COUNT,
+  DSO_ATLAS_GRID,
+  DSO_ATLAS_MIN_MAJOR_ARCMIN,
+  atlasSlotOf,
+  profileMagnitudeOffset,
+} from './deepSkyAtlas'
 
 /** Part de vision scotopique — la meme loi que les etoiles et le fond de ciel. */
 function rodFraction(magPerArcsec2: number): number {
@@ -132,6 +140,77 @@ export function deepSkySuite(): SuiteResult {
       t.note(
         'perte a la traversee : ' +
           [90, 30, 10, 5].map((h) => `${h}° ${perte(h).toFixed(2)} mag`).join(' ; '),
+      )
+
+      // --- L'atlas d'images ---------------------------------------------------
+      //
+      // ⚠️ Il ne porte **pas** une luminance mais un ecart de magnitude a la
+      // brillance moyenne de l'objet. C'est ce qui permet a la photometrie
+      // ci-dessus de garder la main : l'image dit ou est la lumiere, le moteur
+      // dit combien il y en a.
+      t.check('l octet nul rend cinq magnitudes de moins que la moyenne', profileMagnitudeOffset(0), 5, 1e-9, ' mag')
+      t.check('l octet plein rend cinq magnitudes de plus', profileMagnitudeOffset(255), -5, 1e-9, ' mag')
+      t.check(
+        'le pas de quantification reste tres au-dessous du seuil perceptible',
+        Math.abs(profileMagnitudeOffset(0) - profileMagnitudeOffset(1)),
+        10 / 255,
+        1e-6,
+        ' mag',
+      )
+      t.checkTrue(
+        'la moyenne du profil rend exactement la brillance du catalogue',
+        // Une moyenne de un, c'est log10 = 0, soit le milieu exact de l'encodage.
+        Math.abs(profileMagnitudeOffset(255 / 2)) < 1e-9,
+        'aucun decalage entre le profil neutre et la brillance moyenne',
+      )
+
+      // Une image n'a de sens que pour un objet dont on connait l'etendue : le
+      // profil se cale sur l'ellipse du catalogue.
+      const assezGrands = DEEP_SKY_INDEX.filter((o) => o.majorArcmin >= DSO_ATLAS_MIN_MAJOR_ARCMIN)
+      t.checkTrue(
+        'tout objet assez etendu recoit une image',
+        assezGrands.every((o) => atlasSlotOf(o.index) >= 0),
+        `${assezGrands.filter((o) => atlasSlotOf(o.index) >= 0).length} sur ${assezGrands.length} ` +
+          `au-dela de ${DSO_ATLAS_MIN_MAJOR_ARCMIN} minutes d arc`,
+      )
+      t.checkTrue(
+        'aucun objet sans dimensions ne recoit d image',
+        DEEP_SKY_INDEX.every((o) => atlasSlotOf(o.index) < 0 || o.surfaceBrightness !== null),
+        'le profil se cale sur l ellipse du catalogue, qui doit donc exister',
+      )
+      const emplacements = DEEP_SKY_INDEX.map((o) => atlasSlotOf(o.index)).filter((s) => s >= 0)
+      t.checkTrue(
+        'les emplacements sont distincts et tiennent dans la grille',
+        new Set(emplacements).size === emplacements.length &&
+          emplacements.every((s) => s < DSO_ATLAS_GRID * DSO_ATLAS_GRID),
+        `${DSO_ATLAS_COUNT} tuiles dans une grille de ${DSO_ATLAS_GRID}x${DSO_ATLAS_GRID}`,
+      )
+
+      // --- Ce que le profil change, concretement ------------------------------
+      //
+      // La visibilite d'un objet etendu tient au contraste : il s'efface quand
+      // sa brillance de surface passe a plus d'une magnitude et demie sous
+      // celle du fond. Avec un profil, ce n'est plus l'objet entier qui bascule
+      // d'un coup mais chacune de ses parties.
+      const m31 = findDeepSkyObject('M31')
+      const mu = m31?.surfaceBrightness ?? NaN
+      const visible = (brillance: number, ciel: number) => brillance < ciel + 1.5
+      t.checkTrue(
+        'M31 entiere se lit sous un ciel noir',
+        visible(mu, 21.8),
+        `brillance moyenne ${mu.toFixed(2)} mag/arcsec² contre un seuil a 23,30`,
+      )
+      t.checkTrue(
+        'sous un ciel de ville, seules ses parties les plus brillantes ressortent',
+        !visible(mu, 19.5) && visible(mu - 2.5 * Math.log10(10), 19.5),
+        `la moyenne s efface, mais un profil de 10 fois la moyenne rend ` +
+          `${(mu - 2.5).toFixed(2)} mag/arcsec² et passe le seuil de 21,00`,
+      )
+      t.note(
+        'profil minimal visible pour M31 : ' +
+          [21.8, 20.5, 19.5]
+            .map((ciel) => `ciel ${ciel} → ${(10 ** ((mu - ciel - 1.5) / 2.5)).toFixed(1)} fois la moyenne`)
+            .join(' ; '),
       )
     },
   )

@@ -3317,30 +3317,30 @@ ce que le serveur servait reellement** a chaque pas.
 
 ---
 
-## Le ciel profond cesse d'ignorer l'atmosphere, et perd ses couleurs
+## Le ciel profond cesse d'ignorer l'atmosphère, perd ses couleurs, et reçoit de vraies images
 
-Signale : la lueur des objets du ciel profond semble ignorer l'atmosphere, et
-ils sont trop colores. Les deux sont vrais, et le second est pire que « trop
-colore ».
+Signalé : la lueur des objets du ciel profond semble ignorer l'atmosphère, et ils
+sont trop colorés. Les deux sont vrais, et le second est pire que « trop
+coloré ».
 
 ### ⚠️ Le seul calque sans transport
 
-Le nuanceur du ciel profond ne contenait **aucun** terme atmospherique — ni
-extinction, ni transmittance, ni voile. Les etoiles, les astres, le fond de ciel
-et le terrain y passent tous ; celui-la seul y echappait. Une galaxie brillait
-donc autant a l'horizon qu'au zenith.
+Le nuanceur du ciel profond ne contenait **aucun** terme atmosphérique — ni
+extinction, ni transmittance, ni voile. Les étoiles, les astres, le fond de ciel
+et le terrain y passent tous ; celui-là seul y échappait. Une galaxie brillait
+donc autant à l'horizon qu'au zénith.
 
-Le reste de sa photometrie etait pourtant juste : l'opacite d'un objet etendu
+Le reste de sa photométrie était pourtant juste : l'opacité d'un objet étendu
 vient du **contraste** entre sa brillance de surface et celle du fond de ciel,
 ce qui est la bonne grandeur. Il ne lui manquait que l'extinction.
 
-Pour une source **etendue**, celle-ci s'applique a la brillance de surface
-exactement comme a une magnitude — elle attenue la radiance le long du rayon, et
+Pour une source **étendue**, celle-ci s'applique à la brillance de surface
+exactement comme à une magnitude — elle atténue la radiance le long du rayon, et
 l'angle solide, lui, ne change pas :
 
-    mu_observee = mu_intrinseque + k · X
+    mu_observée = mu_intrinsèque + k · X
 
-Ce que ca donne pour M31, sur un ciel a 21,5 mag/arcsec² :
+Ce que ça donne pour M31, sur un ciel à 21,5 mag/arcsec² :
 
 | hauteur | perte | contraste |
 | --- | --- | --- |
@@ -3356,40 +3356,125 @@ Elle fond donc en descendant, au lieu de rester identique.
 Chaque type d'objet recevait un jeton CSS — `--app-dso-galaxy`,
 `--app-dso-nebula-emission`. Toutes les galaxies partageaient une teinte.
 
-Et physiquement, c'est doublement faux : **a l'oeil nu, un objet du ciel profond
-est gris**. Sa brillance de surface le place en plein regime scotopique, ou les
-cones ne repondent plus ; seule une pose longue revele une couleur.
+Et physiquement, c'est doublement faux : **à l'œil nu, un objet du ciel profond
+est gris**. Sa brillance de surface le place en plein régime scotopique, où les
+cônes ne répondent plus ; seule une pose longue révèle une couleur.
 
 La conversion qui le montre n'introduit **aucune constante** — `ZERO_MAGNITUDE_LUX`
-sert deja aux etoiles, le reste est de la geometrie :
+sert déjà aux étoiles, le reste est de la géométrie :
 
     L = E_mag0 · 10^(−0,4·mu) / arcsec²
 
-Recoupement : 22 mag/arcsec² rend **1,71·10⁻⁴ cd/m²** contre 1,7·10⁻⁴ publie
-pour un ciel tres noir.
+Recoupement : 22 mag/arcsec² rend **1,71·10⁻⁴ cd/m²** contre 1,7·10⁻⁴ publié
+pour un ciel très noir.
 
 | objet | brillance | luminance | part de gris |
 | --- | --- | --- | --- |
-| **coeur de M42** | 13 mag/arcsec² | 6,8·10⁻¹ cd/m² | **17 %** |
-| M31, coeur | 20 | 1,1·10⁻³ | 100 % |
+| **cœur de M42** | 13 mag/arcsec² | 6,8·10⁻¹ cd/m² | **17 %** |
+| M31, cœur | 20 | 1,1·10⁻³ | 100 % |
 | M31, bras | 22 | 1,7·10⁻⁴ | 100 % |
 
-⚠️ **La loi predit la seule exception connue.** Le coeur de M42 est le seul
-objet a franchir le plafond scotopique, et c'est precisement le seul dont les
-observateurs rapportent une teinte a l'oeil nu. Rien n'a ete regle pour obtenir
-ce resultat : il tombe de la meme loi mesopique que les etoiles et le fond de
-ciel.
+⚠️ **La loi prédit la seule exception connue.** Le cœur de M42 est le seul objet
+à franchir le plafond scotopique, et c'est précisément le seul dont les
+observateurs rapportent une teinte à l'œil nu. Rien n'a été réglé pour obtenir ce
+résultat : il tombe de la même loi mésopique que les étoiles et le fond de ciel.
 
-### Ce qui reste
+### Les vraies images : un atlas de 548 profils
 
-Les vraies images. La source est ouverte et testee — **hips2fits du CDS** rend
-M31, M42 et M13 en JPEG, sans clef, avec CORS ouvert. Le catalogue compte 1738
-objets mais la taille apparente s'effondre vite : 544 depassent cinq minutes
-d'arc, 152 en depassent dix. Un atlas construit **hors ligne** suffit donc.
+À la place du noyau gaussien et de son halo, les relevés eux-mêmes. Le service
+**hips2fits du CDS** rend n'importe quelle vignette du DSS2 rouge, sans clef.
+548 objets dépassent cinq minutes d'arc — en deçà, aucune image ne les
+distinguerait d'une tache. L'atlas est construit **hors ligne** et livré avec
+l'application : **2,58 Mo, 548 tuiles, aucun échec, 27 s de fabrication**.
 
-⚠️ Et le meme piege que l'orthophoto attend : une plaque photographique n'est pas
-une carte de radiance. Il faudra en prendre la **structure** et garder notre
-photometrie.
+#### ⚠️ Une plaque photographique n'est pas une carte de radiance
+
+Le même piège que l'orthophoto drapée sur le terrain. La lire comme une
+luminance contredirait la photométrie ci-dessus, qui déduit déjà la brillance de
+surface de la magnitude et des dimensions du catalogue.
+
+L'atlas ne porte donc que le **profil** : où est la lumière dans l'objet, ramené
+à une moyenne de un sur l'ellipse. L'octet stocke `log10` de ce profil, ce qui
+revient à un **écart de magnitude** par rapport à la brillance moyenne :
+
+    mu_locale = mu_moyenne − 2,5·log10(p) = mu_moyenne + 5 − 10·q
+
+Dix magnitudes sur 255 niveaux, soit **0,039 magnitude** par niveau, du cœur au
+halo. Un premier jet stockait le profil linéairement : le rapport pic sur
+moyenne atteignait **9 241** sur une tuile, où le pas de quantification valait
+alors trente-six fois la moyenne.
+
+Le service est interrogé en **FITS** pour la même raison : il rend les valeurs
+linéaires du relevé, quand un PNG ou un JPEG imposeraient au profil une courbe
+de contraste arbitraire et écrêteraient les percentiles extrêmes.
+
+#### L'orientation a été mesurée, pas supposée
+
+Je tenais pour acquis que passer l'angle de position du catalogue amènerait le
+grand axe à la verticale de la tuile. Faux, et du mauvais côté. Angle du grand
+axe mesuré par les moments d'ordre deux, compté depuis le haut :
+
+| objet | PA catalogue | rot = 0 | rot = +PA | rot = −PA |
+| --- | --- | --- | --- | --- |
+| NGC 247 | 167° | 9,9° | 23,1° | **176,1°** |
+| NGC 891 | 22° | 156,2° | 134,7° | **177,4°** |
+| NGC 3109 | 93° | 90,3° | 178,1° | **4,9°** |
+| NGC 4236 | 161° | 22,3° | 40,4° | **1,7°** |
+
+À `rotation_angle = 0` le service rend déjà le nord en haut et l'est à gauche ;
+c'est **`−PA`** qui redresse le grand axe. Confirmé par un second chemin : la
+matrice de passage du FITS de M31 porte une rotation de +35° quand on demande
+−35°. Sur l'atlas complet, l'écart médian du grand axe à la verticale vaut
+**3,1° sur 154 objets allongés**.
+
+#### Le fond de ciel, mesuré là où le catalogue dit qu'il n'y a rien
+
+La tuile couvrant exactement le grand axe, l'ellipse y est inscrite : ses coins
+sont hors de l'objet. La médiane y est prise comme niveau de ciel, puis
+soustraite — même geste que pour la carte des lumières urbaines.
+
+#### Relecture de ce qui est livré
+
+La moyenne du profil vaut un **par construction** : raison de plus pour la
+vérifier sur les octets écrits, entre lesquels se glissent l'encodage
+logarithmique, le plancher à deux décades et l'arrondi à huit bits. Écart
+maximal sur les 548 tuiles : **0,9 %**, soit 0,01 magnitude, sur NGC 1499.
+
+Et à l'écran, M31 depuis Paris cesse d'être une ellipse floue : le disque
+incliné, la bande de poussière, le noyau, M32 et M110 par leurs propres tuiles.
+Seule sa partie centrale ressort, ce qui est la bonne réponse — sa brillance
+moyenne de 22,30 mag/arcsec² passe sous le seuil de contraste d'un ciel de
+ville, et seules les régions dix fois plus brillantes que la moyenne le
+franchissent.
+
+### ⚠️ Un nuanceur livré qui ne compilait pas
+
+L'extinction et la couleur ont été commitées (`93a41fb`) avec un fragment qui
+appelait `airmassAt`, laquelle vit dans la table de réfraction incluse dans le
+seul nuanceur de sommets. Validé en TypeScript, jamais fait tourner. Corrigé en
+calculant la masse d'air au sommet et en la passant en varying — c'est déjà ce
+que font les étoiles.
+
+⚠️ **La leçon** : une suite de validation qui reproduit une loi en TypeScript ne
+dit rien de ce que le GPU en fait. Elle a mesuré une physique juste dans un
+calque qui n'affichait rien.
+
+### ⚠️ Ce qui reste
+
+- **Un seul filtre.** Le DSS2 rouge donne une structure en rouge ; une nébuleuse
+  à émission y est plus contrastée qu'à l'œil.
+- **Les étoiles de champ des plaques** s'ajoutent à celles du catalogue du
+  moteur. Elles sont bien plus faibles que sa limite, mais le compte est double.
+- **L'ellipse du catalogue coupe l'objet.** Un objet réel la déborde : le fond
+  mesuré dans les coins est donc légèrement surestimé, et les extensions les
+  plus ténues tronquées. Le bord est éteint en douceur pour ne pas se voir.
+- **96 pixels par tuile.** À très petit champ, M31 est agrandie près de trois
+  fois et l'image devient molle.
+- **La teinte reste un jeton d'interface**, mais elle ne sort du gris qu'au-delà
+  du plafond scotopique, c'est-à-dire pratiquement jamais.
+- **La référence colorimétrique est périmée** : `atmo:baseline` relève 37
+  dérives — vérifié, elles sont là aussi sans ce changement, et viennent des
+  phases terrain qui ont modifié le ciel sans réécrire la référence.
 
 ---
 
@@ -3456,3 +3541,4 @@ photometrie.
 | 2026-09-02 | Le sol émet : lumières urbaines depuis OSM, calibrées par l'EN 13201 et un spectre de Planck |
 | 2026-09-02 | Les lumières s'allument au crépuscule, éclairent l'air, et sont floutées en mètres au sol |
 | 2026-09-02 | Le ciel profond reçoit l'extinction, et devient gris comme il l'est à l'œil |
+| 2026-09-06 | Le ciel profond reçoit de vraies images : atlas de 548 profils DSS2, en écarts de magnitude |
