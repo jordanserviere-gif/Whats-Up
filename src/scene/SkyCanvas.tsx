@@ -598,6 +598,7 @@ export function SkyCanvas() {
             magnitudeLimit={DEEP_SKY_MAG_LIMIT}
             limitingMagnitude={limitingMagnitude}
             illuminance={illuminance}
+            aerosolTurbidity={aerosolTurbidity}
             resolveToken={readToken}
           />
         )}

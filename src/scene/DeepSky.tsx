@@ -14,11 +14,18 @@ import {
 import { useFrame, useThree } from '@react-three/fiber'
 import { buildDeepSkyGeometry, DEEP_SKY_TYPES } from '@/astro/deepsky'
 import {
+  EXTINCTION_COEFFICIENT,
   POINT_BRIGHTNESS_SCALE,
   POINT_VISIBILITY_FADE_END,
   POINT_VISIBILITY_FADE_START,
   skySurfaceBrightness,
 } from '@/astro/photometry'
+import {
+  ARCSEC2_STERADIAN,
+  PHOTOPIC_FLOOR,
+  SCOTOPIC_CEILING,
+  ZERO_MAGNITUDE_LUX,
+} from './display/adaptation'
 import type { GeoLocation } from '@/astro/types'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
@@ -81,6 +88,7 @@ export function DeepSky({
   magnitudeLimit,
   limitingMagnitude,
   illuminance,
+  aerosolTurbidity,
   resolveToken,
 }: {
   date: Date
@@ -88,6 +96,14 @@ export function DeepSky({
   magnitudeLimit: number
   limitingMagnitude: number
   illuminance: number
+  /**
+   * Trouble atmospherique.
+   *
+   * Il entre ici pour la meme raison que dans les etoiles : un ciel plus charge
+   * en aerosols eteint davantage, et c'est le meme phenomene qui blanchit
+   * l'horizon.
+   */
+  aerosolTurbidity: number
   /** Resolution d'un token CSS en couleur — injectee pour suivre le theme. */
   resolveToken: (token: string, fallback?: string) => string
 }) {
@@ -149,6 +165,8 @@ export function DeepSky({
         /** Pixels par radian : convertit une taille angulaire en taille ecran. */
         uPixelsPerRadian: { value: 1000 },
         uMinPixelRadius: { value: 1.4 },
+        /** Coefficient d'extinction, magnitudes par masse d'air. */
+        uExtinctionK: { value: EXTINCTION_COEFFICIENT },
       },
       vertexShader: /* glsl */ `
         ${REFRACTION_LUT_GLSL}
@@ -168,6 +186,7 @@ export function DeepSky({
         varying float vMag;
         varying float vSb;
         varying float vExtended;
+        varying float vAltDeg;
 
         void main() {
           vUv = uv * 2.0 - 1.0;
@@ -181,6 +200,10 @@ export function DeepSky({
           // Meme redressement que les etoiles : un amas doit rester au milieu
           // des etoiles qui le composent, y compris pres de l'horizon.
           vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          // ⚠️ La hauteur **vraie**, relevee avant le redressement : c'est elle
+          // qui donne la masse d'air, et la refraction ne change pas le trajet
+          // parcouru dans l'atmosphere.
+          vAltDeg = degrees(asin(clamp(normalize(world.xyz).y, -1.0, 1.0)));
           world.xyz = refractSceneDirection(world.xyz);
           gl_Position = projectionMatrix * viewMatrix * world;
         }
@@ -195,7 +218,9 @@ export function DeepSky({
         varying float vMag;
         varying float vSb;
         varying float vExtended;
+        varying float vAltDeg;
 
+        uniform float uExtinctionK;
         uniform float uLimitMag;
         uniform float uSkySb;
         uniform float uPixelsPerRadian;
@@ -214,16 +239,35 @@ export function DeepSky({
           float d = length(vec2(angular.x / b, angular.y / a));
           if (d > 1.0) discard;
 
+          // --- L'extinction atmospherique ------------------------------------
+          //
+          // ⚠️ **Ce calque l'ignorait entierement.** Il etait le seul du moteur
+          // dans ce cas : les etoiles, les astres, le fond de ciel et le terrain
+          // y passent tous. Une galaxie brillait donc autant a l'horizon qu'au
+          // zenith.
+          //
+          // Pour une source **etendue**, l'extinction s'applique a la brillance
+          // de surface exactement comme a une magnitude : elle attenue la
+          // radiance le long du rayon, et l'angle solide, lui, ne change pas.
+          //
+          //     mu_observee = mu_intrinseque + k · X
+          //
+          // Le plafond de masse d'air est celui des etoiles, pour que les deux
+          // calques s'eteignent ensemble au ras de l'horizon.
+          float airmass = min(airmassAt(vAltDeg), 12.0);
+          float extinction = uExtinctionK * airmass;
+          float sbObserved = vSb + extinction;
+
           float opacity;
           if (vExtended > 0.5) {
             // Objet etendu : c'est le contraste de brillance de surface avec le
             // fond de ciel qui decide, non la magnitude integree.
-            float contrast = uSkySb - vSb;
+            float contrast = uSkySb - sbObserved;
             opacity = clamp((contrast + 1.5) / 3.5, 0.0, 1.0);
           } else {
             // Dimensions inconnues : on retombe sur la loi des sources
             // ponctuelles — meme courbe que pointIntensity(), voir photometry.ts.
-            float delta = vMag - uLimitMag;
+            float delta = vMag + extinction - uLimitMag;
             float rel = pow(10.0, -0.4 * delta);
             float gate = 1.0 - smoothstep(${POINT_VISIBILITY_FADE_START.toFixed(1)}, ${POINT_VISIBILITY_FADE_END.toFixed(1)}, delta);
             opacity = clamp(${POINT_BRIGHTNESS_SCALE} * log(1.0 + rel) * gate, 0.0, 1.0);
@@ -240,7 +284,38 @@ export function DeepSky({
           float falloff = (core + halo) * (1.0 - smoothstep(0.8, 1.0, d));
           float alpha = falloff * opacity;
           if (alpha < 0.004) discard;
-          gl_FragColor = vec4(radianceFromDisplay(vColor), alpha);
+
+          // --- La couleur, et pourquoi elle doit s'en aller ------------------
+          //
+          // ⚠️ **A l'oeil nu, un objet du ciel profond est gris.** Sa brillance
+          // de surface le place en plein regime scotopique, ou les cones ne
+          // repondent plus : seule une pose longue en revele la teinte. Le
+          // moteur applique deja cette loi aux etoiles et au fond de ciel ; ce
+          // calque y echappait, et rendait la chromaticite pleine d'un jeton
+          // d'interface.
+          //
+          // Contrairement a une etoile, un objet etendu **a** une luminance : sa
+          // brillance de surface en donne une directement, sans passer par la
+          // tache de diffusion de l'oeil.
+          //
+          //     L = E_mag0 · 10^(−0,4·mu) / (1 arcsec² en steradians)
+          //
+          // Verification : 22 mag/arcsec² rend 1,71·10⁻⁴ cd/m², contre 1,7·10⁻⁴
+          // publie pour un ciel tres noir.
+          float retinal = ${ZERO_MAGNITUDE_LUX.toExponential(6)} *
+                          pow(10.0, -0.4 * sbObserved) /
+                          ${ARCSEC2_STERADIAN.toExponential(6)};
+          float mesopic = log2(max(1e-9, retinal) / ${SCOTOPIC_CEILING.toFixed(4)}) /
+                          log2(${PHOTOPIC_FLOOR.toFixed(1)} / ${SCOTOPIC_CEILING.toFixed(4)});
+          float rods = 1.0 - smoothstep(0.0, 1.0, mesopic);
+
+          // Rougissement par l'extinction, normalise sur le rouge — la meme loi
+          // que les etoiles.
+          float xr = max(0.0, airmass - 1.0);
+          vec3 tinted = vColor * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));
+          vec3 seen = mix(tinted, vec3(dot(tinted, vec3(0.2126, 0.7152, 0.0722))), rods);
+
+          gl_FragColor = vec4(radianceFromDisplay(seen), alpha);
         }
       `,
     })
@@ -310,6 +385,9 @@ export function DeepSky({
     material.uniforms.uPixelsPerRadian.value = size.height / (2 * Math.tan(fov / 2))
     material.uniforms.uLimitMag.value = limitingMagnitude
     material.uniforms.uSkySb.value = skySurfaceBrightness(illuminance)
+    // Le meme coefficient que les etoiles, trouble compris : les deux calques
+    // doivent s'eteindre ensemble.
+    material.uniforms.uExtinctionK.value = EXTINCTION_COEFFICIENT * aerosolTurbidity
     // La meme table que les etoiles : un amas doit rester au milieu des etoiles
     // qui le composent.
     applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])

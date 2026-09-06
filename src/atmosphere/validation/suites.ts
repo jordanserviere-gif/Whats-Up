@@ -40,6 +40,7 @@ import { standardAtmosphereSuite } from '../thermodynamics/standardAtmosphere.va
 import { waterVapourSuite } from '../thermodynamics/waterVapour.validation'
 import { displayTransformSuite } from './display.validation'
 import { adaptationSuite } from '@/scene/display/adaptation.validation'
+import { deepSkySuite } from '@/scene/deepSky.validation'
 import { moonSkySuite } from '@/scene/display/moonSky.validation'
 import { terrainSuite } from '@/scene/terrain/terrain.validation'
 import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
@@ -70,6 +71,9 @@ export function allSuites(): SuiteResult[] {
     displayTransformSuite(),
     // Dette : adaptation visuelle — l'exposition suit le ciel.
     adaptationSuite(),
+    // Dette : le ciel profond ignorait l atmosphere et tenait sa couleur d un
+    // jeton d interface.
+    deepSkySuite(),
     // Dette : le socle nocturne — le clair de lune devient de la diffusion.
     moonSkySuite(),
     // Phase 4 — transport direct.

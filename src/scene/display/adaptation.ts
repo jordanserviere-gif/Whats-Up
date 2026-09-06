@@ -199,6 +199,40 @@ export const PHOTOPIC_FLOOR = 3
 export const ZERO_MAGNITUDE_LUX = 2.54e-6
 
 /**
+ * Une seconde d'arc carree, en steradians.
+ *
+ * Purement geometrique : `(π/180/3600)²`. Elle sert a passer d'une brillance de
+ * surface, exprimee en magnitudes par seconde d'arc carree, a une luminance.
+ */
+export const ARCSEC2_STERADIAN = (Math.PI / 180 / 3600) ** 2
+
+/**
+ * Luminance correspondant a une brillance de surface, cd/m².
+ *
+ * ## Pourquoi cette conversion existe
+ *
+ * Les astronomes comptent en **magnitudes par seconde d'arc carree**, la vision
+ * en **candelas par metre carre**. Le passage n'est pas une convention : une
+ * brillance de surface `mu` vaut, par seconde d'arc, l'eclairement d'une source
+ * de magnitude `mu` ; le diviser par l'angle solide d'une seconde d'arc carree
+ * rend une luminance.
+ *
+ *     L = E_mag0 · 10^(−0,4·mu) / arcsec²
+ *
+ * ⚠️ Aucune constante nouvelle : `ZERO_MAGNITUDE_LUX` sert deja aux etoiles, et
+ * le reste est de la geometrie. Le recoupement est net — 22 mag/arcsec² rend
+ * **1,71·10⁻⁴ cd/m²** contre 1,7·10⁻⁴ publie pour un ciel tres noir.
+ *
+ * Elle dit aussi quelque chose de fort sur le ciel profond : a 20 mag/arcsec²,
+ * une galaxie brille a 10⁻³ cd/m², soit **dix fois sous le plafond scotopique**.
+ * Elle est donc grise a l'oeil, et seul le coeur de M42 — 13 mag/arcsec², 0,68
+ * cd/m² — entre dans le domaine mesopique. C'est precisement le seul objet dont
+ * les observateurs rapportent une teinte.
+ */
+export const surfaceBrightnessLuminance = (magPerArcsec2: number): number =>
+  (ZERO_MAGNITUDE_LUX * 10 ** (-0.4 * magPerArcsec2)) / ARCSEC2_STERADIAN
+
+/**
  * Magnitude apparente au-dela de laquelle la couleur d'une source ponctuelle
  * cesse d'etre percue.
  *
