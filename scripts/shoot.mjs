@@ -211,6 +211,38 @@ const SCENARIOS = [
     ]
   })(),
 
+  // --- Le meme objet sous un ciel noir ---
+  //
+  // Depuis Paris, la magnitude limite vaut 4,3 et M31 n'est pas visible a
+  // l'oeil nu : c'est la bonne reponse, mais elle ne valide rien. Il faut un
+  // ciel ou l'oeil la voit, et un champ ou l'instrument prend le relais.
+  ...(() => {
+    const m31 = findTimeForTarget(10.6848, 41.2688, CASSINI, { from: '2026-09-01T00:00:00Z', minAltitude: 55 })
+    if (!m31) return []
+    return [
+      {
+        name: '14-m31-site-noir',
+        time: m31.time,
+        location: CASSINI,
+        az: m31.az,
+        alt: m31.alt,
+        fov: 12,
+        note: 'M31 a l oeil nu depuis un ciel noir',
+      },
+      {
+        // L'ouverture minimale capable de resoudre un pixel depasse ici la
+        // pupille : le rendu passe de l'oeil au capteur.
+        name: '13-m31-instrument',
+        time: m31.time,
+        location: CASSINI,
+        az: m31.az,
+        alt: m31.alt,
+        fov: 1.5,
+        note: 'M31 au champ ou l instrument prend le relais de l oeil',
+      },
+    ]
+  })(),
+
   // Bisection du champ : a quel grossissement un disque planetaire cesse-t-il
   // d'etre rendu ? Un objet qui disparait en zoomant trahit un probleme de
   // troncature ou de precision, pas un defaut d'eclairage.

@@ -3478,6 +3478,148 @@ calque qui n'affichait rien.
 
 ---
 
+## Le ciel profond cesse d'être une tache, et le zoom devient un instrument
+
+Signalé : « m31 est trop visible, je suppose que c'est un problème sur les
+autres objets » — et « ça reste en noir et blanc, quand on zoome à fond on est
+censé avoir l'objet en meilleure résolution ».
+
+### ⚠️ 169 niveaux sur un ciel à 0
+
+Le cœur de M31 rendait **169 sur 255**, sur un fond de ciel à zéro. La cause
+n'était pas un réglage mais une loi : le calque avait la sienne, un contraste
+décalé de 1,5 puis divisé par 3,5, plafonné, multiplié par 0,42. Trois
+constantes inventées, et une saturation atteinte dès deux magnitudes au-dessus
+du fond — le cœur de M31 en est à quatre et demie.
+
+### Détecter et paraître brillant sont deux questions distinctes
+
+C'est la confusion des deux qui rendait la galaxie aveuglante, et la séparer
+supprime les trois constantes.
+
+**Détecter** profite de la sommation spatiale : ce que l'œil compare au seuil,
+c'est le flux tombant dans l'aire sur laquelle il intègre.
+
+    m_détection = mu − 2,5·log10(Omega_eff)     Omega_eff = min(Omega_œil, Omega_objet)
+
+Le plafond n'est pas une commodité : sans lui, un petit objet rendrait une
+magnitude **plus brillante que sa magnitude intégrée**, ce qui n'a pas de sens.
+Avec lui, un objet plus petit que l'aire de sommation retombe exactement sur sa
+magnitude de catalogue — la loi des sources ponctuelles n'est plus un cas
+particulier, c'est la limite de celle-ci.
+
+**Paraître brillant** n'en profite pas. L'image rétinienne d'une source étendue
+a la même brillance de surface que l'objet, quelle que soit sa taille : la
+grandeur comparable est le flux dans la seule tache de diffusion.
+
+### ⚠️ L'aire de sommation est déduite, et vérifiée sur des objets qui n'ont pas servi à la déduire
+
+La littérature va de dix minutes d'arc à un degré selon la luminance et le
+protocole ; choisir dedans serait choisir le résultat. On pose donc que **M33
+est exactement au seuil** sous un ciel vierge — l'objet limite du ciel à l'œil
+nu, et le seuil vient des paliers de magnitude limite du moteur. Il en sort
+**32,9 minutes d'arc** de diamètre, dans l'intervalle publié sans y avoir été
+pris.
+
+| objet | brillance | m_détection | plafonné | modèle | observé |
+| --- | --- | --- | --- | --- | --- |
+| M42 | 21,96 | 5,75 | non | le plus facile | oui |
+| M31 | 22,30 | 6,09 | non | demande un ciel correct | oui |
+| M33 | 22,81 | 6,60 | non | à la limite | ancrage |
+| M13 | 20,52 | **5,80** | oui | source ponctuelle de magnitude 5,8 | oui |
+| M81 | 21,51 | 6,92 | oui | hors de portée | oui |
+| M101 | 23,39 | 7,90 | oui | hors de portée | oui |
+
+**M81 est le contrôle qui compte** : elle a la brillance de surface de M42 et
+n'est pourtant pas un objet à l'œil nu. C'est le plafond qui l'écarte. M13 dit
+la même chose autrement — plafonnée, elle rend exactement 5,80, sa magnitude de
+catalogue.
+
+Résultat : le cœur de M31 passe de **169 à 32 niveaux** à champ large, et reste
+parfaitement gris.
+
+### Le zoom est un instrument, et l'instrument se déduit
+
+Un objet du ciel profond est gris **à l'œil** : le cœur de M31 vaut
+0,013 cd/m², deux cent trente fois sous le seuil où les cônes répondent, et
+grossir n'y change rien — la brillance de surface ne monte pas avec le
+grossissement. Pour avoir de la couleur il faut assumer que le rendu n'est plus
+un œil.
+
+Un seuil de champ serait arbitraire. On pose donc la seule question qui ait une
+réponse : **quelle est la plus petite ouverture capable de résoudre le pixel
+affiché ?** Le critère de Rayleigh la donne, et la bascule tombe toute seule là
+où cette ouverture dépasse la pupille adaptée.
+
+| champ (900 px) | pixel | ouverture | gain |
+| --- | --- | --- | --- |
+| 60° | 4,0′ | 0,6 mm | 0 — l'œil |
+| **4,99°** | 20″ | **7 mm** | **0 — la bascule** |
+| 2° | 8″ | 17 mm | 1,98 mag |
+| 0,5° | 2″ | 70 mm | 4,99 mag |
+| 0,05° | 0,2″ | 698 mm | 9,98 mag |
+
+⚠️ **Un capteur n'a pas de bâtonnets.** Première version fausse : j'appliquais
+la loi mésopique de l'œil en lui donnant le flux de l'instrument. Le gris du
+ciel profond est une propriété de la rétine, pas de la lumière — la loi cesse
+donc de s'appliquer à mesure que l'instrument prend le relais, et la part qu'il
+prend se déduit, `1 − 10^(−0,4·gain)`, la fraction de lumière que l'œil seul
+n'aurait pas pu collecter.
+
+### La couleur cesse de venir d'une feuille de style
+
+Chaque type d'objet recevait un jeton CSS. Le catalogue porte pourtant des
+magnitudes B **calibrées** pour 87 % des objets de l'atlas : `B−V` donne une
+vraie couleur, par la conversion déjà employée pour les étoiles. M31 vaut 0,85,
+soit 5 135 K.
+
+⚠️ **La cale de transition ne conserve pas la teinte.** `radianceFromDisplay`
+inverse la courbe d'affichage canal par canal ; c'est exact quand la couleur
+ressort telle quelle, mais elle est ici multipliée par une opacité faible, et
+l'inversion diverge dès qu'un canal touche un. Le rapport 1 : 0,91 : 0,83
+devenait **1 : 0,26 : 0,15**, et une galaxie à peine jaune sortait orange vif.
+La cale ne porte plus que la luminance ; la teinte passe par le linéaire, où
+elle a un sens. Mesuré après correction : **1 : 0,88 : 0,78**.
+
+⚠️ Le même défaut guette le champ d'étoiles, qui emploie la même cale.
+
+### La résolution suit la taille de l'objet
+
+Une tuile unique gaspillerait sur les 462 objets de moins d'un quart de degré
+ce qui manque aux vingt-deux qui dépassent quarante minutes d'arc — ceux dans
+lesquels on zoome. Trois paliers : 96, 192 et 384 pixels, soit 9,9 Mpx contre
+35,9 si tout le monde recevait 256. L'atlas pèse **4,35 Mo** pour 548 images.
+
+Le cadrage prend en plus **quinze pour cent** du grand axe : la première version
+coupait exactement sur l'ellipse du catalogue, et la coupure se voyait.
+
+### ⚠️ Ce qui reste faux
+
+**Le profil n'est pas lissé à l'échelle de sommation.** L'œil intègre sur
+trente-trois minutes d'arc ; la loi est pourtant appliquée à la brillance
+locale. Un cœur plus petit que cette aire se voit un peu trop tôt.
+
+**Aucun temps de pose.** L'instrument ne porte que son ouverture. Une vraie
+pose longue ajouterait une intégration temporelle, et c'est elle qui manque
+pour qu'une nébuleuse se colore depuis un ciel de ville.
+
+**Un seul filtre.** Le profil vient du rouge du DSS2 : une nébuleuse à émission
+y est plus contrastée qu'à l'œil, sa raie Hα tombant en plein dans ce filtre.
+Et `B−V` suppose un corps noir, ce qui est faux pour un objet qui rayonne en
+raies.
+
+**Les étoiles de champ de la plaque** s'ajoutent à celles du catalogue.
+
+**La pollution lumineuse ne vient pas du site** mais d'un réglage : les
+captures de « site noir » et de Paris partagent le même ciel tant qu'on ne
+touche pas au curseur. La classe Bortle par défaut vaut 1.
+
+Coût : aucune régression mesurable — 16,6 ms de médiane avec et sans le calque,
+au champ large comme au zoom. ⚠️ Tout est plafonné par la synchronisation
+verticale, ce qui prouve l'absence de régression plus que ça ne mesure le coût.
+
+---
+
 ## Journal
 
 | Date | Événement |
@@ -3542,3 +3684,4 @@ calque qui n'affichait rien.
 | 2026-09-02 | Les lumières s'allument au crépuscule, éclairent l'air, et sont floutées en mètres au sol |
 | 2026-09-02 | Le ciel profond reçoit l'extinction, et devient gris comme il l'est à l'œil |
 | 2026-09-06 | Le ciel profond reçoit de vraies images : atlas de 548 profils DSS2, en écarts de magnitude |
+| 2026-09-07 | Le ciel profond cesse d'être une tache : loi de détection déduite, couleur B−V, et le zoom devient un instrument |

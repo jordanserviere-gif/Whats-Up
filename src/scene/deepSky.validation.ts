@@ -18,6 +18,7 @@
 import { suite, type SuiteResult } from '@/atmosphere/validation/harness'
 import {
   ARCSEC2_STERADIAN,
+  EYE_POINT_SPREAD_SR,
   PHOTOPIC_FLOOR,
   SCOTOPIC_CEILING,
   ZERO_MAGNITUDE_LUX,
@@ -27,11 +28,17 @@ import { EXTINCTION_COEFFICIENT, airmass } from '@/astro/photometry'
 import { DEEP_SKY_INDEX, findDeepSkyObject } from '@/astro/deepsky'
 import {
   DSO_ATLAS_COUNT,
-  DSO_ATLAS_GRID,
   DSO_ATLAS_MIN_MAJOR_ARCMIN,
-  atlasSlotOf,
+  atlasRectOf,
   profileMagnitudeOffset,
 } from './deepSkyAtlas'
+import {
+  EYE_SUMMATION_ARCMIN,
+  EYE_SUMMATION_SR,
+  effectiveSummationSr,
+  elementMagnitude,
+} from './display/extendedVision'
+import { instrumentGainMag, instrumentOnsetFovDeg } from './display/instrument'
 
 /** Part de vision scotopique — la meme loi que les etoiles et le fond de ciel. */
 function rodFraction(magPerArcsec2: number): number {
@@ -169,47 +176,139 @@ export function deepSkySuite(): SuiteResult {
       const assezGrands = DEEP_SKY_INDEX.filter((o) => o.majorArcmin >= DSO_ATLAS_MIN_MAJOR_ARCMIN)
       t.checkTrue(
         'tout objet assez etendu recoit une image',
-        assezGrands.every((o) => atlasSlotOf(o.index) >= 0),
-        `${assezGrands.filter((o) => atlasSlotOf(o.index) >= 0).length} sur ${assezGrands.length} ` +
+        assezGrands.every((o) => atlasRectOf(o.index) !== null),
+        `${assezGrands.filter((o) => atlasRectOf(o.index) !== null).length} sur ${assezGrands.length} ` +
           `au-dela de ${DSO_ATLAS_MIN_MAJOR_ARCMIN} minutes d arc`,
       )
       t.checkTrue(
         'aucun objet sans dimensions ne recoit d image',
-        DEEP_SKY_INDEX.every((o) => atlasSlotOf(o.index) < 0 || o.surfaceBrightness !== null),
+        DEEP_SKY_INDEX.every((o) => atlasRectOf(o.index) === null || o.surfaceBrightness !== null),
         'le profil se cale sur l ellipse du catalogue, qui doit donc exister',
       )
-      const emplacements = DEEP_SKY_INDEX.map((o) => atlasSlotOf(o.index)).filter((s) => s >= 0)
+      const rectangles = DEEP_SKY_INDEX.map((o) => atlasRectOf(o.index)).filter((r) => r !== null)
       t.checkTrue(
-        'les emplacements sont distincts et tiennent dans la grille',
-        new Set(emplacements).size === emplacements.length &&
-          emplacements.every((s) => s < DSO_ATLAS_GRID * DSO_ATLAS_GRID),
-        `${DSO_ATLAS_COUNT} tuiles dans une grille de ${DSO_ATLAS_GRID}x${DSO_ATLAS_GRID}`,
+        'les rectangles sont distincts et tiennent dans la texture',
+        new Set(rectangles.map((r) => `${r[0]},${r[1]}`)).size === rectangles.length &&
+          rectangles.every((r) => r[0] >= 0 && r[1] >= 0 && r[0] + r[2] <= 1 && r[1] + r[3] <= 1),
+        `${DSO_ATLAS_COUNT} tuiles rangees sans doublon d emplacement`,
       )
 
-      // --- Ce que le profil change, concretement ------------------------------
+      // --- Detecter un objet etendu -------------------------------------------
       //
-      // La visibilite d'un objet etendu tient au contraste : il s'efface quand
-      // sa brillance de surface passe a plus d'une magnitude et demie sous
-      // celle du fond. Avec un profil, ce n'est plus l'objet entier qui bascule
-      // d'un coup mais chacune de ses parties.
-      const m31 = findDeepSkyObject('M31')
-      const mu = m31?.surfaceBrightness ?? NaN
-      const visible = (brillance: number, ciel: number) => brillance < ciel + 1.5
+      // ⚠️ Le calque avait sa propre loi : un contraste decale de 1,5 puis
+      // divise par 3,5, plafonne, multiplie par 0,42. Trois constantes
+      // inventees, et une saturation atteinte des deux magnitudes au-dessus du
+      // fond — le coeur de M31 rendait **169 niveaux sur un ciel a 0**.
+      //
+      // Elle est remplacee par la loi des sources ponctuelles, appliquee au
+      // flux tombant dans l'aire sur laquelle l'oeil somme.
+      const objet = (nom: string) => {
+        const o = findDeepSkyObject(nom)
+        if (!o || o.surfaceBrightness === null) return null
+        const semiMajor = (o.majorArcmin * Math.PI) / 180 / 60 / 2
+        const minor = o.minorArcmin > 0 ? o.minorArcmin : o.majorArcmin
+        const semiMinor = (minor * Math.PI) / 180 / 60 / 2
+        const omega = Math.PI * semiMajor * semiMinor
+        return { ...o, omega, element: elementMagnitude(o.surfaceBrightness, omega) }
+      }
+
+      t.checkRelative(
+        'l aire de sommation se deduit de l objet limite du ciel',
+        EYE_SUMMATION_ARCMIN,
+        32.9,
+        0.02,
+        ' arcmin de diametre',
+      )
+      // ⚠️ Ce n'est pas une justification mais une verification : l'intervalle
+      // publie pour la sommation spatiale de l'oeil adapte a l'obscurite va de
+      // dix minutes d'arc a un degre.
       t.checkTrue(
-        'M31 entiere se lit sous un ciel noir',
-        visible(mu, 21.8),
-        `brillance moyenne ${mu.toFixed(2)} mag/arcsec² contre un seuil a 23,30`,
+        'elle tombe dans l intervalle publie sans y avoir ete prise',
+        EYE_SUMMATION_ARCMIN > 10 && EYE_SUMMATION_ARCMIN < 60,
+        `${EYE_SUMMATION_ARCMIN.toFixed(1)} arcmin, deduit de M33 au seuil sous un ciel vierge`,
+      )
+
+      // Le plafond n'est pas une commodite : sans lui, un objet plus petit que
+      // l'aire de sommation rendrait une magnitude **plus brillante que sa
+      // magnitude integree**, ce qui n'a pas de sens.
+      const m13 = objet('M13')
+      t.check(
+        'un objet plus petit que l aire de sommation retombe sur sa magnitude integree',
+        m13?.element ?? NaN,
+        m13?.magnitude ?? NaN,
+        0.01,
+        ' mag',
       )
       t.checkTrue(
-        'sous un ciel de ville, seules ses parties les plus brillantes ressortent',
-        !visible(mu, 19.5) && visible(mu - 2.5 * Math.log10(10), 19.5),
-        `la moyenne s efface, mais un profil de 10 fois la moyenne rend ` +
-          `${(mu - 2.5).toFixed(2)} mag/arcsec² et passe le seuil de 21,00`,
+        'le plafond joue bien pour lui',
+        (m13?.omega ?? 0) < EYE_SUMMATION_SR &&
+          effectiveSummationSr(m13?.omega ?? 0) === (m13?.omega ?? 0),
+        'la loi des sources ponctuelles est la limite de celle-ci, pas un cas separe',
+      )
+
+      // Le controle qui compte : M81 a **la brillance de surface de M42** et
+      // n'est pourtant pas un objet a l'oeil nu. C'est le plafond qui l'ecarte.
+      const m42 = objet('M42')
+      const m81 = objet('M81')
+      t.checkTrue(
+        'M81 sort de portee malgre une brillance de surface voisine de M42',
+        Math.abs((m81?.surfaceBrightness ?? 0) - (m42?.surfaceBrightness ?? 0)) < 0.5 &&
+          (m81?.element ?? 0) > 6.6 &&
+          (m42?.element ?? 9) < 6,
+        `brillances ${m42?.surfaceBrightness?.toFixed(2)} et ${m81?.surfaceBrightness?.toFixed(2)} ; ` +
+          `m_element ${m42?.element.toFixed(2)} contre ${m81?.element.toFixed(2)}`,
+      )
+
+      const ordre = ['M42', 'M31', 'M33', 'M81', 'M101'].map((n) => objet(n)?.element ?? NaN)
+      t.checkTrue(
+        'les objets se classent comme les observateurs les classent',
+        ordre.every((v, i) => i === 0 || v > ordre[i - 1]),
+        'M42 puis M31, M33, M81, M101 : ' + ordre.map((v) => v.toFixed(2)).join(' < '),
+      )
+
+      // --- ⚠️ Detecter et paraitre brillant sont deux questions distinctes ----
+      //
+      // La sommation aide a **detecter**. Elle n'aide pas a **paraitre
+      // brillant** : l'image retinienne d'une source etendue a la meme
+      // brillance de surface que l'objet, quelle que soit sa taille. Les
+      // confondre est ce qui rendait M31 aveuglante.
+      const m31 = objet('M31')
+      const eclat = (mu: number) => mu - 2.5 * Math.log10(EYE_POINT_SPREAD_SR / ARCSEC2_STERADIAN)
+      t.checkTrue(
+        'M31 se detecte largement mais ne parait que tenue',
+        (m31?.element ?? 9) < 6.6 && eclat(m31?.surfaceBrightness ?? 0) > 6.6 + 4,
+        `detectee a ${m31?.element.toFixed(2)} sous un ciel a 6,6, mais son eclat ` +
+          `repond a ${eclat(m31?.surfaceBrightness ?? 0).toFixed(2)}`,
+      )
+
+      // --- L'instrument que le champ implique ---------------------------------
+      //
+      // ⚠️ Aucun seuil de champ n'est pose : la bascule tombe la ou l'ouverture
+      // requise pour resoudre un pixel depasse la pupille adaptee.
+      const pixelAngle = (fovDeg: number, h = 900) => (fovDeg * Math.PI) / 180 / h
+      t.checkRelative(
+        'la bascule se deduit de la pupille et de la diffraction',
+        instrumentOnsetFovDeg(900),
+        4.99,
+        0.02,
+        ' degres de champ',
+      )
+      t.checkTrue(
+        'a champ large le rendu reste exactement celui de l oeil',
+        instrumentGainMag(pixelAngle(60)) === 0 && instrumentGainMag(pixelAngle(10)) === 0,
+        'gain nul au-dela de la bascule, aucun changement pour les vues d ensemble',
+      )
+      const champs = [4, 2, 1, 0.5, 0.2]
+      const gains = champs.map((f) => instrumentGainMag(pixelAngle(f)))
+      t.checkTrue(
+        'le gain croit a mesure qu on zoome',
+        gains.every((v, i) => i === 0 || v > gains[i - 1]),
+        champs.map((f, i) => `${f} deg ${gains[i].toFixed(2)} mag`).join(' ; '),
       )
       t.note(
-        'profil minimal visible pour M31 : ' +
-          [21.8, 20.5, 19.5]
-            .map((ciel) => `ciel ${ciel} → ${(10 ** ((mu - ciel - 1.5) / 2.5)).toFixed(1)} fois la moyenne`)
+        'ouverture impliquee : ' +
+          [2, 0.5, 0.05]
+            .map((f) => `${f} deg vers ${((1000 * 1.22 * 555e-9) / pixelAngle(f)).toFixed(0)} mm`)
             .join(' ; '),
       )
     },

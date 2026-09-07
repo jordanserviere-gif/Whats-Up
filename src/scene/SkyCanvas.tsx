@@ -172,7 +172,6 @@ export function SkyCanvas() {
   // Sans le calque « atmosphere », on regarde le ciel comme depuis l'espace :
   // magnitude limite fixee au catalogue, aucune diffusion diurne.
   const limitingMagnitude = layers.atmosphere ? sky.limitingMagnitude : 6.6
-  const illuminance = layers.atmosphere ? sky.illuminance : 2e-4
 
 /**
    * Attenuation due a une eclipse, partagee par les deux echelles d'exposition.
@@ -597,9 +596,7 @@ export function SkyCanvas() {
             location={location}
             magnitudeLimit={DEEP_SKY_MAG_LIMIT}
             limitingMagnitude={limitingMagnitude}
-            illuminance={illuminance}
             aerosolTurbidity={aerosolTurbidity}
-            resolveToken={readToken}
           />
         )}
 
