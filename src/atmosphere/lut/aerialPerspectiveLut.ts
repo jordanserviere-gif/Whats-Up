@@ -367,6 +367,40 @@ export function fillAerialRows(
   toRow: number,
   options: SingleScatteringOptions = {},
 ): void {
+  fillAerialDirections(lut, grid, sunAltitudeDeg, fromRow * lut.width, toRow * lut.width, options)
+}
+
+/**
+ * Remplit une tranche de **directions**, numerotees `y * width + x`.
+ *
+ * ## Pourquoi une granularite plus fine que la ligne
+ *
+ * Une ligne porte `width` directions et coute, mesure sur un portable a
+ * processeur integre, **30 ms** au Soleil haut — deux fois le budget d'une
+ * image a 60 Hz. L'ordonnanceur ne pouvait donc pas descendre en dessous d'une
+ * image saccadee : sa plus petite unite depassait deja ce qu'il avait le droit
+ * de depenser.
+ *
+ * Le cout depend en outre de la hauteur du Soleil — 30 ms a +60°, 16 ms a
+ * −12° — ce qui interdit de caler une tranche une fois pour toutes : la meme
+ * heure ne donne pas le meme ciel selon la saison, ni le meme travail.
+ *
+ * ## Pourquoi c'est licite
+ *
+ * Une direction est independante de ses voisines : elle mene sa propre marche,
+ * ecrit ses propres texels, et la transmittance courante `prev*` qui impose la
+ * decroissance est reinitialisee a chaque direction. Decouper la boucle ne
+ * change donc **aucune valeur**, seulement le moment ou elle est ecrite —
+ * invariant verifie par `aerialPerspectiveLut.validation.ts`.
+ */
+export function fillAerialDirections(
+  lut: AerialLut,
+  grid: SpectralGrid,
+  sunAltitudeDeg: number,
+  from: number,
+  to: number,
+  options: SingleScatteringOptions = {},
+): void {
   const { width, height, depth, scattered, ambient, transmittance } = lut
   const solar = solarLinearSrgb(grid)
   const bands = grid.count
@@ -403,53 +437,66 @@ export function fillAerialRows(
   const stepsPerSlice = 8
   const sliceDistancesM = aerialSliceDistancesM(depth)
 
-  for (let y = Math.max(0, fromRow); y < Math.min(height, toRow); y++) {
-    const altitudeDeg = aerialAltitudeDeg(height > 1 ? y / (height - 1) : 0)
-    for (let x = 0; x < width; x++) {
-      const azimuthDeg = 180 * (width > 1 ? x / (width - 1) : 0)
-      const aerial = aerialPerspective(grid, altitudeDeg, azimuthDeg, sunAltitudeDeg, {
-        ...options,
-        slices: depth,
-        stepsPerSlice,
-        sliceDistancesM,
-        // Sous l'horizon, le trajet se termine au sol. C'est ce qui distingue
-        // une surface — qui s'y trouve — du ciel, qui n'y est pas.
-        stopAtGround: altitudeDeg < 0,
-      })
+  const first = Math.max(0, from)
+  const last = Math.min(width * height, to)
+  // La hauteur de visee ne change qu'en changeant de ligne : la recalculer par
+  // direction serait sans consequence, mais la garder permet de ne pas refaire
+  // la division a chaque pas.
+  let row = -1
+  let altitudeDeg = 0
 
-      // Transmittance de la tranche precedente, pour imposer la decroissance —
-      // voir le commentaire dans la boucle.
-      let prevR = 1
-      let prevG = 1
-      let prevB = 1
+  for (let d = first; d < last; d++) {
+    const y = (d / width) | 0
+    const x = d - y * width
+    if (y !== row) {
+      row = y
+      altitudeDeg = aerialAltitudeDeg(height > 1 ? y / (height - 1) : 0)
+    }
+    const azimuthDeg = 180 * (width > 1 ? x / (width - 1) : 0)
+    const aerial = aerialPerspective(grid, altitudeDeg, azimuthDeg, sunAltitudeDeg, {
+      ...options,
+      slices: depth,
+      stepsPerSlice,
+      sliceDistancesM,
+      // Sous l'horizon, le trajet se termine au sol. C'est ce qui distingue
+      // une surface — qui s'y trouve — du ciel, qui n'y est pas.
+      stopAtGround: altitudeDeg < 0,
+    })
 
-      for (let z = 0; z < depth; z++) {
-        // Ordre attendu par une texture 3D : x le plus rapide, puis y, puis z.
-        const i = ((z * height + y) * width + x) * 4
-        const base = z * bands
+    // Transmittance de la tranche precedente, pour imposer la decroissance —
+    // voir le commentaire dans la boucle. Remise a l'unite a chaque direction :
+    // c'est ce qui rend le decoupage a la direction sans effet sur les valeurs.
+    let prevR = 1
+    let prevG = 1
+    let prevB = 1
 
-        for (let b = 0; b < bands; b++) buffer[b] = aerial.scattered[base + b]
-        const rgb = spectralToLinearSrgb(grid, buffer)
-        scattered[i] = rgb[0]
-        scattered[i + 1] = rgb[1]
-        scattered[i + 2] = rgb[2]
+    for (let z = 0; z < depth; z++) {
+      // Ordre attendu par une texture 3D : x le plus rapide, puis y, puis z.
+      const i = ((z * height + y) * width + x) * 4
+      const base = z * bands
 
-        // La meme integrale privee de sa source solaire — voir `ambient`. Elle
-        // traverse le meme operateur colorimetrique que le total, sans quoi les
-        // deux ne seraient pas sur la meme echelle et une ombre changerait la
-        // teinte du voile au lieu de seulement l'assombrir.
-        for (let b = 0; b < bands; b++) buffer[b] = aerial.ambient[base + b]
-        const ambientRgb = spectralToLinearSrgb(grid, buffer)
-        ambient[i] = ambientRgb[0]
-        ambient[i + 1] = ambientRgb[1]
-        ambient[i + 2] = ambientRgb[2]
+      for (let b = 0; b < bands; b++) buffer[b] = aerial.scattered[base + b]
+      const rgb = spectralToLinearSrgb(grid, buffer)
+      scattered[i] = rgb[0]
+      scattered[i + 1] = rgb[1]
+      scattered[i + 2] = rgb[2]
 
-        // Reduction de la transmittance spectrale — voir l'avertissement en tete
-        // de module. Le spectre de reference est celui du Soleil.
-        for (let b = 0; b < bands; b++) {
-          buffer[b] = aerial.transmittance[base + b] * solarSpectrum[b]
-        }
-        const tRgb = spectralToLinearSrgb(grid, buffer)
+      // La meme integrale privee de sa source solaire — voir `ambient`. Elle
+      // traverse le meme operateur colorimetrique que le total, sans quoi les
+      // deux ne seraient pas sur la meme echelle et une ombre changerait la
+      // teinte du voile au lieu de seulement l'assombrir.
+      for (let b = 0; b < bands; b++) buffer[b] = aerial.ambient[base + b]
+      const ambientRgb = spectralToLinearSrgb(grid, buffer)
+      ambient[i] = ambientRgb[0]
+      ambient[i + 1] = ambientRgb[1]
+      ambient[i + 2] = ambientRgb[2]
+
+      // Reduction de la transmittance spectrale — voir l'avertissement en tete
+      // de module. Le spectre de reference est celui du Soleil.
+      for (let b = 0; b < bands; b++) {
+        buffer[b] = aerial.transmittance[base + b] * solarSpectrum[b]
+      }
+      const tRgb = spectralToLinearSrgb(grid, buffer)
         // Ecretage de gamut, et non correction physique. Une transmittance tres
         // rougie — visee rasante, plusieurs dizaines de masses d'air — a une
         // chromaticite qui **sort du triangle sRGB** : sa projection sur la
@@ -468,21 +515,20 @@ export function fillAerialRows(
         // table entiere : la remontee corrigee vaut au plus 8,55·10⁻⁴, sur des
         // valeurs de 2·10⁻³ — un objet deja eteint a 99,8 %.
         //
-        // Reparation d'un artefact de reduction, donc, et non modele. La levee
-        // de principe serait d'appliquer la transmittance en XYZ, ou les
-        // fonctions colorimetriques sont positives ; elle couterait deux
-        // changements de base dans chacun des trois materiaux, pour un ecart
-        // inferieur au niveau d'affichage.
-        const tr = solar[0] > 0 ? Math.min(prevR, Math.max(0, tRgb[0] / solar[0])) : 1
-        const tg = solar[1] > 0 ? Math.min(prevG, Math.max(0, tRgb[1] / solar[1])) : 1
-        const tb = solar[2] > 0 ? Math.min(prevB, Math.max(0, tRgb[2] / solar[2])) : 1
-        transmittance[i] = tr
-        transmittance[i + 1] = tg
-        transmittance[i + 2] = tb
-        prevR = tr
-        prevG = tg
-        prevB = tb
-      }
+      // Reparation d'un artefact de reduction, donc, et non modele. La levee
+      // de principe serait d'appliquer la transmittance en XYZ, ou les
+      // fonctions colorimetriques sont positives ; elle couterait deux
+      // changements de base dans chacun des trois materiaux, pour un ecart
+      // inferieur au niveau d'affichage.
+      const tr = solar[0] > 0 ? Math.min(prevR, Math.max(0, tRgb[0] / solar[0])) : 1
+      const tg = solar[1] > 0 ? Math.min(prevG, Math.max(0, tRgb[1] / solar[1])) : 1
+      const tb = solar[2] > 0 ? Math.min(prevB, Math.max(0, tRgb[2] / solar[2])) : 1
+      transmittance[i] = tr
+      transmittance[i + 1] = tg
+      transmittance[i + 2] = tb
+      prevR = tr
+      prevG = tg
+      prevB = tb
     }
   }
 }

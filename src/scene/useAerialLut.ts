@@ -20,14 +20,17 @@
  * hauteur solaire a bouge d'un quart de degre. Environ une minute de temps
  * reel, bien en dessous de ce que l'oeil distingue sur un degrade de ciel.
  *
- * ## La reconstruction est etalee
+ * ## La reconstruction est etalee, sous un budget de temps
  *
- * Une ligne — une hauteur de visee, avec ses seize distances — coute 2,9 ms.
- * Deux lignes par image tiennent dans le budget, et les seize images passent
- * inapercues : la texture ne change qu'une fois la table complete, si bien que
- * le ciel affiche l'ancienne pendant la construction de la nouvelle. Pas de
- * dechirure, et le prix est un retard de quelques images sur la position du
- * Soleil — sans objet, personne ne juge la couleur d'un ciel qui defile.
+ * La construction avance par petits quanta jusqu'a epuisement d'un **budget en
+ * millisecondes**, et non d'un nombre fixe d'unites par image. La difference
+ * n'est pas de reglage mais de nature : un nombre d'unites ne veut pas dire la
+ * meme chose sur deux machines, une duree si. Voir `BUILD_BUDGET_MS`.
+ *
+ * La texture ne change qu'une fois la table complete, si bien que le ciel
+ * affiche l'ancienne pendant la construction de la nouvelle. Pas de dechirure,
+ * et le prix est un retard de quelques images sur la position du Soleil — sans
+ * objet, personne ne juge la couleur d'un ciel qui defile.
  *
  * ## Format
  *
@@ -66,7 +69,7 @@ import {
   AERIAL_LUT_HEIGHT,
   AERIAL_LUT_WIDTH,
   createAerialLut,
-  fillAerialRows,
+  fillAerialDirections,
   measureMeanSkyLuminance,
   measureSkyIrradiance,
   type AerialLut,
@@ -121,17 +124,98 @@ let columnLut: ColumnLut | null = null
 let columnRowsDone = 0
 
 /**
- * Lignes de table de colonne construites par image.
+ * Budget de construction par image, millisecondes.
  *
- * Mesure : la table entiere coute **124 ms dans le navigateur**, et elle etait
- * construite paresseusement au premier besoin, donc **dans une image**. C'etait
- * le plus gros blocage du moteur — tout le reste etait deja etale.
+ * ## Une duree, et non un nombre d'unites
  *
- * Huit lignes sur soixante-quatre font 15 ms : huit images pour une table
- * complete, et plus aucun a-coup a l'ouverture. Rien de la physique ne change,
- * chaque entree etant independante des autres.
+ * Les tranches etaient des **comptes** — huit lignes de colonne, trente-deux
+ * entrees de diffusion multiple, une ligne de perspective — cales pour valoir
+ * une douzaine de millisecondes sur la machine de reference. Un compte ne
+ * traverse pas les machines : mesure sur un portable a processeur integre, les
+ * memes tranches coutent 17,1, 14,5 et 11,1 ms, et l'image entiere montait a
+ * **26,8 ms en mediane, 52,5 au p95** pendant la construction — la scene
+ * tombait a 28 images par seconde.
+ *
+ * Une duree, elle, veut dire la meme chose partout. Une machine rapide en fait
+ * davantage par image, une machine lente moins, et aucune ne depasse le budget.
+ *
+ * ## D'ou vient le chiffre
+ *
+ * Il n'est pas choisi, il se deduit d'une cible et de deux grandeurs mesurees.
+ * La cible est **25 images par seconde en charge**, soit 40 ms par image — pas
+ * la fluidite d'un jeu, mais une scene qui reste maniable pendant qu'elle se
+ * construit. De ces 40 ms, le GPU en prend 8,85 (mesure, apres que le tampon
+ * par defaut a cesse de doubler le multi-echantillonnage) et la scene environ
+ * 2 de CPU. Restent une trentaine, dont on garde une marge pour le navigateur
+ * lui-meme et pour le depassement d'un quantum.
+ *
+ *     40 ms (25 i/s)  −  8,85 (GPU)  −  2 (scene)  −  marge  ≈  28 ms
+ *
+ * Le depassement est borne par le quantum le plus cher — 6,1 ms pour une
+ * direction de perspective, mesure sur la table entiere — donc une image ne
+ * peut pas depasser 34 ms de construction, et la cible tient.
+ *
+ * Le travail total ne change pas : environ 3,5 s de calcul, qui occupaient
+ * jusqu'ici des images de 26,8 ms en mediane avec des pointes a 352. Le budget
+ * ne les raccourcit pas, il les **borne** — c'est la pointe qui disparait, pas
+ * le travail. La table precedente reste affichee pendant ce temps, et la
+ * premiere passe de diffusion multiple suffit deja a un ciel juste dans sa
+ * forme.
  */
-const COLUMN_ROWS_PER_FRAME = 8
+const BUILD_BUDGET_MS = 28
+
+/**
+ * Echeance de la construction pour l'image en cours.
+ *
+ * ⚠️ **Le budget est celui de l'image, pas celui d'un appelant.** Le ciel
+ * solaire et le ciel lunaire vivent dans deux boucles distinctes — voir la
+ * seconde, servie en dernier. Leur donner chacun son budget revenait a les
+ * additionner : mesure a ×3600, p95 de 59 ms pour une cible de 40, soit
+ * exactement deux fois 28. Une seule echeance, posee en tete d'image et
+ * partagee, est ce qui rend la cible tenable.
+ */
+let buildDeadline = 0
+
+/** Ouvre le budget de l'image. Appele une fois, en tete de la premiere boucle. */
+const beginBuildBudget = (): void => {
+  buildDeadline = performance.now() + BUILD_BUDGET_MS
+}
+
+/**
+ * Avance un travail par quanta jusqu'a epuisement du budget de l'image.
+ *
+ * Rend l'indice atteint. **Au moins un quantum est toujours execute** : sans
+ * cela une machine dont le quantum depasse a lui seul le budget n'avancerait
+ * jamais, et la table ne se poserait pas. C'est aussi ce qui garantit que la
+ * seconde boucle progresse meme quand la premiere a tout consomme.
+ *
+ * Le decoupage ne change aucune valeur — chaque unite est independante de ses
+ * voisines, invariant verifie bit a bit par les suites de validation — donc le
+ * budget ne deplace que le **moment** du calcul, jamais son resultat.
+ */
+function advanceWithin(
+  from: number,
+  to: number,
+  quantum: number,
+  fill: (a: number, b: number) => void,
+): number {
+  let at = from
+  do {
+    const next = Math.min(to, at + quantum)
+    fill(at, next)
+    at = next
+  } while (at < to && performance.now() < buildDeadline)
+  return at
+}
+
+/**
+ * Lignes de table de colonne par quantum.
+ *
+ * Mesure : la table entiere coute 0,14 s, une ligne 2,14 ms. L'unite est deja
+ * assez fine pour que le budget la borne utilement ; la subdiviser davantage
+ * n'apporterait rien.
+ */
+const COLUMN_ROW_QUANTUM = 1
 
 /** La table est-elle utilisable ? */
 const columnLutReady = (): boolean => columnLut !== null && columnRowsDone >= columnLut.height
@@ -143,11 +227,10 @@ const advanceColumnLut = (): void => {
     columnRowsDone = 0
   }
   if (columnRowsDone >= columnLut.height) return
-  const to = Math.min(columnLut.height, columnRowsDone + COLUMN_ROWS_PER_FRAME)
-  fillColumnLutRows(columnLut, columnRowsDone, to, {
-    aerosolScaleHeightM: CONTINENTAL_AEROSOL.scaleHeightM,
-  })
-  columnRowsDone = to
+  const lut = columnLut
+  columnRowsDone = advanceWithin(columnRowsDone, lut.height, COLUMN_ROW_QUANTUM, (a, b) =>
+    fillColumnLutRows(lut, a, b, { aerosolScaleHeightM: CONTINENTAL_AEROSOL.scaleHeightM }),
+  )
 }
 
 const sharedColumnLut = (): ColumnLut => {
@@ -169,44 +252,38 @@ let multipleScattering: MultipleScatteringLut | null = null
 let multipleScatteringTurbidity = Number.NaN
 
 /**
- * Entrees de diffusion multiple construites par image.
+ * Entrees de diffusion multiple par quantum.
  *
- * Une entree coute **0,38 ms a la premiere passe** — trente-deux directions de
- * marche, chacune avec sa colonne solaire — et **0,22 ms** aux suivantes, ou la
- * colonne solaire est remplacee par une lecture de table.
+ * Une entree coute 0,452 ms en mediane a la premiere passe, 2,07 au pire —
+ * trente-deux directions de marche, chacune avec sa colonne solaire — et moins
+ * aux suivantes, ou la colonne solaire est remplacee par une lecture de table.
+ * Deux entrees par quantum bornent donc le depassement a environ 4 ms.
  *
- * Trente-deux entrees font donc 12,2 ms puis 7 ms. C'est plus qu'un
- * soixantieme de seconde a la premiere passe, et c'est assume : la valeur
- * precedente en coutait **20** pour une table quatre fois plus petite. La
- * cadence a pu monter parce que le cout par entree, lui, a baisse.
- *
- * Table complete — 2048 entrees, trois passes — en 192 images, un peu plus de
- * trois secondes. Pendant ce temps le ciel affiche la table precedente, et au
- * tout premier chargement il apparait des la premiere passe.
+ * Table complete : 2048 entrees x 3 passes, 0,88 s de calcul par passe.
  */
-const MS_ENTRIES_PER_FRAME = 32
+const MS_ENTRY_QUANTUM = 2
 
 /** Deplacement du Soleil au-dela duquel la table est refaite, degres. */
 const SUN_MOVEMENT_THRESHOLD_DEG = 0.25
 
 /**
- * Lignes de perspective atmospherique construites par image.
+ * Directions de perspective atmospherique par quantum.
  *
- * Une ligne porte une hauteur de visee et ses **trente-deux** distances, pour
- * 6,3 ms — les distances sortent d'une seule marche, c'est ce qui rend la table
- * 3D a peine plus chere qu'une table 2D.
+ * Une direction porte ses **trente-deux** distances d'un coup — elles sortent
+ * d'une seule marche, c'est ce qui rend la table 3D a peine plus chere qu'une
+ * table 2D — pour 0,17 a 0,19 ms en mediane selon la hauteur du Soleil, et
+ * 6,1 ms au pire.
  *
- * Elle valait 2,9 ms avec seize distances placees en fractions du trajet propre
- * a chaque direction. Ce decoupage rendait la coordonnee de distance
- * discontinue a la rasance et posait une rupture visible par-dessus le relief ;
- * la grille globale qui l'a remplace demande deux fois plus de points de
- * controle pour tenir la meme resolution pres de l'observateur.
- *
- * Une seule ligne par image, donc : 4,8 ms tiennent dans le budget d'une image
- * a 60 Hz, deux non. La table entiere se pose en soixante-cinq images, un peu
- * plus d'une seconde — pendant lesquelles la precedente reste affichee.
+ * ⚠️ **L'unite etait la ligne, et c'etait trop gros.** Une ligne porte
+ * `AERIAL_LUT_WIDTH` directions, soit 11,1 ms mesurees ici : deja les deux
+ * tiers d'une image a 60 Hz, et l'ordonnanceur ne pouvait pas descendre en
+ * dessous. Quatre directions par quantum valent moins d'une milliseconde, ce
+ * qui rend le budget reellement respecte.
  */
-const ROWS_PER_FRAME = 1
+const AERIAL_DIRECTION_QUANTUM = 4
+
+/** Directions de la table de perspective : une hauteur de visee par azimut. */
+const AERIAL_DIRECTIONS = AERIAL_LUT_WIDTH * AERIAL_LUT_HEIGHT
 
 /** Rayon de l'observateur et sommet de l'atmosphere, metres — pour le nuanceur. */
 export const AERIAL_TOP_RADIUS_M = EARTH_MEAN_RADIUS_M + ATMOSPHERE_TOP_M
@@ -261,8 +338,8 @@ export interface AerialTextures {
 export const MOON_SKY_WIDTH = 64
 /** Hauteur de la table de ciel lunaire — hauteur de visee, en racine. */
 export const MOON_SKY_HEIGHT = 32
-/** Lignes construites par image. La table est la derniere servie. */
-const MOON_ROWS_PER_FRAME = 2
+/** Lignes par quantum. La table est la derniere servie, apres le ciel solaire. */
+const MOON_ROW_QUANTUM = 1
 
 /**
  * Le ciel eclaire par la Lune — **calcule, et non peint**.
@@ -520,7 +597,7 @@ export function useAerialLut(
     turbidity: Number.NaN,
     cleared: false,
     /** Ligne suivante a construire, ou −1 si aucune construction n'est en cours. */
-    pendingRow: -1,
+    pendingDirection: -1,
     pendingAltitude: 0,
     pendingElevation: 0,
     pendingTurbidity: 1,
@@ -548,6 +625,10 @@ export function useAerialLut(
   useFrame(() => {
     const current = state.current
 
+    // Cette boucle est la premiere de l'image : c'est elle qui ouvre le budget,
+    // que la boucle lunaire consommera ensuite sur la meme echeance.
+    beginBuildBudget()
+
     // --- La table de colonne, avant tout le reste ---------------------------
     // La perspective atmospherique et la diffusion multiple la lisent toutes
     // deux : rien ne peut demarrer avant qu'elle soit complete. Elle est donc
@@ -571,7 +652,7 @@ export function useAerialLut(
         current.cleared = true
         current.altitude = Number.NaN
         current.turbidity = Number.NaN
-        current.pendingRow = -1
+        current.pendingDirection = -1
         current.pendingMsEntry = -1
       }
       return
@@ -605,15 +686,17 @@ export function useAerialLut(
     // sans avoir a figer une copie de la table.
     const msIncomplete = current.pendingMsEntry >= 0 && multipleScattering !== null
     const msUnusable = msIncomplete && multipleScattering !== null && multipleScattering.pass === 0
-    const skyBusy = current.pendingRow >= 0
+    const skyBusy = current.pendingDirection >= 0
 
     if (multipleScattering && msIncomplete && (msUnusable || !skyBusy)) {
-      const total = multipleScattering.width * multipleScattering.height
-      const to = Math.min(total, current.pendingMsEntry + MS_ENTRIES_PER_FRAME)
-      fillMultipleScatteringEntries(multipleScattering, GRID, current.pendingMsEntry, to, {
-        columnLut: sharedColumnLut(),
-        aerosols: sharedAerosolOptics(multipleScatteringTurbidity),
-      })
+      const lut = multipleScattering
+      const total = lut.width * lut.height
+      const to = advanceWithin(current.pendingMsEntry, total, MS_ENTRY_QUANTUM, (a, b) =>
+        fillMultipleScatteringEntries(lut, GRID, a, b, {
+          columnLut: sharedColumnLut(),
+          aerosols: sharedAerosolOptics(multipleScatteringTurbidity),
+        }),
+      )
       if (to < total) {
         current.pendingMsEntry = to
         return
@@ -635,19 +718,24 @@ export function useAerialLut(
     }
 
     // --- Une construction est-elle en cours ? ------------------------------
-    if (current.pendingRow >= 0) {
-      const to = Math.min(AERIAL_LUT_HEIGHT, current.pendingRow + ROWS_PER_FRAME)
-      fillAerialRows(pending, GRID, current.pendingAltitude, current.pendingRow, to, {
-        observerElevationM: current.pendingElevation,
-        distanceAu: current.pendingDistanceAu,
-        ozoneColumnDobsonUnits: current.pendingOzoneDu,
-        columnLut: sharedColumnLut(),
-        aerosols: sharedAerosolOptics(current.pendingTurbidity),
-        multipleScattering: multipleScattering ?? undefined,
-      })
-      current.pendingRow = to
+    if (current.pendingDirection >= 0) {
+      const to = advanceWithin(
+        current.pendingDirection,
+        AERIAL_DIRECTIONS,
+        AERIAL_DIRECTION_QUANTUM,
+        (a, b) =>
+          fillAerialDirections(pending, GRID, current.pendingAltitude, a, b, {
+            observerElevationM: current.pendingElevation,
+            distanceAu: current.pendingDistanceAu,
+            ozoneColumnDobsonUnits: current.pendingOzoneDu,
+            columnLut: sharedColumnLut(),
+            aerosols: sharedAerosolOptics(current.pendingTurbidity),
+            multipleScattering: multipleScattering ?? undefined,
+          }),
+      )
+      current.pendingDirection = to
 
-      if (to >= AERIAL_LUT_HEIGHT) {
+      if (to >= AERIAL_DIRECTIONS) {
         // La table n'est publiee qu'entiere : pendant la construction, le ciel
         // continue d'afficher la precedente.
         scatteredData.set(pending.scattered)
@@ -665,7 +753,7 @@ export function useAerialLut(
         current.elevation = current.pendingElevation
         current.turbidity = current.pendingTurbidity
         current.cleared = false
-        current.pendingRow = -1
+        current.pendingDirection = -1
       }
       return
     }
@@ -697,7 +785,7 @@ export function useAerialLut(
     // Ils sont simplement pris a leur valeur du moment.
     current.pendingDistanceAu = sunDistanceAu
     current.pendingOzoneDu = ozoneColumnDobsonUnits
-    current.pendingRow = 0
+    current.pendingDirection = 0
   })
 
   /**
@@ -725,14 +813,15 @@ export function useAerialLut(
     moonSkyTextures.scale = moon.irradianceRatio
 
     if (m.row >= 0) {
-      const to = Math.min(MOON_SKY_HEIGHT, m.row + MOON_ROWS_PER_FRAME)
-      fillSkyViewRows(moonPending, GRID, m.pendingAltitude, MOON_SKY_WIDTH, MOON_SKY_HEIGHT, m.row, to, {
-        observerElevationM,
-        ozoneColumnDobsonUnits,
-        columnLut: sharedColumnLut(),
-        aerosols: sharedAerosolOptics(aerosolTurbidity),
-        multipleScattering: multipleScattering ?? undefined,
-      })
+      const to = advanceWithin(m.row, MOON_SKY_HEIGHT, MOON_ROW_QUANTUM, (a, b) =>
+        fillSkyViewRows(moonPending, GRID, m.pendingAltitude, MOON_SKY_WIDTH, MOON_SKY_HEIGHT, a, b, {
+          observerElevationM,
+          ozoneColumnDobsonUnits,
+          columnLut: sharedColumnLut(),
+          aerosols: sharedAerosolOptics(aerosolTurbidity),
+          multipleScattering: multipleScattering ?? undefined,
+        }),
+      )
       m.row = to
       if (to >= MOON_SKY_HEIGHT) {
         // Publiee entiere, comme les autres : pendant la construction, c'est la
