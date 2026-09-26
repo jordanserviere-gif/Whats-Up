@@ -3,6 +3,7 @@ import { useSkyStore } from '@/state/store'
 import { aerialSkyReady } from '@/scene/useAerialLut'
 import { cx } from '@/ui/utils'
 import { LOGO_STARS } from '@/brand/logoStars'
+import { shuffledPhrases } from './loaderPhrases'
 import './AppLoader.css'
 
 /**
@@ -17,6 +18,8 @@ const MIN_VISIBLE_MS = 600
  */
 const MAX_VISIBLE_MS = 25_000
 const POLL_MS = 150
+/** Duree d'affichage d'une phrase, ms : le temps de la lire, pas davantage. */
+const PHRASE_MS = 2200
 
 /**
  * Periodes des animations, s. La lueur ondule en trois secondes ; l'echelle
@@ -73,13 +76,23 @@ export function AppLoader() {
   const [steps, setSteps] = useState<Step[]>([])
   const startedAt = useRef(performance.now())
   const firstSite = useRef(site)
+  const [phrases, setPhrases] = useState(shuffledPhrases)
+  const [phraseIndex, setPhraseIndex] = useState(0)
 
   useEffect(() => {
     if (site === firstSite.current) return
     firstSite.current = site
     startedAt.current = performance.now()
+    setPhrases(shuffledPhrases())
+    setPhraseIndex(0)
     setActive(true)
   }, [site])
+
+  useEffect(() => {
+    if (!active) return
+    const id = window.setInterval(() => setPhraseIndex((i) => i + 1), PHRASE_MS)
+    return () => window.clearInterval(id)
+  }, [active])
 
   useEffect(() => {
     if (!active) return
@@ -132,6 +145,10 @@ export function AppLoader() {
           )
         })}
       </div>
+      {/* La cle relance le fondu a chaque phrase. */}
+      <p key={phraseIndex} className="md-type-body-large app-loader__phrase">
+        {phrases[phraseIndex % phrases.length]}
+      </p>
       <div className="app-loader__text">
         <span className="md-type-title-medium">{location.name}</span>
         <span className="md-type-body-small app-loader__sub md-numeric">

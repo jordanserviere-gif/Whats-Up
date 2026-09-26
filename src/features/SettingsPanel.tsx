@@ -15,7 +15,6 @@ import {
   useTheme,
 } from '@/ui'
 import { sameSite, useSkyStore, type LayerVisibility } from '@/state/store'
-import { cx } from '@/ui/utils'
 import type { GeoLocation } from '@/astro/types'
 import { useSkyConditions } from '@/state/hooks'
 import { bortleLabel, bortleSkyBrightness } from '@/astro/photometry'
@@ -99,6 +98,8 @@ export function SettingsPanel() {
       draft.elevation !== location.elevation ||
       draft.name !== location.name)
 
+  const isFavorite = favorites.some((f) => sameSite(f, shown))
+
   const validate = () => {
     if (!draft) return
     setLocation(draft)
@@ -170,32 +171,20 @@ export function SettingsPanel() {
           <p className="md-type-body-small">Aucun favori : ajoutez un lieu depuis la carte avec l’étoile.</p>
         )}
 
-        <div className={cx('settings-location__confirm', !pending && 'is-current')} role="group" aria-label="Lieu proposé">
-          <div className="settings-location__place">
-            <p className="md-type-body-medium">
-              {pending ? 'Nouveau lieu' : 'Lieu actuel'} : <strong>{shown.name}</strong>
-              <span className="md-type-body-small md-numeric settings-location__coords">
-                {shown.latitude.toFixed(4).replace('.', ',')}° · {shown.longitude.toFixed(4).replace('.', ',')}°
-              </span>
-            </p>
-            <IconButton
-              icon="star"
-              selectedIcon="star"
-              selected={favorites.some((f) => sameSite(f, shown))}
-              label={favorites.some((f) => sameSite(f, shown)) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-              onClick={() => toggleFavorite(shown)}
-            />
-          </div>
-          {pending && (
-            <div className="settings-location__actions">
-              <Button variant="text" onClick={() => setDraft(null)}>
-                Annuler
-              </Button>
-              <Button variant="filled" icon="check" onClick={validate}>
-                Valider ce lieu
-              </Button>
-            </div>
-          )}
+        {/* Juste de quoi agir sur le lieu propose : le garder en favori, et le
+            valider. Le bouton ne s'active que s'il y a un lieu a appliquer. */}
+        <div className="settings-location__actions" role="group" aria-label="Lieu proposé">
+          <IconButton
+            variant="outlined"
+            icon="star"
+            selectedIcon="star"
+            selected={isFavorite}
+            label={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+            onClick={() => toggleFavorite(shown)}
+          />
+          <Button variant="filled" icon="check" fullWidth disabled={!pending} onClick={validate}>
+            Valider ce lieu
+          </Button>
         </div>
 
         <Button variant="outlined" icon="my_location" fullWidth disabled={locating} onClick={useMyPosition}>
