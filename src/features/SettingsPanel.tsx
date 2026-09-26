@@ -22,12 +22,9 @@ import { formatAge } from '@/data-sources/types'
 import { DEEP_SKY_COUNT } from '@/astro/deepsky'
 import './SettingsPanel.css'
 import { STAR_COUNT, STAR_MAG_LIMIT } from '@/astro/catalog'
-import { localTimeZone } from '@/astro/time'
-import { horizonDipDeg } from '@/atmosphere/refraction/rayBending'
-import { horizonRangeM } from '@/scene/terrain/ridgeField'
 import { LocationMap } from './LocationMap'
 
-const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string; hint?: string }> = [
+const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string }> = [
   { key: 'stars', label: 'Étoiles' },
   { key: 'constellations', label: 'Figures de constellations' },
   { key: 'constellationLabels', label: 'Noms des constellations' },
@@ -35,17 +32,13 @@ const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string; hint?: st
   { key: 'bodyLabels', label: 'Noms des corps' },
   { key: 'satellites', label: 'Satellites' },
   { key: 'satelliteTracks', label: 'Traces des satellites' },
-  { key: 'horizonGrid', label: 'Grille horizontale', hint: 'azimut et hauteur' },
-  { key: 'equatorialGrid', label: 'Grille équatoriale', hint: 'ascension droite et déclinaison' },
+  { key: 'horizonGrid', label: 'Grille horizontale' },
+  { key: 'equatorialGrid', label: 'Grille équatoriale' },
   { key: 'ecliptic', label: 'Écliptique' },
   { key: 'cardinals', label: 'Points cardinaux' },
   { key: 'ground', label: 'Sol' },
-  { key: 'atmosphere', label: 'Atmosphère', hint: 'le ciel bleuit de jour et masque les étoiles' },
-  {
-    key: 'terrain',
-    label: 'Banc atmosphère — relief',
-    hint: 'une chaîne à 15 km à l’est, longue de 600 : la distance seule y varie',
-  },
+  { key: 'atmosphere', label: 'Atmosphère' },
+  { key: 'terrain', label: 'Banc atmosphère — relief' },
 ]
 
 /** Reglages : lieu d'observation, calques, apparence. */
@@ -209,12 +202,6 @@ export function SettingsPanel() {
           value={elevationOffsetM.toFixed(0)}
           onChange={(e) => setElevationOffsetM(Math.max(0, Number(e.target.value)))}
         />
-        <p className="md-type-body-small">
-          {elevationOffsetM > 0
-            ? `Horizon abaisse de ${horizonDipDeg(location.elevation + elevationOffsetM).toFixed(2).replace('.', ',')}° — le relief visible porte jusqu'a ${Math.round(horizonRangeM(4000, location.elevation + elevationOffsetM, 7_669_000) / 1000)} km sur un sommet de 4000 m.`
-            : `L'altitude du sol est relue sur le modele numerique de terrain des que celui-ci est charge ; la hauteur ci-dessus s'y ajoute.`}
-        </p>
-        <p className="md-type-body-small">Fuseau horaire : {localTimeZone()}</p>
       </Section>
 
       <Section title="Calques de la scène" icon="layers" defaultOpen={false} summary={`${Object.values(layers).filter(Boolean).length} actifs`}>
@@ -222,7 +209,6 @@ export function SettingsPanel() {
           <Switch
             key={l.key}
             label={l.label}
-            supportingText={l.hint}
             checked={layers[l.key]}
             onChange={(v) => setLayer(l.key, v)}
           />
@@ -238,11 +224,6 @@ export function SettingsPanel() {
           format={(v) => `mag ${v.toFixed(1).replace('.', ',')}`}
           onChange={setMagnitudeLimit}
         />
-        <p className="md-type-body-small">
-          Catalogue HYG : {STAR_COUNT.toLocaleString('fr-FR')} étoiles jusqu’à la magnitude{' '}
-          {STAR_MAG_LIMIT.toFixed(1).replace('.', ',')}. L’éclat affiché suit la magnitude réelle et
-          l’extinction atmosphérique ; la magnitude limite du moment dépend de la luminosité du ciel.
-        </p>
       </Section>
 
       <Section
@@ -261,11 +242,6 @@ export function SettingsPanel() {
           format={(v) => (v === 1 ? 'taille réelle' : `× ${v}`)}
           onChange={setDiscScale}
         />
-        <p className="md-type-body-small">
-          Par défaut, chaque corps occupe son diamètre apparent exact : Jupiter mesure une quarantaine de
-          secondes d’arc, soit une fraction de pixel à champ large. Resserrez le champ à moins d’un degré
-          pour voir les disques, ou grossissez-les ici — au prix de la fidélité.
-        </p>
       </Section>
 
       <Section
@@ -280,7 +256,6 @@ export function SettingsPanel() {
       >
         <Switch
           label="Pollution lumineuse automatique"
-          supportingText="Mesurée au lieu d’observation (Light Pollution Atlas, VIIRS)"
           checked={lightPollutionAuto}
           onChange={setLightPollutionAuto}
         />
@@ -302,27 +277,19 @@ export function SettingsPanel() {
             label="Source"
             value={autoLightPollutionStatus.origin}
             unit={autoLightPollutionStatus.ageMs !== null ? formatAge(autoLightPollutionStatus.ageMs) : undefined}
-            hint={
-              autoLightPollutionStatus.note ??
-              'Atlas annuel dérivé des observations VIIRS, calibré sur le World Atlas de Falchi et al. (2016).'
-            }
+            hint={autoLightPollutionStatus.note}
           />
         )}
-        <p className="md-type-body-small">
-          Échelle de Bortle, ancrée sur la brillance réelle du fond de ciel :{' '}
-          {(measuredSkyBrightness ?? bortleSkyBrightness(lightPollution)).toFixed(1).replace('.', ',')}{' '}
-          mag/arcsec² au zénith{measuredSkyBrightness !== null ? ' (mesuré)' : ''}. La valeur entre dans
-          le bilan lumineux comme une source de plus, au même titre que la Lune — elle recule donc la
-          magnitude limite, efface les objets étendus et éclaircit le ciel d’elle-même, surtout vers
-          l’horizon d’où monte le halo urbain. Magnitude limite actuelle :{' '}
-          {sky.limitingMagnitude.toFixed(1).replace('.', ',')}.
-        </p>
+        <DataRow
+          label="Fond de ciel au zénith"
+          value={`${(measuredSkyBrightness ?? bortleSkyBrightness(lightPollution)).toFixed(1).replace('.', ',')} mag/arcsec²`}
+        />
+        <DataRow label="Magnitude limite" value={sky.limitingMagnitude.toFixed(1).replace('.', ',')} />
 
         <Divider />
 
         <Switch
           label="Trouble automatique"
-          supportingText="Mesuré depuis la qualité de l’air au lieu d’observation (Open-Meteo)"
           checked={aerosolAuto}
           onChange={setAerosolAuto}
         />
@@ -344,20 +311,9 @@ export function SettingsPanel() {
             label="Source"
             value={autoAerosolStatus.origin}
             unit={autoAerosolStatus.ageMs !== null ? formatAge(autoAerosolStatus.ageMs) : undefined}
-            hint={autoAerosolStatus.note ?? 'Particules fines (PM2,5) au sol, rafraîchies toutes les trente minutes.'}
+            hint={autoAerosolStatus.note}
           />
         )}
-        <p className="md-type-body-small">
-          Charge en aérosols — poussière, humidité, particules fines — qui pilote la diffusion de Mie.
-          Ces particules restent confinées dans le premier kilomètre d’atmosphère : vers l’horizon, le
-          regard en traverse plusieurs dizaines de fois plus qu’au zénith. C’est donc là que la brume se
-          voit, grisant le bas du ciel, resserrant le halo solaire et éteignant les astres rasants, tandis
-          que le haut du ciel garde son bleu. À ×1, le modèle décrit un air très pur ; en montant, le bas
-          du ciel blanchit d’abord, le reste ensuite. Le réglage vaut pour toutes les couches à la fois —
-          fond de ciel, disques planétaires, étoiles, silhouettes d’avions — chacune selon la hauteur à
-          laquelle on la regarde. En mode automatique, il suit la concentration en particules fines
-          (PM2,5) mesurée au lieu d’observation ; le curseur redevient manuel dès qu’il est désactivé.
-        </p>
       </Section>
 
       <Section title="Apparence" icon="palette" defaultOpen={false} summary={THEME_SUMMARY[mode]}>

@@ -27,7 +27,6 @@ import { ALL_CELESTRAK_GROUPS, CELESTRAK_GROUPS, groupLabel, STALE_EPOCH_DAYS } 
 import { formatAge } from '@/data-sources/types'
 import { selectedSatelliteId, useSkyStore } from '@/state/store'
 import {
-  MAX_TRACKED_SATELLITES,
   useAllSatellites,
   useCelestrakSatellites,
   useSatellitePasses,
@@ -90,11 +89,7 @@ export function SatellitesPanel() {
         }
       >
         {manual.length === 0 ? (
-          <p className="md-type-body-medium satellites-panel__intro">
-            Un satellite se décrit par six nombres : la taille et la forme de son ellipse (demi-grand axe,
-            excentricité), l’orientation de son plan (inclinaison, longitude du nœud ascendant, argument du
-            périgée) et sa position à une date de référence (anomalie moyenne).
-          </p>
+          <p className="md-type-body-medium satellites-panel__empty">Aucune orbite saisie.</p>
         ) : (
           <List>
             {manual.map((el) => (
@@ -144,12 +139,7 @@ export function SatelliteDetail() {
   if (!selected) {
     return (
       <Card variant="outlined" shape="extra-large">
-        <CardHeader
-          icon="search"
-          overline="Aucun objet suivi"
-          title="Chercher un satellite"
-          subtitle="Son nom ou son numéro NORAD dans la barre de recherche, ou un clic sur son point dans le ciel"
-        />
+        <CardHeader icon="search" title="Chercher un satellite" />
       </Card>
     )
   }
@@ -248,7 +238,6 @@ function CelestrakSection() {
     >
       <Switch
         label="Afficher les satellites"
-        supportingText="Éléments publics CelesTrak, propagés par SGP4"
         checked={enabled}
         onChange={(v) => setLayer('celestrak', v)}
       />
@@ -306,7 +295,6 @@ function CelestrakSection() {
             label="Source"
             value={feed.status.origin}
             unit={feed.status.ageMs !== null ? formatAge(feed.status.ageMs) : undefined}
-            hint="CelesTrak demande la mise en cache de ses réponses : elles sont conservées six heures."
           />
           {feed.truncated > 0 && (
             <DataRow
@@ -314,7 +302,6 @@ function CelestrakSection() {
               label="Objets non suivis"
               value={`${feed.truncated}`}
               unit={feed.truncatedGroups.map(groupLabel).join(', ')}
-              hint={`La sélection dépasse le plafond de ${MAX_TRACKED_SATELLITES.toLocaleString('fr-FR')} objets propagés simultanément. Les groupes sont servis dans l’ordre de la liste ci-dessus : ce sont les derniers, les plus nombreux, qui sont écartés.`}
             />
           )}
           {feed.staleCount > 0 && (
@@ -322,7 +309,6 @@ function CelestrakSection() {
               icon="schedule"
               label="Éléments vieillis"
               value={`${feed.staleCount}`}
-              hint={`Au-delà de ${STALE_EPOCH_DAYS} jours, la propagation SGP4 dérive sensiblement.`}
             />
           )}
         </>
@@ -344,13 +330,6 @@ function CelestrakSection() {
               icon="wb_sunny"
             />
           </DataGrid>
-          {/* Le catalogue compte des milliers d'objets : les enumerer donnerait
-              une liste qu'on ne parcourt pas. On dit ou chercher a la place. */}
-          <p className="md-type-body-small satellites-panel__intro">
-            Chaque objet éclairé apparaît dans le ciel sous la forme d’un point blanc dont l’éclat suit sa
-            magnitude estimée. Pour en suivre un, cherchez son nom ou son numéro NORAD dans la barre de
-            recherche, ou cliquez son point : sa fiche et sa trace s’affichent alors.
-          </p>
         </>
       )}
     </Section>
@@ -375,7 +354,7 @@ function CatalogElements({ element }: { element: OrbitalElements }) {
         <DataRow
           label="Désignation internationale"
           value={element.gp.OBJECT_ID}
-          hint={`lancé en ${element.gp.OBJECT_ID.slice(0, 4)} — code COSPAR : année, numéro de lancement, pièce`}
+          hint={`lancé en ${element.gp.OBJECT_ID.slice(0, 4)}`}
         />
       )}
       <DataRow
@@ -406,10 +385,6 @@ function CatalogElements({ element }: { element: OrbitalElements }) {
           éléments vieux de plus de {STALE_EPOCH_DAYS} jours
         </Badge>
       )}
-      <p className="md-type-body-small satellites-panel__intro">
-        La propagation utilise l’enregistrement OMM d’origine et le modèle SGP4 qui l’accompagne. Les valeurs
-        ci-dessus en sont dérivées pour la lecture ; les modifier n’aurait aucun effet sur la trajectoire.
-      </p>
     </Section>
   )
 }
@@ -431,7 +406,6 @@ function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline={element.source === 'celestrak' ? 'Objet CelesTrak' : 'Position instantanée'}
         title={element.name}
         subtitle={above ? 'au-dessus de l’horizon' : 'sous l’horizon'}
         trailing={
@@ -464,13 +438,11 @@ function SatelliteLiveCard({ element, state }: { element: OrbitalElements; state
           label="Vitesse radiale"
           value={`${state.rangeRateKm > 0 ? '+' : '−'}${fr(Math.abs(state.rangeRateKm), 2)}`}
           unit="km/s"
-          hint={state.rangeRateKm > 0 ? 'le satellite s’éloigne' : 'le satellite se rapproche'}
         />
         <DataRow
           label="Magnitude estimée"
           value={state.magnitude !== null ? fr(state.magnitude) : '—'}
           emphasis={state.magnitude !== null && state.magnitude < 3}
-          hint="Modèle sphérique diffusant à magnitude intrinsèque type : un ordre de grandeur, pas une prévision."
         />
 
         <Button
@@ -549,8 +521,7 @@ function PassRow({ pass, onSelect }: { pass: SatellitePass; onSelect: () => void
   return (
     <ListItem
       leadingIcon={pass.visible ? 'visibility' : 'visibility_off'}
-      overline={pass.start.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
-      headline={`${formatTime(pass.start)} → ${formatTime(pass.end)}`}
+      headline={`${pass.start.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} · ${formatTime(pass.start)} → ${formatTime(pass.end)}`}
       supportingText={`${azimuthToCardinal(pass.startAzimuth)} → ${azimuthToCardinal(pass.endAzimuth)} · ${formatDuration(
         duration,
       )}${pass.maxMagnitude !== null ? ` · mag ${fr(pass.maxMagnitude)}` : ''}`}

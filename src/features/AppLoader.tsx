@@ -182,12 +182,6 @@ export function AppLoader() {
       <p key={phraseIndex} className="md-type-body-large app-loader__phrase">
         {phrases[phraseIndex % phrases.length]}
       </p>
-      <div className="app-loader__text">
-        <span className="md-type-title-medium">{location.name}</span>
-        <span className="md-type-body-small app-loader__sub md-numeric">
-          {location.latitude.toFixed(3).replace('.', ',')}° · {location.longitude.toFixed(3).replace('.', ',')}°
-        </span>
-      </div>
       <ul className="app-loader__steps">
         {steps.map((s) => (
           <li key={s.label} className={cx('md-type-label-medium', s.done && 'is-done')}>

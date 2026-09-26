@@ -132,12 +132,7 @@ export function AircraftDetail() {
   if (!live) {
     return (
       <Card variant="outlined" shape="extra-large">
-        <CardHeader
-          icon="flight"
-          overline="Avion"
-          title="Disponible en direct seulement"
-          subtitle="L’ADS-B n’a pas d’archive gratuite : revenez à l’instant présent pour suivre cet appareil"
-        />
+        <CardHeader icon="flight" title="Disponible en direct seulement" />
       </Card>
     )
   }
@@ -145,7 +140,7 @@ export function AircraftDetail() {
   if (!state) {
     return (
       <Card variant="outlined" shape="extra-large">
-        <CardHeader icon="flight_land" overline="Avion" title="Hors de portée" subtitle="Sorti du rayon suivi ou disparu du flux" />
+        <CardHeader icon="flight_land" title="Hors de portée" />
       </Card>
     )
   }
@@ -155,9 +150,14 @@ export function AircraftDetail() {
   const altitudeFt = state.altitudeFt !== null ? Math.round(state.altitudeFt) : null
   const title = state.flight ?? meta?.registration ?? state.hex.toUpperCase()
   const above = state.horizontal.altitude > 0
-  // Constructeur et type tiennent sur la meme ligne : ils nomment la meme
-  // chose, et la fiche gagne une ligne de tableau.
-  const overline = [meta?.manufacturer, meta?.type ?? state.typeCode].filter(Boolean).join(' · ') || 'Avion'
+  // Constructeur, type et exploitant tiennent sur la ligne sous le titre : pas
+  // de surtitre, et la fiche gagne une ligne de tableau.
+  const subtitle = [
+    [meta?.manufacturer, meta?.type ?? state.typeCode].filter(Boolean).join(' '),
+    meta?.owner ?? (state.registration ? `immatriculation ${state.registration}` : `code ${state.hex}`),
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   const category = state.category ? (CATEGORY_LABELS[state.category] ?? state.category) : null
   const emergency = state.emergency && state.emergency !== 'none' ? state.emergency : null
@@ -174,9 +174,8 @@ export function AircraftDetail() {
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline={overline}
         title={title}
-        subtitle={meta?.owner ?? (state.registration ? `immatriculation ${state.registration}` : `code ${state.hex}`)}
+        subtitle={subtitle}
         trailing={
           emergency ? (
             <Badge tone="error" icon="warning">
@@ -223,7 +222,6 @@ export function AircraftDetail() {
                   label="Altitude GPS"
                   value={Math.round(state.altitudeGeomFt).toLocaleString('fr-FR')}
                   unit="ft"
-                  hint="mesure satellite, distincte de l’altitude barométrique"
                 />
               )}
               {state.indicatedSpeedKt !== null && <DataRow label="Vitesse indiquée" value={fr(state.indicatedSpeedKt)} unit="nd" />}
@@ -234,7 +232,7 @@ export function AircraftDetail() {
                   label="Vent estimé"
                   value={fr(state.windSpeedKt)}
                   unit="nd"
-                  hint={state.windDirDeg !== null ? `venant du ${Math.round(state.windDirDeg)}° — déduit de l’écart vitesse vraie / vitesse sol` : undefined}
+                  hint={state.windDirDeg !== null ? `venant du ${Math.round(state.windDirDeg)}°` : undefined}
                 />
               )}
               {state.outsideAirTempC !== null && (
@@ -291,7 +289,6 @@ export function AircraftDetail() {
               label="Trace suivie"
               value={history.length > 1 ? `${history.length} points` : 'pas encore assez de points'}
               unit={history.length > 1 ? (trackedSinceMin < 1 ? 'depuis moins d’une minute' : `depuis ${Math.round(trackedSinceMin)} min`) : undefined}
-              hint="Aucune API gratuite ne fournit d’historique de vol : la trace commence à la première observation."
             />
           </>
         )}

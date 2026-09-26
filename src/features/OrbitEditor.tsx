@@ -59,7 +59,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
           ...ORBIT_PRESETS.map((p) => ({ value: p.name, label: p.name })),
         ]}
         onChange={applyPreset}
-        supportingText="Remplace tous les éléments par des valeurs typiques"
       />
 
       <TextField
@@ -91,7 +90,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
             suffix="km"
             value={a.toFixed(1)}
             errorText={a <= EARTH_RADIUS_KM ? 'Doit dépasser le rayon terrestre (6 378 km)' : undefined}
-            supportingText="Distance moyenne au centre de la Terre"
             onChange={(ev) => onChange({ semiMajorAxisKm: Number(ev.target.value) })}
           />
         )}
@@ -103,7 +101,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
             step="0.0001"
             suffix="tours/j"
             value={meanMotionRevPerDay(a).toFixed(6)}
-            supportingText="Champ n des TLE, ligne 2"
             onChange={(ev) => {
               const n = Number(ev.target.value)
               if (n > 0) onChange({ semiMajorAxisKm: semiMajorAxisFromMeanMotion(n) })
@@ -118,7 +115,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
             step="1"
             suffix="km"
             value={(a - EARTH_RADIUS_KM).toFixed(1)}
-            supportingText="Au-dessus du rayon équatorial"
             onChange={(ev) => onChange({ semiMajorAxisKm: Number(ev.target.value) + EARTH_RADIUS_KM })}
           />
         )}
@@ -132,7 +128,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
           max="0.95"
           value={e.toFixed(6)}
           errorText={e < 0 || e >= 1 ? 'Doit rester entre 0 et 1' : undefined}
-          supportingText="0 = cercle, proche de 1 = ellipse très allongée"
           onChange={(ev) => onChange({ eccentricity: Number(ev.target.value) })}
         />
       </Section>
@@ -145,7 +140,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
           step="0.01"
           suffix="°"
           value={element.inclination.toFixed(4)}
-          supportingText="0° = équatorial, 90° = polaire, > 90° = rétrograde"
           onChange={(ev) => onChange({ inclination: Number(ev.target.value) })}
         />
         <TextField
@@ -155,7 +149,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
           step="0.01"
           suffix="°"
           value={element.raan.toFixed(4)}
-          supportingText="Orientation du plan autour de l’axe des pôles"
           onChange={(ev) => onChange({ raan: Number(ev.target.value) })}
         />
         <TextField
@@ -165,7 +158,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
           step="0.01"
           suffix="°"
           value={element.argPerigee.toFixed(4)}
-          supportingText="Position du point le plus bas dans le plan"
           onChange={(ev) => onChange({ argPerigee: Number(ev.target.value) })}
         />
       </Section>
@@ -178,7 +170,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
           step="0.01"
           suffix="°"
           value={element.meanAnomaly.toFixed(4)}
-          supportingText="Où se trouve le satellite sur son orbite à l’époque"
           onChange={(ev) => onChange({ meanAnomaly: Number(ev.target.value) })}
         />
         <TextField
@@ -198,7 +189,6 @@ export function OrbitEditor({ element, onChange, onRemove }: OrbitEditorProps) {
       <Section title="Modèle et affichage" icon="tune" defaultOpen={false} summary={element.useJ2 ? 'J2 activé' : 'Kepler pur'}>
         <Switch
           label="Perturbations J2"
-          supportingText="Dérive du nœud et du périgée dues à l’aplatissement terrestre"
           checked={element.useJ2}
           onChange={(v) => onChange({ useJ2: v })}
         />

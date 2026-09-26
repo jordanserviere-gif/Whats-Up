@@ -106,15 +106,6 @@
   }
 }
 
-.app-loader__text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-sys-spacing-1);
-}
-.app-loader__sub {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
 .app-loader__steps {
   display: flex;
   flex-wrap: wrap;

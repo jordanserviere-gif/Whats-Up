@@ -131,7 +131,6 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline="Objet sélectionné"
         title={state.name}
         subtitle={state.visible ? 'visible au-dessus de l’horizon' : 'sous l’horizon'}
         trailing={
@@ -165,9 +164,7 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
                 label="Inclinaison des anneaux"
                 value={formatDeg(Math.abs(state.ringTiltDeg), 1)}
                 hint={
-                  Math.abs(state.ringTiltDeg) < 3
-                    ? 'proche de la tranche : les anneaux se réduisent à un trait'
-                    : 'vus depuis la Terre, côté ' + (state.ringTiltDeg >= 0 ? 'nord' : 'sud')
+                  Math.abs(state.ringTiltDeg) < 3 ? 'vus par la tranche' : 'côté ' + (state.ringTiltDeg >= 0 ? 'nord' : 'sud')
                 }
               />
             )}
@@ -193,11 +190,6 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
                 icon="sync_alt"
                 label={nextEvent.kind === 'opposition' ? 'Prochaine opposition' : 'Prochaine conjonction inférieure'}
                 value={formatDate(nextEvent.date)}
-                hint={
-                  nextEvent.kind === 'opposition'
-                    ? 'côté opposé au Soleil : lève au coucher du Soleil, visible toute la nuit, au plus proche et au plus brillant'
-                    : 'entre la Terre et le Soleil : invisible, perdu dans son éclat'
-                }
               />
             )}
           </>
@@ -222,15 +214,7 @@ export function BodyDetails({ state, riseSet }: { state: BodyState; riseSet: Ris
             {state.id === 'moon' && (
               <DataRow label="Magnitude apparente" value={state.magnitude.toFixed(1).replace('.', ',')} />
             )}
-            <DataRow
-              label="Magnitude absolue"
-              value={state.absoluteMagnitude.toFixed(2).replace('.', ',')}
-              hint={
-                state.id === 'sun'
-                  ? 'éclat à 10 parsecs — convention stellaire, le Soleil étant une étoile'
-                  : 'éclat à 1 UA du Soleil et de l’observateur, disque plein'
-              }
-            />
+            <DataRow label="Magnitude absolue" value={state.absoluteMagnitude.toFixed(2).replace('.', ',')} />
             <DataRow label="Distance" value={distance.value} unit={distance.unit} />
             <DataRow label="Diamètre apparent" value={`${(state.angularDiameter * 60).toFixed(2).replace('.', ',')}′`} />
             {state.id !== 'sun' && (
@@ -280,7 +264,6 @@ function MoonSummaryCard() {
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline="Lune"
         title={moon.phaseName}
         subtitle={`${Math.round(moon.illumination * 100)} % éclairée · ${moon.ageDays.toFixed(1).replace('.', ',')} jours`}
         trailing={<MoonPhaseDial illumination={moon.illumination} phaseAngle={moon.phaseAngle} size={52} />}

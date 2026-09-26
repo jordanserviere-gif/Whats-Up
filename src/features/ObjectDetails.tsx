@@ -66,7 +66,6 @@ export function FixedObjectDetails({
   return (
     <Card variant="filled" shape="extra-large">
       <CardHeader
-        overline={entry.overline}
         title={entry.title}
         subtitle={above ? 'visible au-dessus de l’horizon' : 'sous l’horizon'}
         trailing={
@@ -113,14 +112,10 @@ export function FixedObjectDetails({
 
             <Divider />
 
-            <DataRow label="Ascension droite" value={formatRa(ofDate.ra)} hint="équinoxe de la date" />
-            <DataRow label="Déclinaison" value={formatDms(ofDate.dec)} hint="équinoxe de la date" />
+            <DataRow label="Ascension droite" value={formatRa(ofDate.ra)} />
+            <DataRow label="Déclinaison" value={formatDms(ofDate.dec)} />
             {entry.absoluteMagnitude !== null && (
-              <DataRow
-                label="Magnitude absolue"
-                value={fr(entry.absoluteMagnitude)}
-                hint="éclat à 10 parsecs — ce que l’étoile montrerait vue de là"
-              />
+              <DataRow label="Magnitude absolue" value={fr(entry.absoluteMagnitude)} />
             )}
             {entry.rows.map((r) => (
               <DataRow key={r.label} label={r.label} value={r.value} unit={r.unit} hint={r.hint} />
@@ -193,14 +188,13 @@ function VisibilityNote({ objectSb, illuminance }: { objectSb: number; illuminan
       label="Contraste sur le ciel"
       value={`${contrast >= 0 ? '+' : '−'}${fr(Math.abs(contrast))}`}
       unit="mag/arcsec²"
-      hint={`Objet à ${fr(objectSb)}, ciel à ${fr(skySb)} mag/arcsec² : ${verdict}.`}
+      hint={verdict}
       emphasis={contrast > 1.5}
     />
   )
 }
 
 interface FixedObjectEntry {
-  overline: string
   title: string
   magnitude: number | null
   /**
@@ -245,7 +239,6 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
         label: 'Mouvement propre',
         value: fr(star.properMotion, 1),
         unit: 'mas/an',
-        hint: 'déplacement apparent sur le fond du ciel, hors parallaxe',
       })
     }
     if (star.radialVelocityKmS !== null) {
@@ -253,7 +246,6 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
         label: 'Vitesse radiale',
         value: `${star.radialVelocityKmS > 0 ? '+' : ''}${fr(star.radialVelocityKmS, 1)}`,
         unit: 'km/s',
-        hint: star.radialVelocityKmS > 0 ? 's’éloigne du Système solaire' : 'se rapproche du Système solaire',
       })
     }
     if (star.variable) {
@@ -270,11 +262,9 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       detailRows.push({
         label: 'Système multiple',
         value: star.multipleSystem,
-        hint: 'cette étoile est une composante résolue de ce système',
       })
     }
     return {
-      overline: 'Étoile',
       title: star.name,
       magnitude: star.magnitude,
       absoluteMagnitude: star.absoluteMagnitude,
@@ -300,10 +290,9 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
         label: 'Dimensions',
         value: `${fr(o.majorArcmin)} × ${fr(minor)}`,
         unit: '′',
-        hint: 'grand axe × petit axe apparents',
       })
       if (o.positionAngle > 0) {
-        rows.push({ label: 'Angle de position', value: `${Math.round(o.positionAngle)}°`, hint: 'depuis le nord' })
+        rows.push({ label: 'Angle de position', value: `${Math.round(o.positionAngle)}°` })
       }
     }
     if (o.surfaceBrightness !== null) {
@@ -317,10 +306,9 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       detailRows.push({
         label: 'Infrarouge J / H / K',
         value: `${band(o.infrared.j)} / ${band(o.infrared.h)} / ${band(o.infrared.k)}`,
-        hint: 'relevé 2MASS',
       })
     }
-    if (o.hubbleType) detailRows.push({ label: 'Type de Hubble', value: o.hubbleType, hint: 'classification morphologique des galaxies' })
+    if (o.hubbleType) detailRows.push({ label: 'Type de Hubble', value: o.hubbleType })
     if (o.radialVelocityKmS !== null) {
       detailRows.push({
         label: 'Vitesse radiale',
@@ -332,15 +320,13 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
       detailRows.push({
         label: 'Décalage spectral',
         value: fr(o.redshift, 4),
-        hint: 'z — fiable pour la vitesse de récession des galaxies, sans rapport pour le reste du catalogue',
       })
     }
     if (o.centralStarMagnitude !== null) {
-      detailRows.push({ label: 'Étoile centrale', value: fr(o.centralStarMagnitude), hint: 'magnitude V' })
+      detailRows.push({ label: 'Étoile centrale', value: fr(o.centralStarMagnitude) })
     }
 
     return {
-      overline: 'Ciel profond',
       title: o.messier > 0 ? `M${o.messier}` : o.id,
       magnitude: Number.isFinite(o.magnitude) ? o.magnitude : null,
       absoluteMagnitude: null,
@@ -354,7 +340,6 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
   const constellation = CONSTELLATIONS.find((c) => `const-${c.id}` === id)
   if (!constellation) return null
   return {
-    overline: 'Constellation',
     title: constellation.name,
     magnitude: null,
     absoluteMagnitude: null,
@@ -363,11 +348,6 @@ function resolveFixedObject(kind: 'star' | 'deepsky' | 'constellation', id: stri
     detailRows: [],
     rows: [
       { label: 'Abréviation', value: constellation.id.toUpperCase() },
-      {
-        label: 'Repère',
-        value: 'centre de la figure',
-        hint: 'les coordonnées désignent le point d’étiquetage, pas un objet',
-      },
     ],
   }
 }

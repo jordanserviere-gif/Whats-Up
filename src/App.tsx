@@ -21,11 +21,11 @@ const DESTINATIONS: ReadonlyArray<NavDestination<ViewTab>> = [
   { value: 'reglages', label: 'Réglages', icon: 'tune' },
 ]
 
-const PANEL_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
-  ciel: { title: 'Vue du ciel', subtitle: 'Observation' },
-  objets: { title: 'Système solaire', subtitle: 'Éphémérides' },
-  satellites: { title: 'Satellites', subtitle: 'Éléments orbitaux' },
-  reglages: { title: 'Réglages', subtitle: 'Configuration' },
+const PANEL_TITLES: Record<ViewTab, string> = {
+  ciel: 'Vue du ciel',
+  objets: 'Système solaire',
+  satellites: 'Satellites',
+  reglages: 'Réglages',
 }
 
 export function App() {
@@ -58,8 +58,6 @@ export function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [setPlaying, goLive, setPanelOpen])
-
-  const meta = PANEL_TITLES[tab]
 
   return (
     <div className="app">
@@ -100,8 +98,7 @@ export function App() {
 
       <SidePanel
         open={panelOpen}
-        title={meta.title}
-        subtitle={meta.subtitle}
+        title={PANEL_TITLES[tab]}
         onClose={() => setPanelOpen(false)}
         className="app__panel"
         /* La fiche de l'objet designe est ancree sous la liste : on parcourt le
