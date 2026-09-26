@@ -26,5 +26,12 @@
     "date": "2025-04-06",
     "latitude": 45.76,
     "longitude": 4.84
+  },
+  {
+    "id": "lyon-altocumulus",
+    "title": "Altocumulus sur Lyon",
+    "date": "2025-03-22",
+    "latitude": 45.76,
+    "longitude": 4.84
   }
 ]
