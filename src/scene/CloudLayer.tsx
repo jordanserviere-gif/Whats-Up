@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import {
   BackSide,
+  Color,
+  Mesh,
+  OrthographicCamera,
+  PlaneGeometry,
+  RepeatWrapping,
+  Scene,
+  Texture,
+  WebGLRenderTarget,
   ClampToEdgeWrapping,
   CustomBlending,
   DataTexture,
@@ -112,18 +120,8 @@ function sunTable(heightsM: number[], previous: DataTexture | null): DataTexture
   return t
 }
 
-function cloudMaterial(): ShaderMaterial {
-  return new ShaderMaterial({
-    side: BackSide,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-    blending: CustomBlending,
-    blendSrc: OneFactor,
-    blendDst: OneMinusSrcAlphaFactor,
-    blendSrcAlpha: OneFactor,
-    blendDstAlpha: OneMinusSrcAlphaFactor,
-    uniforms: {
+function cloudUniforms() {
+  return {
       ...aerialUniforms(),
       uFar: { value: null as DataTexture | null },
       uNear: { value: null as DataTexture | null },
@@ -141,20 +139,14 @@ function cloudMaterial(): ShaderMaterial {
       uScale: { value: new Vector3(...STRUCTURE_SCALE_KM) },
       uDroplet: { value: new Vector4(DROPLET.gHG, DROPLET.gD, DROPLET.alpha, DROPLET.wD) },
       uPixelAngle: { value: 1e-3 },
-    },
-    vertexShader: /* glsl */ `
-      varying vec3 vDir;
-      void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vDir = world.xyz;
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }
-    `,
-    fragmentShader: /* glsl */ `
+  }
+}
+
+/** Nappes, eclairage et volume : le meme code pour la carte et pour l'ecran. */
+const CLOUD_SHADE_GLSL = /* glsl */ `
       ${AERIAL_LUT_GLSL}
       ${CLOUD_PHASE_GLSL}
       ${CLOUD_LAYER_GLSL}
-      varying vec3 vDir;
       uniform sampler2D uFar;
       uniform sampler2D uNear;
       uniform sampler2D uSunTable;
@@ -302,12 +294,16 @@ function cloudMaterial(): ShaderMaterial {
         float thr = volumeThreshold(h);
         float edge = 0.0;
         if (detail) {
-          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / 0.35;
-          float n = 0.6 * volumeNoise(q) + 0.4 * volumeNoise(q * 2.9 + 11.0);
-          // Bourgeonnement : les creux du bruit mordent davantage vers le haut.
-          edge = (n - 0.5) * (0.7 + 0.8 * h);
+          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / 0.5;
+          // Bourgeons : bruit replie, dont les crêtes arrondies font les choux-fleurs.
+          float b1 = 1.0 - abs(2.0 * volumeNoise(q) - 1.0);
+          float b2 = 1.0 - abs(2.0 * volumeNoise(q * 2.7 + 11.0) - 1.0);
+          float b3 = volumeNoise(q * 7.3 - 5.0);
+          float n = 0.5 * b1 + 0.33 * b2 + 0.17 * b3;
+          // Les creux mordent davantage vers le haut, ou la convection bourgeonne.
+          edge = (n - 0.55) * (0.8 + 1.0 * h);
         }
-        float occupancy = smoothstep(thr - 0.12, thr + 0.12, inside + edge);
+        float occupancy = smoothstep(thr - 0.06, thr + 0.06, inside + edge);
         return occupancy * f.w / thickness;
       }
 
@@ -325,7 +321,7 @@ function cloudMaterial(): ShaderMaterial {
        * x : transmittance ; yzw : radiance diffusee, avant exposition et air.
        */
       vec4 volumeMarch(vec3 d, float t0, float t1, vec3 sunDir, vec3 sun, vec3 sky, vec3 atGround, float footprint, float g) {
-        const int STEPS = 36;
+        const int STEPS = 64;
         float dt = (t1 - t0) / float(STEPS);
         float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
         float T = 1.0;
@@ -341,9 +337,13 @@ function cloudMaterial(): ShaderMaterial {
           if (sigma <= 0.0) continue;
           // Ombre : quatre pas vers le Soleil, detail omis (il ne se voit pas dans l'ombre).
           float shadowTau = 0.0;
-          float ds = 350.0;
-          for (int k = 1; k <= 4; k++) {
-            shadowTau += volumeExtinction(pos + sunDir * (float(k) - 0.5) * ds, footprint, false) * ds;
+          // Six pas croissants (60 m a 2 km) : le detail pres du point, la masse au loin.
+          float along = 0.0;
+          float ds = 60.0;
+          for (int k = 0; k < 6; k++) {
+            shadowTau += volumeExtinction(pos + sunDir * (along + 0.5 * ds), footprint, k < 2) * ds;
+            along += ds;
+            ds *= 1.9;
           }
           // Profondeur jusqu'au sommet et a la base, estimee sur la verticale locale.
           vec3 up;
@@ -369,8 +369,11 @@ function cloudMaterial(): ShaderMaterial {
       }
 
 
-      void main() {
-        vec3 d = normalize(vDir);
+      /**
+       * Ce que les nappes mettent devant ce qui est derriere elles, dans la
+       * direction \`d\` : radiance premultipliee (rgb) et opacite (a).
+       */
+      vec4 cloudShade(vec3 d) {
         float mu = d.y;
         vec3 sunDir = normalize(uAerialSunDir);
 
@@ -419,6 +422,13 @@ function cloudMaterial(): ShaderMaterial {
           float w = i == 0 && !ice ? 1.0 - smoothstep(${VOLUME_BLEND_M[0]}.0, ${VOLUME_BLEND_M[1]}.0, seg.x) : 0.0;
           if (m < 1e-3 && w <= 0.0) continue;
 
+          // Les coeurs de cellule sont plus epais que leurs bords : l'epaisseur
+          // optique suit la profondeur dans le champ, de moyenne inchangee.
+          {
+            vec2 st = cloudStructure(p, footprint);
+            float inside = (${structureSigma().toFixed(5)} * cloudNormalQuantile(f.x) - st.x) / ${structureSigma().toFixed(5)};
+            tau *= f.x > 0.98 ? 1.0 : clamp(0.35 + 0.45 * inside, 0.2, 2.2);
+          }
           float tauSlant = tau * (seg.y - seg.x) / thickness;
           float tc = 1.0 - m * (1.0 - exp(-tauSlant));
 
@@ -508,16 +518,124 @@ function cloudMaterial(): ShaderMaterial {
             }
           }
         }
-        if (A > 0.999) discard;
-        if (nearest > 1e11) {
-          for (int i = 0; i < 3; i++) if (trans[i] < 1.0) nearest = min(nearest, max(1.0, dist[i]));
-        }
+        return vec4(B, 1.0 - A);
+      }
 
+      /**
+       * Distance de la premiere nappe couverte dans la direction \`d\`, m —
+       * sans structure ni volume : c'est seulement l'ordre avec le relief.
+       */
+      float cloudNearest(vec3 d) {
+        float mu = d.y;
+        float tGround = mu < 0.0 ? shellHit(mu, uGroundAltitude - uEyeAltitude, true) : -1.0;
+        float nearest = 1e12;
+        for (int i = 0; i < 3; i++) {
+          float k = float(i);
+          vec3 up;
+          vec4 f = fieldAt(vec2(0.0), k);
+          vec2 seg = vec2(-1.0);
+          for (int it = 0; it < 2; it++) {
+            seg = slabSegment(mu, f.y - uEyeAltitude, f.z - uEyeAltitude);
+            if (seg.x < 0.0) break;
+            f = fieldAt(groundPoint(d, 0.5 * (seg.x + seg.y), up), k);
+          }
+          if (seg.x < 0.0 || f.x < 0.05) continue;
+          if (tGround > 0.0 && tGround < seg.x) continue;
+          nearest = min(nearest, max(1.0, seg.x));
+        }
+        return nearest;
+      }
+`
+
+/**
+ * Carte des directions : azimut en abscisse (0 au nord, vers l'est), hauteur
+ * en ordonnee, de −12° a +90°. 4096 × 1152 texels, soit 0,09° : plus fin que
+ * le pixel au champ par defaut. Un observateur immobile qui ne fait que
+ * tourner la tete voit toujours les memes directions — c'est ce qui permet de
+ * calculer les nuages ici, lentement, et de ne faire a l'ecran qu'une lecture.
+ */
+const CACHE_WIDTH = 4096
+const CACHE_HEIGHT = 1152
+const CACHE_MIN_ELEVATION_DEG = -12
+/** Lignes recalculees par image : la carte entiere en 24 images, 0,4 s a 60 i/s. */
+const CACHE_ROWS_PER_FRAME = 48
+/** Couleur de fond du rendu, sauvee le temps d'effacer la carte. */
+const clearColor = new Color()
+
+const CACHE_GLSL = /* glsl */ `
+  const float CACHE_MIN_ELEV = ${((CACHE_MIN_ELEVATION_DEG * Math.PI) / 180).toFixed(6)};
+  vec3 cacheDirection(vec2 uv) {
+    float az = uv.x * 6.28318531;
+    float el = mix(CACHE_MIN_ELEV, 1.57079633, uv.y);
+    return vec3(sin(az) * cos(el), sin(el), -cos(az) * cos(el));
+  }
+  vec2 cacheUv(vec3 d) {
+    float az = atan(d.x, -d.z);
+    float el = asin(clamp(d.y, -1.0, 1.0));
+    return vec2(fract(az / 6.28318531), (el - CACHE_MIN_ELEV) / (1.57079633 - CACHE_MIN_ELEV));
+  }
+`
+
+/** Remplissage de la carte : un quad plein ecran, une direction par texel. */
+function cloudFillMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    depthTest: false,
+    depthWrite: false,
+    uniforms: cloudUniforms(),
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${CLOUD_SHADE_GLSL}
+      ${CACHE_GLSL}
+      varying vec2 vUv;
+      void main() {
+        gl_FragColor = cloudShade(cacheDirection(vUv));
+      }
+    `,
+  })
+}
+
+/** Affichage : lecture de la carte, profondeur calee sur la premiere nappe. */
+function cloudScreenMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    side: BackSide,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    blending: CustomBlending,
+    blendSrc: OneFactor,
+    blendDst: OneMinusSrcAlphaFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneMinusSrcAlphaFactor,
+    uniforms: { ...cloudUniforms(), uCache: { value: null as Texture | null } },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vDir = world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${CLOUD_SHADE_GLSL}
+      ${CACHE_GLSL}
+      uniform sampler2D uCache;
+      varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        vec4 c = texture2D(uCache, cacheUv(d));
+        if (c.a < 0.002) discard;
         // Profondeur : la loi du relief, pour que l'un masque l'autre juste.
-        float depthR = 7.375 * log(max(0.5, nearest) / 0.5) / log(10.0) + 0.3;
+        float nearest = cloudNearest(d);
+        float depthR = 7.375 * log(max(0.5, min(nearest, 2e6)) / 0.5) / log(10.0) + 0.3;
         vec4 clip = projectionMatrix * viewMatrix * vec4(d * depthR, 1.0);
         gl_FragDepth = clamp(0.5 * clip.z / clip.w + 0.5, 0.0, 1.0);
-        gl_FragColor = vec4(B, 1.0 - A);
+        gl_FragColor = c;
       }
     `,
   })
@@ -545,20 +663,54 @@ export function CloudLayer({
     }
   }, [scenarioId])
 
-  const material = useMemo(cloudMaterial, [])
+  const fill = useMemo(cloudFillMaterial, [])
+  // L'ecran partage les memes objets uniformes : une seule mise a jour par image.
+  const screen = useMemo(() => {
+    const m = cloudScreenMaterial()
+    m.uniforms = { ...fill.uniforms, uCache: m.uniforms.uCache }
+    return m
+  }, [fill])
+  const cache = useMemo(() => {
+    const target = new WebGLRenderTarget(CACHE_WIDTH, CACHE_HEIGHT, {
+      type: HalfFloatType,
+      depthBuffer: false,
+      magFilter: LinearFilter,
+      minFilter: LinearFilter,
+      wrapS: RepeatWrapping,
+      wrapT: ClampToEdgeWrapping,
+    })
+    screen.uniforms.uCache.value = target.texture
+    return target
+  }, [screen])
+  const fillPass = useMemo(() => {
+    const scene = new Scene()
+    const quad = new Mesh(new PlaneGeometry(2, 2), fill)
+    quad.frustumCulled = false
+    scene.add(quad)
+    return { scene, camera: new OrthographicCamera(-1, 1, 1, -1, 0, 1) }
+  }, [fill])
+  useEffect(
+    () => () => {
+      cache.dispose()
+      fill.dispose()
+      screen.dispose()
+    },
+    [cache, fill, screen],
+  )
+  const nextRow = useRef(0)
+  const cachedScenario = useRef<string | null>(null)
   const field = useRef<CloudFieldFrame | null>(null)
   const fieldKey = useRef('')
   const tableKey = useRef('')
   const table = useRef<DataTexture | null>(null)
 
-  useFrame(({ camera, gl }) => {
+  useFrame(({ gl }) => {
     if (!scenario) return
-    const u = material.uniforms
-    const fov = (camera as { fov?: number }).fov ?? 60
-    u.uPixelAngle.value = ((fov * Math.PI) / 180) / Math.max(1, gl.domElement.height)
+    const u = fill.uniforms
+    // Le texel de la carte, pas le pixel de l'ecran : c'est lui que la structure doit resoudre.
+    u.uPixelAngle.value = Math.max((2 * Math.PI) / CACHE_WIDTH, ((90 - CACHE_MIN_ELEVATION_DEG) * Math.PI) / 180 / CACHE_HEIGHT)
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     const time = useSkyStore.getState().time
-
     // Le champ change a la minute : le modele est horaire, l'interpolation lisse.
     const key = `${scenario.id}:${Math.floor(time / 60_000)}`
     if (key !== fieldKey.current) {
@@ -596,11 +748,37 @@ export function CloudLayer({
     u.uEyeAltitude.value = eye
     // Le sol un peu sous le site : le relief reel le remplace de pres.
     u.uGroundAltitude.value = observerElevationM - 50
+
+    // Une bande de la carte par image, en boucle : le calcul lourd est etale.
+    const rows = Math.min(CACHE_ROWS_PER_FRAME, CACHE_HEIGHT - nextRow.current)
+    const previousTarget = gl.getRenderTarget()
+    const previousAutoClear = gl.autoClear
+    // Nouveau scenario : la carte de l'ancien ne doit pas rester visible le temps d'un tour.
+    if (cachedScenario.current !== scenario.id) {
+      cachedScenario.current = scenario.id
+      cache.scissorTest = false
+      gl.setRenderTarget(cache)
+      const color = gl.getClearColor(clearColor)
+      const alpha = gl.getClearAlpha()
+      gl.setClearColor(0x000000, 0)
+      gl.clear(true, false, false)
+      gl.setClearColor(color, alpha)
+      nextRow.current = 0
+    }
+    cache.scissor.set(0, nextRow.current, CACHE_WIDTH, rows)
+    cache.scissorTest = true
+    cache.viewport.set(0, 0, CACHE_WIDTH, CACHE_HEIGHT)
+    gl.autoClear = false
+    gl.setRenderTarget(cache)
+    gl.render(fillPass.scene, fillPass.camera)
+    gl.setRenderTarget(previousTarget)
+    gl.autoClear = previousAutoClear
+    nextRow.current = (nextRow.current + rows) % CACHE_HEIGHT
   })
 
   if (!scenario) return null
   return (
-    <mesh material={material} renderOrder={27} frustumCulled={false}>
+    <mesh material={screen} renderOrder={27} frustumCulled={false}>
       <sphereGeometry args={[GROUND_RADIUS * 0.9, 64, 32]} />
     </mesh>
   )
