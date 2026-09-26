@@ -101,11 +101,28 @@ function makeScheme(dark, contrast) {
   })
 }
 
+/**
+ * Roles imposes par la marque, au contraste standard : le primaire **est** le
+ * bleu du logo, en clair comme en sombre, et ce qui s'y pose est blanc. MD3
+ * placerait le primaire sombre au ton 80, un bleu pastel qui n'est plus la
+ * couleur de What's Up?. Les paliers de contraste moyen et eleve gardent les
+ * tons calcules : ils existent pour qui en a besoin, la marque passe apres.
+ */
+const BRAND_ROLES = {
+  primary: SOURCE,
+  surfaceTint: SOURCE,
+  onPrimary: '#FFFFFF',
+}
+
 function scheme(dark, contrast) {
   const s = makeScheme(dark, contrast)
-  return ROLES.map((role) => `  --md-sys-color-${kebab(role)}: ${hexFromArgb(MaterialDynamicColors[role].getArgb(s))};`).join(
-    '\n',
-  )
+  return ROLES.map((role) => {
+    const hex =
+      contrast === 0 && role in BRAND_ROLES
+        ? BRAND_ROLES[role].toLowerCase()
+        : hexFromArgb(MaterialDynamicColors[role].getArgb(s))
+    return `  --md-sys-color-${kebab(role)}: ${hex};`
+  }).join('\n')
 }
 
 /**

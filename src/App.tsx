@@ -8,6 +8,7 @@ import { SatelliteDetail, SatellitesPanel } from '@/features/SatellitesPanel'
 import { AircraftDetail } from '@/features/AircraftDetail'
 import { SettingsPanel } from '@/features/SettingsPanel'
 import { NightFilter } from '@/features/NightFilter'
+import { Logo } from '@/brand/Logo'
 import { useSkyStore, type ViewTab } from '@/state/store'
 import { useTimeEngine } from '@/state/hooks'
 import './App.css'
@@ -71,11 +72,7 @@ export function App() {
           if (v === tab) setPanelOpen(!panelOpen)
           else setTab(v)
         }}
-        header={
-          <span className="app__mark" aria-hidden="true">
-            <span className="app__mark-dot" />
-          </span>
-        }
+        header={<Logo className="app__logo" />}
         /* Le night est la bascule qu'on cherche dehors, dans le noir : elle a
            sa place fixe dans le rail. Clair et sombre, choix d'une fois pour
            toutes, vivent dans les reglages. */

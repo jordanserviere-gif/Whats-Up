@@ -35,26 +35,13 @@
   margin-block: 0;
 }
 
-/* Marque discrete en tete du rail. */
-.app__mark {
-  display: grid;
-  place-items: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: radial-gradient(
-    circle at 30% 30%,
-    var(--md-sys-color-primary),
-    var(--md-sys-color-primary-container) 60%,
-    transparent 72%
-  );
-}
-.app__mark-dot {
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-on-primary);
-  box-shadow: 0 0 12px 2px var(--md-sys-color-primary);
+/* Logo en tete du rail, a la largeur de l'indicateur de navigation : il
+ * s'aligne sur la colonne des destinations sans deborder du rail. */
+.app__logo {
+  display: block;
+  width: 4.5rem;
+  height: auto;
+  color: var(--app-brand-logo);
 }
 
 @media (max-width: 900px) {

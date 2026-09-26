@@ -1,0 +1,17 @@
+/* Tokens de marque What's Up?.
+ *
+ * Le logo garde son bleu la ou il contraste avec le fond, et passe en blanc la
+ * ou il ne contrasterait pas : #2C4F9E sur le fond sombre (#131315) ne donne
+ * que 2,4:1, sous le seuil de 3:1 d'un element graphique. En night, il prend
+ * l'ambre du niveau actif, comme tout ce qui est lumineux. */
+
+:root {
+  --app-brand-blue: #2c4f9e;
+  --app-brand-logo: var(--app-brand-blue);
+}
+:root[data-theme='dark'] {
+  --app-brand-logo: #ffffff;
+}
+:root[data-theme='night'] {
+  --app-brand-logo: var(--md-sys-color-primary);
+}
