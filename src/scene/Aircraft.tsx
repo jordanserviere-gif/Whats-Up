@@ -259,7 +259,11 @@ function contrailMaterial() {
 
         // Naissance juste derriere le reacteur, puis dissipation progressive.
         float birth = smoothstep(0.0, 0.06, vUv.y);
-        float decay = pow(1.0 - vUv.y, 1.6);
+        // ⚠️ Borne indispensable : sur la derniere rangee, l'interpolation
+        // depasse 1 d'un epsilon, et \`pow\` d'un negatif vaut NaN — qui echappe
+        // au \`discard\` ci-dessous (toute comparaison a NaN est fausse) et
+        // dessinait un liseré de pixels invalides en bout de trainee.
+        float decay = pow(max(0.0, 1.0 - vUv.y), 1.6);
 
         // Les cristaux de glace diffusent surtout vers l'avant : une trainee
         // vue a contre-jour est bien plus lumineuse que la meme vue dos au

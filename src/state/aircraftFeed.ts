@@ -15,11 +15,17 @@
  * qu'on regarde.
  */
 import { fetchNearbyAircraft, type AdsbAircraft } from '@/data-sources/adsb'
+import { simulatedAircraft } from '@/data-sources/simulatedAircraft'
 import type { SourceStatus } from '@/data-sources/types'
 
 export const AIRCRAFT_RADIUS_KM = 75
 /** Cadence d'interrogation du relais. */
 const POLL_MS = 12_000
+/**
+ * Cadence de la flotte simulee. Rien a menager : une mise a jour par seconde
+ * garde l'extrapolation tres courte, donc exacte.
+ */
+const SIMULATED_POLL_MS = 1_000
 /** Fenetre conservee pour la trainee et la trace : au-dela, un point n'apprend plus rien. */
 const HISTORY_WINDOW_MS = 8 * 60_000
 
@@ -87,16 +93,29 @@ async function pollOnce(latitude: number, longitude: number, key: string) {
   }
 }
 
-/** Demarre — ou laisse filer — l'interrogation pour ce lieu. Sans effet si deja en cours. */
-export function ensureAircraftPolling(latitude: number, longitude: number) {
-  const key = `${latitude.toFixed(2)}:${longitude.toFixed(2)}`
+/** Publie la flotte simulee, sans passer par le reseau. */
+function simulateOnce(latitude: number, longitude: number) {
+  const raw = simulatedAircraft(latitude, longitude)
+  recordHistory(raw)
+  publish({ raw, status: { origin: 'simulé', fetchedAt: new Date(), ageMs: 0 }, loading: false })
+}
+
+/**
+ * Demarre — ou laisse filer — l'interrogation pour ce lieu. Sans effet si deja
+ * en cours. `simulated` remplace le relais ADS-B par la flotte simulee.
+ */
+export function ensureAircraftPolling(latitude: number, longitude: number, simulated = false) {
+  const key = `${simulated ? 'sim' : 'adsb'}:${latitude.toFixed(2)}:${longitude.toFixed(2)}`
   if (targetKey === key) return
   targetKey = key
   if (timer) clearInterval(timer)
-  publish({ loading: true })
-  const tick = () => pollOnce(latitude, longitude, key)
+  // Les deux sources n'ont rien en commun : garder l'historique de l'une
+  // tracerait des trainees vers des avions qui n'existent plus.
+  history.clear()
+  publish({ raw: [], loading: true })
+  const tick = simulated ? () => simulateOnce(latitude, longitude) : () => pollOnce(latitude, longitude, key)
   tick()
-  timer = setInterval(tick, POLL_MS)
+  timer = setInterval(tick, simulated ? SIMULATED_POLL_MS : POLL_MS)
 }
 
 export function stopAircraftPolling() {

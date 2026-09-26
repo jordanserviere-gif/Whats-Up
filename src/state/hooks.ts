@@ -634,7 +634,10 @@ export function useNearbyAircraft(): AircraftFeed {
   const enabled = useSkyStore((s) => s.layers.aircraft)
   const location = useSkyStore((s) => s.location)
   const time = useSkyStore((s) => s.time)
-  const live = Math.abs(time - Date.now()) < AIRCRAFT_LIVE_TOLERANCE_MS
+  const simulated = useSkyStore((s) => s.aircraftSimulated)
+  // Une flotte simulee existe a toute heure : elle est « disponible » meme
+  // quand l'instant affiche n'est pas le present.
+  const live = simulated || Math.abs(time - Date.now()) < AIRCRAFT_LIVE_TOLERANCE_MS
   const active = enabled && live
 
   // Arrondi : un tremblement de quelques metres dans la position geolocalisee
@@ -643,9 +646,9 @@ export function useNearbyAircraft(): AircraftFeed {
   const lon = Math.round(location.longitude * 100) / 100
 
   useEffect(() => {
-    if (active) ensureAircraftPolling(lat, lon)
+    if (active) ensureAircraftPolling(lat, lon, simulated)
     else stopAircraftPolling()
-  }, [active, lat, lon])
+  }, [active, lat, lon, simulated])
 
   const snapshot = useSyncExternalStore(subscribeAircraftFeed, getAircraftFeedSnapshot)
 

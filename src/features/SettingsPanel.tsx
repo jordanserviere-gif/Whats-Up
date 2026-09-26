@@ -72,6 +72,8 @@ export function SettingsPanel() {
   const [locating, setLocating] = useState(false)
   const [placeTab, setPlaceTab] = useState<'map' | 'favorites'>('map')
   const favorites = useSkyStore((s) => s.favorites)
+  const aircraftSimulated = useSkyStore((s) => s.aircraftSimulated)
+  const setAircraftSimulated = useSkyStore((s) => s.setAircraftSimulated)
   const toggleFavorite = useSkyStore((s) => s.toggleFavorite)
 
   /**
@@ -213,6 +215,7 @@ export function SettingsPanel() {
             onChange={(v) => setLayer(l.key, v)}
           />
         ))}
+        <Switch label="Avions simulés" checked={aircraftSimulated} onChange={setAircraftSimulated} />
         <Divider />
         <Slider
           label="Magnitude limite des étoiles"

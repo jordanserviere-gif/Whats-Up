@@ -7,7 +7,7 @@
  * voit si la refraction s'appuie sur une pression mesuree ce matin, sur une
  * valeur en cache d'avant-hier, ou sur l'atmosphere standard.
  */
-export type DataOrigin = 'mesuré' | 'cache' | 'défaut'
+export type DataOrigin = 'mesuré' | 'cache' | 'défaut' | 'simulé'
 
 export interface SourceStatus {
   origin: DataOrigin

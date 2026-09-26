@@ -110,6 +110,12 @@ interface SkyState {
    * resolution, sans multi-echantillonnage — puisque personne ne la voit.
    */
   sceneLoading: boolean
+  /**
+   * Avions simules plutot que recus par ADS-B — voir `simulatedAircraft.ts`.
+   * Ils existent a toute heure, y compris en temps simule.
+   */
+  aircraftSimulated: boolean
+  setAircraftSimulated: (simulated: boolean) => void
   setSceneLoading: (loading: boolean) => void
   /** Ajoute le lieu aux favoris, ou l'en retire s'il y est deja. */
   toggleFavorite: (l: GeoLocation) => void
@@ -307,6 +313,8 @@ export const useSkyStore = create<SkyState>()(
         set(moved ? { location, terrainProgress: null } : { location })
       },
       sceneLoading: true,
+      aircraftSimulated: false,
+      setAircraftSimulated: (aircraftSimulated) => set({ aircraftSimulated }),
       setSceneLoading: (sceneLoading) => set({ sceneLoading }),
       favorites: [...PRESET_LOCATIONS],
       toggleFavorite: (l) =>
@@ -399,6 +407,7 @@ export const useSkyStore = create<SkyState>()(
       partialize: (s) => ({
         location: s.location,
         favorites: s.favorites,
+        aircraftSimulated: s.aircraftSimulated,
         elevationOffsetM: s.elevationOffsetM,
         layers: s.layers,
         magnitudeLimit: s.magnitudeLimit,
