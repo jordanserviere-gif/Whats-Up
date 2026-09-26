@@ -112,7 +112,9 @@ export const DEFAULT_CONTRAIL: ContrailParameters = {
   wakePhaseS: 90,
   initialIceKgPerM: 0.018,
   initialEffectiveRadiusM: 1e-6,
-  formationS: 1,
+  // Une trainee devient visible a une ou deux envergures derriere l'avion :
+  // le temps que le panache se refroidisse et gele, environ 0,3 s a 230 m/s.
+  formationS: 0.3,
 }
 
 const smooth01 = (x: number) => {

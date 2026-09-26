@@ -23,6 +23,18 @@ const CLICK_SLOP_PX = 6
 /** Au-dela, le geste est une pose ou une hesitation, plus un clic. */
 const CLICK_MAX_MS = 500
 
+/**
+ * Cible suivie image par image, quand il y en a une.
+ *
+ * Le suivi par le store republie la visee a chaque nouvelle mesure. C'est assez
+ * pour un astre, qui avance d'un quart de degre par minute ; pas pour un avion
+ * en champ serre : a vingt kilometres, il traverse un champ d'un demi-degre en
+ * moins d'une seconde, et sautait hors du cadre entre deux mesures. La scene
+ * depose ici une fonction qui rend la position extrapolee du moment ; le rig
+ * l'interroge a chaque image tant que le verrou tient.
+ */
+export const cameraFollow: { current: (() => Horizontal | null) | null } = { current: null }
+
 export interface PickRequest {
   /** Direction visee dans le repere de la scene, unitaire. */
   direction: [number, number, number]
@@ -219,6 +231,11 @@ export function CameraRig({
   useFrame((_, delta) => {
     // Amortissement critique : suit le geste sans flotter.
     const k = 1 - Math.exp(-delta * 14)
+    const follow = locked.current ? cameraFollow.current?.() : null
+    if (follow) {
+      targetAzimuth.current = follow.azimuth
+      targetAltitude.current = clamp(follow.altitude, -85, 85)
+    }
     if (locked.current) {
       // Seul l'ecart s'amortit ; la visee, elle, est reprise telle quelle.
       offsetAzimuth.current *= 1 - k

@@ -26,7 +26,7 @@ import { angularDistance, readToken, viewDirection } from './sceneMath'
 import { pickSkyTarget } from './picking'
 import { fieldLabels } from './fieldLabels'
 import { useSceneColors } from './useSceneColors'
-import { CameraRig, type PickRequest } from './CameraRig'
+import { CameraRig, cameraFollow, type PickRequest } from './CameraRig'
 import { Starfield } from './Starfield'
 import { ConstellationLines } from './ConstellationLines'
 import { DeepSky } from './DeepSky'
@@ -37,7 +37,8 @@ import { SkyBackground } from './SkyBackground'
 import { SolarSystemBodies } from './Bodies'
 import { useBodyTextures } from './useBodyTextures'
 import { SatelliteLayer } from './Satellites'
-import { AircraftLayer } from './Aircraft'
+import { AircraftLayer, MODEL_SHOW_PX } from './Aircraft'
+import { aircraftLayout } from '@/astro/aircraftTypes'
 import { LabelLayer, type SceneLabel } from './LabelLayer'
 import { constellationLabels } from '@/astro/catalog'
 import { DEEP_SKY_MAG_LIMIT } from '@/astro/deepsky'
@@ -420,6 +421,27 @@ export function SkyCanvas() {
     return equatorial ? equatorialToHorizontal(precessFromJ2000(equatorial, date), location, date) : null
   }, [cameraLocked, selection, selectedAircraftHex, aircraftStates, bodies, satStates, date, location])
 
+  // Un avion verrouille se suit a chaque image, depuis sa position extrapolee :
+  // voir `cameraFollow`. La reference garde la derniere liste d'etats sans
+  // reinstaller la fonction a chaque mesure.
+  const aircraftRef = useRef(aircraftStates)
+  aircraftRef.current = aircraftStates
+  useEffect(() => {
+    if (!cameraLocked || !selectedAircraftHex) {
+      cameraFollow.current = null
+      return
+    }
+    cameraFollow.current = () => {
+      const a = aircraftRef.current.find((x) => x.hex === selectedAircraftHex)
+      if (!a) return null
+      const geo = extrapolatedGeodetic(a, Date.now())
+      return geodeticToHorizontal(geo.latitude, geo.longitude, geo.altitudeKm, location).horizontal
+    }
+    return () => {
+      cameraFollow.current = null
+    }
+  }, [cameraLocked, selectedAircraftHex, location])
+
   const followAzimuth = followed?.azimuth ?? null
   const followAltitude = followed?.altitude ?? null
   useEffect(() => {
@@ -538,6 +560,13 @@ export function SkyCanvas() {
             const geo = extrapolatedGeodetic(a, Date.now())
             return geodeticToHorizontal(geo.latitude, geo.longitude, geo.altitudeKm, location).horizontal
           },
+          // Le modele 3D prend le relais a cette taille : le repere s'efface.
+          angularSizeRad: () => {
+            const geo = extrapolatedGeodetic(a, Date.now())
+            const { rangeKm } = geodeticToHorizontal(geo.latitude, geo.longitude, geo.altitudeKm, location)
+            return aircraftLayout(a.typeCode, a.category).spanM / (rangeKm * 1000)
+          },
+          hideAbovePx: MODEL_SHOW_PX,
           color: '',
           kind: 'aircraft',
         })

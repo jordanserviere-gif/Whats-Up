@@ -29,6 +29,14 @@ export interface SceneLabel {
    * sans attendre que la liste d'etiquettes elle-meme soit reconstruite.
    */
   resolve?: () => Horizontal
+  /**
+   * Masque le repere quand l'objet devient assez grand pour se montrer lui-meme.
+   * `angularSizeRad` rend sa taille angulaire du moment ; au-dela de
+   * `hideAbovePx` pixels, le repere s'efface — l'icone d'un avion n'a plus
+   * rien a faire plaquee sur son propre modele 3D.
+   */
+  angularSizeRad?: () => number
+  hideAbovePx?: number
 }
 
 /**
@@ -96,6 +104,13 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
       if (world.current.z > 1 || Math.abs(world.current.x) > 1.15 || Math.abs(world.current.y) > 1.15) {
         node.style.opacity = '0'
         continue
+      }
+      if (label.angularSizeRad && label.hideAbovePx !== undefined) {
+        const px = Math.tan(label.angularSizeRad()) * pixelsPerTan
+        if (px > label.hideAbovePx) {
+          node.style.opacity = '0'
+          continue
+        }
       }
       const sx = (world.current.x * 0.5 + 0.5) * size.width
       const sy = (-world.current.y * 0.5 + 0.5) * size.height

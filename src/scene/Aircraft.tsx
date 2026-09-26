@@ -31,6 +31,7 @@ import {
 } from '@/atmosphere/cloud/contrail'
 import { ambientRadianceAtAltitude, sunAltitudeAt, sunIrradianceAtAltitude } from './contrailLighting'
 import { aircraftLayout, vortexSpacingM } from '@/astro/aircraftTypes'
+import { aircraftModelMaterial, useAircraftModel } from './aircraftModels'
 
 const DEG = Math.PI / 180
 
@@ -139,6 +140,14 @@ function aircraftMaterial() {
  * `extrapolatedGeodetic` — pour un glissement continu plutot qu'un saut toutes
  * les vingt secondes.
  */
+/**
+ * Seuils de bascule silhouette → modele 3D, en pixels d'envergure apparente.
+ * L'ecart entre les deux est une hysteresis : un avion au seuil, dont la
+ * taille a l'ecran oscille d'un pixel, ne clignote pas d'une forme a l'autre.
+ */
+export const MODEL_SHOW_PX = 28
+const MODEL_HIDE_PX = 20
+
 function AircraftMesh({
   state,
   location,
@@ -146,6 +155,9 @@ function AircraftMesh({
   skyExposure,
   dayFactor,
   selected,
+  sunAltitudeDeg,
+  sunAzimuthDeg,
+  groundSunIrradiance,
 }: {
   state: AircraftState
   location: GeoLocation
@@ -157,11 +169,21 @@ function AircraftMesh({
   /** Facteur jour/nuit : un avion ne se voit quasiment plus une fois la nuit tombee. */
   dayFactor: number
   selected: boolean
+  /** Hauteur et azimut du Soleil pour l'observateur, degres — le modele s'eclaire a sa propre altitude. */
+  sunAltitudeDeg: number
+  sunAzimuthDeg: number
+  groundSunIrradiance: readonly [number, number, number]
 }) {
   const mesh = useRef<Mesh>(null)
+  const modelMesh = useRef<Mesh>(null)
   const material = useMemo(aircraftMaterial, [])
+  const modelMaterial = useMemo(aircraftModelMaterial, [])
+  useEffect(() => () => modelMaterial.dispose(), [modelMaterial])
+  const layout = aircraftLayout(state.typeCode, state.category)
+  const model = useAircraftModel(layout.family)
+  const showingModel = useRef(false)
 
-  useFrame(() => {
+  useFrame(({ camera, size }) => {
     const m = mesh.current
     if (!m) return
 
@@ -179,8 +201,36 @@ function AircraftMesh({
 
     // Envergure reelle du type — voir `aircraftTypes.ts` : un A380 fait le
     // double d'un moyen-courrier, et ses trainees s'ecartent d'autant.
-    const halfSpan = sceneRadiusForBody(aircraftLayout(state.typeCode, state.category).spanM / 2000, rangeKm)
+    const halfSpan = sceneRadiusForBody(layout.spanM / 2000, rangeKm)
     m.scale.setScalar(halfSpan * 2)
+
+    // Silhouette ou modele : c'est la taille a l'ecran qui decide, pas la
+    // distance — zoomer, c'est se rapprocher de l'avion.
+    const fovRad = ((camera as { fov?: number }).fov ?? 60) * DEG
+    const spanPx = (layout.spanM / (rangeKm * 1000) / fovRad) * size.height
+    if (model && spanPx >= MODEL_SHOW_PX) showingModel.current = true
+    else if (!model || spanPx < MODEL_HIDE_PX) showingModel.current = false
+    const mm = modelMesh.current
+    if (mm && model) {
+      mm.visible = showingModel.current && horizontal.altitude > -1
+      if (mm.visible) {
+        mm.position.set(x, y, z)
+        mm.rotation.set(0, Math.PI - trackRad, 0)
+        // Le modele est en metres reels ; la scene veut l'envergure du type a
+        // son diametre apparent exact.
+        mm.scale.setScalar((halfSpan * 2) / model.nativeSpanM)
+        const u = modelMaterial.uniforms
+        u.uRangeM.value = rangeKm * 1000
+        const groundRangeKm = rangeKm * Math.cos(horizontal.altitude * DEG)
+        const localSun = sunAltitudeAt(sunAltitudeDeg, sunAzimuthDeg, horizontal.azimuth, groundRangeKm)
+        const sun = sunIrradianceAtAltitude(localSun, geo.altitudeKm * 1000)
+        const ambient = ambientRadianceAtAltitude(geo.altitudeKm * 1000, aerialTextures.skyIrradiance, groundSunIrradiance, sunAltitudeDeg)
+        ;(u.uSunIrradiance.value as Vector3).set(sun[0], sun[1], sun[2])
+        ;(u.uAmbientRadiance.value as Vector3).set(ambient[0], ambient[1], ambient[2])
+        applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
+      }
+    }
+    m.visible = !showingModel.current
 
     material.uniforms.uRangeM.value = rangeKm * 1000
     applyAerialUniforms(
@@ -197,7 +247,19 @@ function AircraftMesh({
   })
 
   return (
-    <mesh ref={mesh} geometry={AIRCRAFT_GEOMETRY} material={material} renderOrder={12} frustumCulled={false} />
+    <>
+      <mesh ref={mesh} geometry={AIRCRAFT_GEOMETRY} material={material} renderOrder={12} frustumCulled={false} />
+      {model && (
+        <mesh
+          ref={modelMesh}
+          geometry={model.geometry}
+          material={modelMaterial}
+          renderOrder={12}
+          frustumCulled={false}
+          visible={false}
+        />
+      )}
+    </>
   )
 }
 
@@ -613,6 +675,9 @@ export function AircraftLayer({
             skyExposure={skyExposure}
             dayFactor={dayFactor}
             selected={s.hex === selectedHex}
+            sunAltitudeDeg={sunAltitudeDeg}
+            sunAzimuthDeg={sunAzimuthDeg}
+            groundSunIrradiance={groundSunIrradiance}
           />
           {s.contrailLikelihood > 0.02 && (
             <AircraftContrail
