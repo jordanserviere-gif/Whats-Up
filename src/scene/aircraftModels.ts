@@ -32,6 +32,7 @@ import { aerialUniforms } from './useAerialLut'
 const MODEL_URLS: Partial<Record<AircraftFamily, string>> = {
   'narrowbody-twin': '/models/narrowbody-twin.glb',
   'widebody-twin': '/models/widebody-twin.glb',
+  quad: '/models/quad.glb',
 }
 
 /** Angle de cassure des normales, radians. */

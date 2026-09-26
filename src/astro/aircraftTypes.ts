@@ -25,6 +25,7 @@ export type AircraftFamily =
   | 'narrowbody-twin'
   | 'widebody-twin'
   | 'quad'
+  | 'highwing-quad'
   | 'trijet'
   | 'regional-jet'
   | 'bizjet'
@@ -64,9 +65,9 @@ add('B741 B742 B743 B744 B74S', quad(64.4, 12, 21))
 add('B748', quad(68.4, 12.5, 22))
 add('A342 A343', quad(60.3, 10.7, 19.5))
 add('A345 A346', quad(63.5, 11.3, 20.3))
-add('A124', quad(73.3, 13, 23))
+add('A124', quad(73.3, 13, 23, 'highwing-quad'))
 add('A400', quad(42.4, 7.2, 13.5, 'turboprop'))
-add('C17', quad(51.8, 9.5, 16.5))
+add('C17', quad(51.8, 9.5, 16.5, 'highwing-quad'))
 add('B461 B462 B463 RJ70 RJ85 RJ1H', quad(26.3, 4, 6.8, 'regional-jet'))
 
 // --- Trireacteurs ----------------------------------------------------------
