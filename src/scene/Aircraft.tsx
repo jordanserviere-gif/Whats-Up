@@ -231,8 +231,17 @@ const CONTRAIL_LIFETIMES_SHOWN = 4
  * trente minutes font deja 400 km de ruban, d'un horizon a l'autre.
  */
 const CONTRAIL_MAX_AGE_S = 1800
-/** Demi-largeur du ruban, en ecarts-types de la section. */
-const CONTRAIL_HALF_WIDTH_SIGMAS = 3
+/**
+ * Demi-largeur du ruban, en ecarts-types de la section. Quatre et non trois :
+ * les panaches ecartes, la turbulence et l'ondulation de Crow deplacent l'axe
+ * de pres d'un ecart-type.
+ */
+const CONTRAIL_HALF_WIDTH_SIGMAS = 4
+/**
+ * Periode de l'horloge passee au nuanceur, s. La position dans la masse d'air
+ * en derive ; un flottant garde sa precision sur une journee, pas sur l'epoque.
+ */
+const CONTRAIL_CLOCK_PERIOD_S = 86_400
 
 function contrailMaterial() {
   return new ShaderMaterial({
@@ -247,6 +256,9 @@ function contrailMaterial() {
       uSunIrradiance: { value: new Vector3() },
       /** Radiance diffuse moyenne recue par la glace. */
       uAmbientRadiance: { value: new Vector3() },
+      /** Horloge murale modulo une journee, s, et vitesse sol, m/s. */
+      uNowS: { value: 0 },
+      uSpeedMS: { value: 0 },
       ...aerialUniforms(),
     },
     vertexShader: /* glsl */ `
@@ -283,9 +295,15 @@ function contrailMaterial() {
       uniform float uFormationS;
       uniform vec3 uSunIrradiance;
       uniform vec3 uAmbientRadiance;
+      uniform float uNowS;
+      uniform float uSpeedMS;
 
       void main() {
-        float tau = contrailOpticalDepth(vAge, vLateral, vSinAngle, uContrail, uFormationS);
+        // Position dans la masse d'air : la distance parcourue par l'avion
+        // quand cette glace a ete emise. La structure y est attachee, et reste
+        // en place pendant que l'avion avance.
+        float along = (uNowS - vAge) * uSpeedMS;
+        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uFormationS, along, fwidth(along));
         float alpha = 1.0 - exp(-tau);
         if (!(alpha > 0.002)) discard;
 
@@ -455,6 +473,8 @@ function AircraftContrail({
       lifetimeS,
     )
     u.uFormationS.value = params.formationS
+    u.uNowS.value = (Date.now() / 1000) % CONTRAIL_CLOCK_PERIOD_S
+    u.uSpeedMS.value = perSecondKm * 1000
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     m.visible = headView.horizontal.altitude > -1 && state.contrailLikelihood > 0.02
   })

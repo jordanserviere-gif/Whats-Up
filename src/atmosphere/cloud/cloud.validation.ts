@@ -38,6 +38,10 @@ import {
 } from './contrailFormation'
 import { saturationVapourPressureOverIce, saturationVapourPressureOverWater } from '../thermodynamics/waterVapour'
 import {
+  CONTRAIL_STRUCTURE,
+  crowModulation,
+  plumeSeparationM,
+  twinPlumeOpticalDepth,
   DEFAULT_CONTRAIL,
   contrailExtinctionAt,
   contrailExtinctionPerLengthM,
@@ -202,6 +206,35 @@ export function cloudSuite(): SuiteResult {
       t.check('invisible au passage des reacteurs', contrailOpticalDepth(0, 0, 1), 0, 1e-12)
       const young = contrailOpticalDepth(10, 0, 1)
       t.check('trainee jeune : epaisseur optique au centre', young, 0.4, 0.1)
+      // --- 4 bis. Structure fine ----------------------------------------------
+      // Deux panaches se partagent la glace : integree sur la section, leur
+      // somme rend l'extinction lineique du tube unique.
+      for (const age of [2, 8]) {
+        const sigma = contrailSigmaM(age)
+        const span = 8 * sigma + CONTRAIL_STRUCTURE.plumeSeparationM
+        let integral = 0
+        const steps = 6000
+        for (let i = 0; i < steps; i++) {
+          const b = -span + ((i + 0.5) * 2 * span) / steps
+          integral += twinPlumeOpticalDepth(age, b, 1) * ((2 * span) / steps)
+        }
+        t.checkRelative(`deux panaches : meme glace qu’un seul, t = ${age} s`, integral, contrailExtinctionPerLengthM(age), 1e-4)
+      }
+      t.check('panaches fusionnes au bout de la duree de fusion', plumeSeparationM(CONTRAIL_STRUCTURE.plumeMergeS), 0, 1e-9, 'm')
+      t.checkTrue(
+        'panaches encore distincts a la formation',
+        twinPlumeOpticalDepth(1, 0, 1) < twinPlumeOpticalDepth(1, CONTRAIL_STRUCTURE.plumeSeparationM / 2, 1),
+        'le creux entre les deux panaches doit exister avant leur fusion',
+      )
+      // Crow deplace la glace le long de l'axe sans en creer.
+      {
+        const n = 2000
+        let mean = 0
+        for (let i = 0; i < n; i++) mean += crowModulation(600, ((i + 0.5) / n) * CONTRAIL_STRUCTURE.crowWavelengthM) / n
+        t.check('pincement de Crow de moyenne 1 sur une longueur d’onde', mean, 1, 1e-6)
+      }
+      t.check('pas de pincement avant le debut de l’instabilite', crowModulation(10, 0), 1, 1e-12)
+
       // --- 5. Critere de Schmidt-Appleman -----------------------------------
       for (const pressureHPa of [200, 250, 300]) {
         const g = mixingLineSlope(pressureHPa * 100)
