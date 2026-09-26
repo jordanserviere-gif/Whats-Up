@@ -31,13 +31,16 @@ import {
 import { WATER_DENSITY_KG_M3, extinctionCoefficient } from './microphysics'
 import {
   contrailConditions,
-  contrailLifetimeS,
   mixingLineSlope,
   schumannTangentTemperatureC,
   tangentTemperatureK,
 } from './contrailFormation'
 import { saturationVapourPressureOverIce, saturationVapourPressureOverWater } from '../thermodynamics/waterVapour'
 import {
+  contrailDeathAgeS,
+  contrailEffectiveRadiusM,
+  contrailIceKgPerM,
+  initialExtinctionPerLengthM,
   CONTRAIL_STRUCTURE,
   crowModulation,
   plumeSeparationM,
@@ -266,17 +269,93 @@ export function cloudSuite(): SuiteResult {
         )
         t.note(`a 250 hPa, η = 0,3 : tangence a ${(tangent - 273.15).toFixed(1)} °C`)
       }
-      t.checkMonotonic(
-        'la duree de vie croit avec la saturation sur glace',
-        [0.3, 0.5, 0.8, 0.99, 1.0, 1.05, 1.2].map(contrailLifetimeS),
-        'croissant',
-      )
-      t.check('duree de vie continue a saturation', contrailLifetimeS(0.99999), contrailLifetimeS(1), 0.1, 's')
+      // --- 6. Etalement dans un vent cisaille, contre des particules ----------
+      // Les formules de dispersion gaussienne en cisaillement se retrouvent par
+      // une marche aleatoire independante : des particules diffusent et sont
+      // entrainees par un vent qui croit lineairement avec l'altitude. Phase de
+      // sillage neutralisee, pour comparer exactement a la forme close.
+      {
+        const params = { ...DEFAULT_CONTRAIL, wakeSigmaZM: DEFAULT_CONTRAIL.initialSigmaM }
+        const env = { shearPerS: 0.006, excessVapourKgM3: 0 }
+        let seed = 12345
+        const uniform = () => {
+          seed = (seed * 1664525 + 1013904223) >>> 0
+          return (seed + 0.5) / 4294967296
+        }
+        const gauss = () => Math.sqrt(-2 * Math.log(uniform())) * Math.cos(2 * Math.PI * uniform())
+        const n = 6000
+        const ys = new Float64Array(n)
+        const zs = new Float64Array(n)
+        for (let i = 0; i < n; i++) {
+          ys[i] = params.initialSigmaM * gauss()
+          zs[i] = params.initialSigmaM * gauss()
+        }
+        const dt = 2
+        let clock = 0
+        for (const target of [300, 1200]) {
+          while (clock < target) {
+            for (let i = 0; i < n; i++) {
+              ys[i] += env.shearPerS * zs[i] * dt + Math.sqrt(2 * params.horizontalDiffusivityM2S * dt) * gauss()
+              zs[i] += Math.sqrt(2 * params.verticalDiffusivityM2S * dt) * gauss()
+            }
+            clock += dt
+          }
+          let m = 0
+          for (let i = 0; i < n; i++) m += ys[i]
+          m /= n
+          let v = 0
+          for (let i = 0; i < n; i++) v += (ys[i] - m) ** 2
+          const sigmaMc = Math.sqrt(v / (n - 1))
+          t.checkRelative(`largeur en cisaillement contre particules, t = ${target} s`, contrailSigmaM(target, env, params), sigmaMc, 0.04)
+        }
+      }
+
+      // --- 7. Bilan de glace ----------------------------------------------------
+      {
+        const saturated = { shearPerS: 0.004, excessVapourKgM3: 0 }
+        t.checkRelative(
+          'air sature : la glace se conserve',
+          contrailIceKgPerM(1800, saturated),
+          DEFAULT_CONTRAIL.initialIceKgPerM,
+          1e-12,
+        )
+        t.checkRelative(
+          'extinction initiale 3M/2ρr',
+          initialExtinctionPerLengthM(),
+          extinctionCoefficient(DEFAULT_CONTRAIL.initialIceKgPerM, DEFAULT_CONTRAIL.initialEffectiveRadiusM, 'glace'),
+          1e-12,
+        )
+        // Air a 80 % sur glace a −50 °C, puis sursature a 120 %.
+        const temperatureK = 223.15
+        const esi = saturationVapourPressureOverIce(temperatureK)
+        const excess = (ratio: number) => ((ratio - 1) * esi) / (461.5 * temperatureK)
+        const dry = { shearPerS: 0.004, excessVapourKgM3: excess(0.8) }
+        const humid = { shearPerS: 0.004, excessVapourKgM3: excess(1.2) }
+        const death = contrailDeathAgeS(dry)
+        t.checkTrue('air sous-sature : la trainee meurt', Number.isFinite(death) && death > 0)
+        t.check('glace epuisee a l’age de mort', contrailIceKgPerM(death * 1.001, dry), 0, 1e-12, 'kg/m')
+        t.checkTrue('air sursature : la trainee ne meurt pas', !Number.isFinite(contrailDeathAgeS(humid)))
+        t.checkMonotonic(
+          'air sursature : la glace croit',
+          [0, 60, 300, 900, 1800].map((a) => contrailIceKgPerM(a, humid)),
+          'croissant',
+        )
+        // Ordres de grandeur observes d'une trainee persistante d'une demi-heure :
+        // un a quelques kilometres de large, une epaisseur optique de 0,1 a 0,5.
+        const fwhm30 = 2.355 * contrailSigmaM(1800, humid)
+        const tau30 = contrailOpticalDepth(1800, 0, 1, humid)
+        t.checkTrue('persistante a 30 min : large de 1 a 5 km', fwhm30 > 1000 && fwhm30 < 5000, `${(fwhm30 / 1000).toFixed(2)} km`)
+        t.checkTrue('persistante a 30 min : τ de 0,1 a 1', tau30 > 0.1 && tau30 < 1, `τ = ${tau30.toFixed(2)}`)
+        t.note(
+          `a −50 °C, cisaillement 0,004 s⁻¹ : 80 % sur glace → morte a ${death.toFixed(0)} s ; ` +
+            `120 % → ${(fwhm30 / 1000).toFixed(2)} km de large et τ ${tau30.toFixed(2)} a 30 min, ` +
+            `cristaux de ${(contrailEffectiveRadiusM(1800, humid) * 1e6).toFixed(1)} µm`,
+        )
+      }
 
       t.note(
-        `largeur a mi-hauteur : ${(2.355 * contrailSigmaM(60)).toFixed(0)} m a 1 min, ` +
-          `${(2.355 * contrailSigmaM(1800)).toFixed(0)} m a 30 min ; τ au centre ${young.toFixed(2)} a 10 s, ` +
-          `duree de vie ${DEFAULT_CONTRAIL.lifetimeS} s`,
+        `largeur a mi-hauteur (environnement par defaut) : ${(2.355 * contrailSigmaM(60)).toFixed(0)} m a 1 min ; ` +
+          `τ au centre ${young.toFixed(2)} a 10 s ; morte a ${contrailDeathAgeS().toFixed(0)} s`,
       )
     },
   )

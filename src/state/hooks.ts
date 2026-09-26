@@ -14,7 +14,8 @@ import {
 } from '@/astro/bodies'
 import { bortleFromSkyBrightness, lightPollutionLux } from '@/astro/photometry'
 import { fetchSurfaceAerosol } from '@/data-sources/airQuality'
-import { airAt, fetchUpperAir, profileAt } from '@/data-sources/upperAir'
+import { airAt, fetchUpperAir, profileAt, shearAt } from '@/data-sources/upperAir'
+import { DEFAULT_ENVIRONMENT } from '@/atmosphere/cloud/contrail'
 import { contrailConditions } from '@/atmosphere/cloud/contrailFormation'
 import { fetchSkyBrightness } from '@/data-sources/lightPollution'
 import { turbidityFromSurfaceAerosol } from '@/scene/atmosphere'
@@ -225,10 +226,15 @@ export function useUpperAirSync() {
 function withContrailWeather(state: AircraftState, upperAir: ReturnType<typeof profileAt>): AircraftState {
   if (!upperAir) return state
   const air = airAt(upperAir, state.altitudeKm * 1000)
-  if (!air) return { ...state, contrailLikelihood: 0, contrailLifetimeS: null }
+  if (!air) return { ...state, contrailLikelihood: 0, contrailEnvironment: null }
   const c = contrailConditions(air.temperatureK, air.relativeHumidityWater, air.pressurePa)
   const x = Math.min(1, Math.max(0, (c.formationMarginPa + 1) / 2))
-  return { ...state, contrailLikelihood: x * x * (3 - 2 * x), contrailLifetimeS: c.lifetimeS }
+  const shear = shearAt(upperAir, state.altitudeKm * 1000) ?? DEFAULT_ENVIRONMENT.shearPerS
+  return {
+    ...state,
+    contrailLikelihood: x * x * (3 - 2 * x),
+    contrailEnvironment: { shearPerS: shear, excessVapourKgM3: c.excessVapourKgM3 },
+  }
 }
 
 /**

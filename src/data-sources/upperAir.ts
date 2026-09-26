@@ -33,6 +33,9 @@ export interface UpperAirLevel {
   temperatureK: number
   /** Humidite relative par rapport a l'eau liquide, fraction. */
   relativeHumidityWater: number
+  /** Vent horizontal, composantes est et nord, m/s. */
+  windEastMS: number
+  windNorthMS: number
 }
 
 /** Profil a une heure donnee, du plus bas au plus haut. */
@@ -55,6 +58,8 @@ export async function fetchUpperAir(latitude: number, longitude: number): Promis
     `temperature_${p}hPa`,
     `relative_humidity_${p}hPa`,
     `geopotential_height_${p}hPa`,
+    `wind_speed_${p}hPa`,
+    `wind_direction_${p}hPa`,
   ])
   const url =
     `${BASE}?latitude=${lat}&longitude=${lon}&hourly=${fields.join(',')}` +
@@ -74,8 +79,20 @@ export async function fetchUpperAir(latitude: number, longitude: number): Promis
           const t = (h[`temperature_${p}hPa`] as (number | null)[] | undefined)?.[i]
           const rh = (h[`relative_humidity_${p}hPa`] as (number | null)[] | undefined)?.[i]
           const z = (h[`geopotential_height_${p}hPa`] as (number | null)[] | undefined)?.[i]
+          const speed = (h[`wind_speed_${p}hPa`] as (number | null)[] | undefined)?.[i]
+          const from = (h[`wind_direction_${p}hPa`] as (number | null)[] | undefined)?.[i]
           if (t == null || rh == null || z == null) continue
-          levels.push({ pressurePa: p * 100, heightM: z, temperatureK: t + 273.15, relativeHumidityWater: rh / 100 })
+          // Vitesse en km/h, direction d'ou vient le vent : le vecteur pointe a l'oppose.
+          const v = (speed ?? 0) / 3.6
+          const dir = ((from ?? 0) * Math.PI) / 180
+          levels.push({
+            pressurePa: p * 100,
+            heightM: z,
+            temperatureK: t + 273.15,
+            relativeHumidityWater: rh / 100,
+            windEastMS: -v * Math.sin(dir),
+            windNorthMS: -v * Math.cos(dir),
+          })
         }
         if (levels.length >= 2) {
           levels.sort((a, b) => a.heightM - b.heightM)
@@ -112,8 +129,27 @@ export function airAt(profile: UpperAirProfile, altitudeM: number): UpperAirLeve
   const f = (altitudeM - a.heightM) / (b.heightM - a.heightM)
   return {
     heightM: altitudeM,
+    windEastMS: a.windEastMS + (b.windEastMS - a.windEastMS) * f,
+    windNorthMS: a.windNorthMS + (b.windNorthMS - a.windNorthMS) * f,
     temperatureK: a.temperatureK + (b.temperatureK - a.temperatureK) * f,
     relativeHumidityWater: Math.max(0, a.relativeHumidityWater + (b.relativeHumidityWater - a.relativeHumidityWater) * f),
     pressurePa: Math.exp(Math.log(a.pressurePa) + (Math.log(b.pressurePa) - Math.log(a.pressurePa)) * f),
   }
+}
+
+/**
+ * Cisaillement vertical du vent horizontal a une altitude, s⁻¹ : la norme de
+ * la difference des vecteurs vent entre les deux niveaux qui l'encadrent,
+ * rapportee a leur ecart d'altitude. C'est lui qui etale les trainees.
+ */
+export function shearAt(profile: UpperAirProfile, altitudeM: number): number | null {
+  const levels = profile.levels
+  if (altitudeM < levels[0].heightM - 500 || altitudeM > levels[levels.length - 1].heightM + 1500) return null
+  let i = 0
+  while (i < levels.length - 2 && altitudeM > levels[i + 1].heightM) i++
+  const a = levels[i]
+  const b = levels[i + 1]
+  const dz = b.heightM - a.heightM
+  if (!(dz > 0)) return null
+  return Math.hypot(b.windEastMS - a.windEastMS, b.windNorthMS - a.windNorthMS) / dz
 }

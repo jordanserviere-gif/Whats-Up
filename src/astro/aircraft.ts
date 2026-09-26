@@ -9,6 +9,7 @@
  * points, avion et observateur, vivent deja dans le meme repere tournant avec
  * la Terre.
  */
+import type { ContrailEnvironment } from '@/atmosphere/cloud/contrail'
 import { DEG, EARTH_FLATTENING, EARTH_RADIUS_KM, RAD } from './coords'
 import type { AdsbAircraft } from '@/data-sources/adsb'
 import type { GeoLocation, Horizontal } from './types'
@@ -91,10 +92,11 @@ export interface AircraftState extends AdsbAircraft {
   altitudeKm: number
   contrailLikelihood: number
   /**
-   * Duree de vie de la glace de sa trainee, s, selon l'humidite au niveau de
-   * vol ; `null` sans mesure — la valeur par defaut du modele s'applique.
+   * Air rencontre par sa trainee — cisaillement et exces de vapeur sur la
+   * glace —, d'apres la mesure au niveau de vol ; `null` sans mesure,
+   * l'environnement par defaut du modele s'applique.
    */
-  contrailLifetimeS: number | null
+  contrailEnvironment: ContrailEnvironment | null
 }
 
 /**
@@ -105,7 +107,7 @@ export function computeAircraftState(aircraft: AdsbAircraft, observer: GeoLocati
   if (aircraft.onGround || aircraft.altitudeFt === null) return null
   const altitudeKm = aircraft.altitudeFt * 0.0003048
   const { horizontal, rangeKm } = geodeticToHorizontal(aircraft.latitude, aircraft.longitude, altitudeKm, observer)
-  return { ...aircraft, horizontal, rangeKm, altitudeKm, contrailLikelihood: contrailLikelihood(altitudeKm), contrailLifetimeS: null }
+  return { ...aircraft, horizontal, rangeKm, altitudeKm, contrailLikelihood: contrailLikelihood(altitudeKm), contrailEnvironment: null }
 }
 
 export interface GeodeticPoint {

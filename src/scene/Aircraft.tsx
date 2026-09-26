@@ -4,7 +4,7 @@
  * coordonnees horizontales, aucune propagation a faire ici.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { BufferAttribute, BufferGeometry, Color, DoubleSide, LineSegments, Mesh, ShaderMaterial, Sphere, Vector3, Vector4 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, DoubleSide, LineSegments, Mesh, ShaderMaterial, Sphere, Vector2, Vector3, Vector4 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import {
   advanceGeodetic,
@@ -20,7 +20,14 @@ import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { aerialTextures, aerialUniforms, applyAerialUniforms } from './useAerialLut'
 import { CLOUD_PHASE_GLSL } from '@/atmosphere/cloud/phase'
-import { CONTRAIL_GLSL, DEFAULT_CONTRAIL, contrailSigmaM } from '@/atmosphere/cloud/contrail'
+import {
+  CONTRAIL_GLSL,
+  DEFAULT_CONTRAIL,
+  DEFAULT_ENVIRONMENT,
+  contrailDeathAgeS,
+  contrailSigmaM,
+  initialExtinctionPerLengthM,
+} from '@/atmosphere/cloud/contrail'
 import { ambientRadianceAtAltitude, sunAltitudeAt, sunIrradianceAtAltitude } from './contrailLighting'
 
 const DEG = Math.PI / 180
@@ -224,8 +231,6 @@ function AircraftMesh({
 const CONTRAIL_ROWS = 64
 /** Resserrement des rangees vers l'avion : age ∝ (i/N)^k. */
 const CONTRAIL_ROW_EXPONENT = 1.8
-/** Au-dela de quelques durees de vie, il ne reste plus de glace a voir. */
-const CONTRAIL_LIFETIMES_SHOWN = 4
 /**
  * Age maximal dessine, s. Une trainee persistante vit des heures : a 450 nœuds,
  * trente minutes font deja 400 km de ruban, d'un horizon a l'autre.
@@ -249,9 +254,12 @@ function contrailMaterial() {
     depthWrite: false,
     side: DoubleSide,
     uniforms: {
-      /** (σ₀ m, D m²/s, K₀ m²/m, duree de vie s) — voir `ContrailParameters`. */
+      /** (σ₀ m, D_h m²/s, D_v m²/s, K₀ m²/m) — voir `CONTRAIL_GLSL`. */
       uContrail: { value: new Vector4() },
-      uFormationS: { value: 1 },
+      /** (σ_z du sillage m, phase de sillage s, M₀ kg/m, formation s). */
+      uContrailWake: { value: new Vector4() },
+      /** (cisaillement s⁻¹, exces de vapeur kg/m³) : l'air au niveau de vol. */
+      uContrailEnv: { value: new Vector2() },
       /** Irradiance solaire directe a l'altitude de la trainee, sRGB lineaire. */
       uSunIrradiance: { value: new Vector3() },
       /** Radiance diffuse moyenne recue par la glace. */
@@ -292,7 +300,8 @@ function contrailMaterial() {
       varying float vRangeM;
       varying vec3 vView;
       uniform vec4 uContrail;
-      uniform float uFormationS;
+      uniform vec4 uContrailWake;
+      uniform vec2 uContrailEnv;
       uniform vec3 uSunIrradiance;
       uniform vec3 uAmbientRadiance;
       uniform float uNowS;
@@ -303,7 +312,7 @@ function contrailMaterial() {
         // quand cette glace a ete emise. La structure y est attachee, et reste
         // en place pendant que l'avion avance.
         float along = (uNowS - vAge) * uSpeedMS;
-        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uFormationS, along, fwidth(along));
+        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uContrailWake, uContrailEnv, along, fwidth(along));
         float alpha = 1.0 - exp(-tau);
         if (!(alpha > 0.002)) discard;
 
@@ -391,8 +400,10 @@ function AircraftContrail({
     const perSecondKm = groundDistanceKm(state, 1)
     const climbKmPerS = ((state.verticalRateFtMin ?? 0) / 60) * 0.0003048
     // La duree de vie vient de l'humidite au niveau de vol quand on la connait.
-    const lifetimeS = state.contrailLifetimeS ?? params.lifetimeS
-    const maxAgeS = Math.min(CONTRAIL_MAX_AGE_S, CONTRAIL_LIFETIMES_SHOWN * lifetimeS)
+    // L'air au niveau de vol decide de tout : jusqu'ou le ruban va — l'age ou
+    // la glace s'epuise —, et comment il s'etale.
+    const env = state.contrailEnvironment ?? DEFAULT_ENVIRONMENT
+    const maxAgeS = Math.min(CONTRAIL_MAX_AGE_S, contrailDeathAgeS(env, params))
 
     // Passe 1 — l'axe, en scene et en metres (repere local centre sur l'observateur).
     for (let i = 0; i < CONTRAIL_ROWS; i++) {
@@ -431,7 +442,7 @@ function AircraftContrail({
       radial.copy(row.scene).normalize()
       side.copy(direction).cross(radial)
       if (side.lengthSq() === 0) side.set(1, 0, 0)
-      const halfWidthM = CONTRAIL_HALF_WIDTH_SIGMAS * contrailSigmaM(row.ageS, params)
+      const halfWidthM = CONTRAIL_HALF_WIDTH_SIGMAS * contrailSigmaM(row.ageS, env, params)
       side.normalize().multiplyScalar(sceneRadiusForBody(halfWidthM / 1000, row.rangeKm))
 
       // Angle entre la visee et l'axe, en vraie geometrie.
@@ -468,11 +479,12 @@ function AircraftContrail({
     // la trainee s'amincit jusqu'a disparaitre au lieu de s'eteindre d'un coup.
     ;(u.uContrail.value as Vector4).set(
       params.initialSigmaM,
-      params.diffusivityM2S,
-      params.initialExtinctionPerLengthM * state.contrailLikelihood,
-      lifetimeS,
+      params.horizontalDiffusivityM2S,
+      params.verticalDiffusivityM2S,
+      initialExtinctionPerLengthM(params) * state.contrailLikelihood,
     )
-    u.uFormationS.value = params.formationS
+    ;(u.uContrailWake.value as Vector4).set(params.wakeSigmaZM, params.wakePhaseS, params.initialIceKgPerM, params.formationS)
+    ;(u.uContrailEnv.value as Vector2).set(env.shearPerS, env.excessVapourKgM3)
     u.uNowS.value = (Date.now() / 1000) % CONTRAIL_CLOCK_PERIOD_S
     u.uSpeedMS.value = perSecondKm * 1000
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)

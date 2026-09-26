@@ -162,7 +162,7 @@ export function SkyCanvas() {
         measuredAtMs: a.measuredAtMs,
         altitudeKm: a.altitudeKm,
         contrailLikelihood: a.contrailLikelihood,
-        contrailLifetimeS: a.contrailLifetimeS,
+        contrailEnvironment: a.contrailEnvironment,
         shownAz: view.horizontal.azimuth,
         shownAlt: view.horizontal.altitude,
       }

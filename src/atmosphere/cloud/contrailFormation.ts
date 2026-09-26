@@ -24,11 +24,8 @@
  * Une fois formee, la glace survit si l'air est **sursature par rapport a la
  * glace** (RH_glace ≥ 100 %) : elle grossit alors en puisant la vapeur
  * ambiante, et la trainee s'etale pendant des heures. Sous-saturee, elle se
- * sublime en quelques secondes a quelques minutes selon le deficit.
- *
- * La loi de duree de vie ci-dessous est un **parametrage**, pas une loi
- * publiee : des secondes dans l'air sec, quelques minutes pres de la
- * saturation, une heure au-dela — les ordres de grandeur observes.
+ * sublime. Combien de temps elle dure n'est pas decide ici : c'est le bilan de
+ * masse de `contrail.ts` qui le dit, a partir de l'exces de vapeur rendu ici.
  */
 import {
   saturationVapourPressureOverIce,
@@ -92,9 +89,15 @@ export interface ContrailConditions {
   forms: boolean
   /** Humidite relative par rapport a la glace, fraction. */
   iceSaturation: number
-  /** Duree de vie de la glace, s — voir `contrailLifetimeS`. */
-  lifetimeS: number
+  /**
+   * Exces de vapeur sur la saturation glace, kg/m³ : ce que l'air entraine
+   * apporte a la glace (positif) ou lui prend (negatif).
+   */
+  excessVapourKgM3: number
 }
+
+/** Constante specifique de la vapeur d'eau, J/(kg·K). */
+export const WATER_VAPOUR_GAS_CONSTANT = 461.5
 
 /**
  * Conditions de trainee pour un air ambiant donne.
@@ -120,26 +123,6 @@ export function contrailConditions(
     formationMarginPa: margin,
     forms: margin >= 0,
     iceSaturation,
-    lifetimeS: contrailLifetimeS(iceSaturation),
+    excessVapourKgM3: (vapour - saturationVapourPressureOverIce(temperatureK)) / (WATER_VAPOUR_GAS_CONSTANT * temperatureK),
   }
-}
-
-/** Duree de vie tenue pour « persistante », s. */
-export const PERSISTENT_LIFETIME_S = 3600
-
-/**
- * Duree de vie de la glace selon la saturation par rapport a la glace.
- *
- * Parametrage : 15 s dans un air a 40 % sur glace, croissance rapide a
- * l'approche de la saturation — 300 s a saturation —, puis une rampe jusqu'a
- * une heure a 110 %. Continue : une humidite qui fluctue autour de 100 % ne
- * doit pas faire clignoter la trainee.
- */
-export function contrailLifetimeS(iceSaturation: number): number {
-  if (iceSaturation >= 1) {
-    const y = Math.min(1, (iceSaturation - 1) / 0.1)
-    return 300 + (PERSISTENT_LIFETIME_S - 300) * y
-  }
-  const x = Math.min(1, Math.max(0, (iceSaturation - 0.4) / 0.6))
-  return 15 + 285 * x * x * x
 }
