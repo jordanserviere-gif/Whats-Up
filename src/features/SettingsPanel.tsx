@@ -3,16 +3,19 @@ import {
   Button,
   DataRow,
   Divider,
+  IconButton,
+  List,
+  ListItem,
   SegmentedButton,
   Section,
-  Select,
   Slider,
   Switch,
   TextField,
   useSnackbar,
   useTheme,
 } from '@/ui'
-import { PRESET_LOCATIONS, useSkyStore, type LayerVisibility } from '@/state/store'
+import { sameSite, useSkyStore, type LayerVisibility } from '@/state/store'
+import { cx } from '@/ui/utils'
 import type { GeoLocation } from '@/astro/types'
 import { useSkyConditions } from '@/state/hooks'
 import { bortleLabel, bortleSkyBrightness } from '@/astro/photometry'
@@ -75,6 +78,9 @@ export function SettingsPanel() {
   const { mode, setMode } = useTheme()
   const { show } = useSnackbar()
   const [locating, setLocating] = useState(false)
+  const [placeTab, setPlaceTab] = useState<'map' | 'favorites'>('map')
+  const favorites = useSkyStore((s) => s.favorites)
+  const toggleFavorite = useSkyStore((s) => s.toggleFavorite)
 
   /**
    * Lieu propose, pas encore applique.
@@ -127,44 +133,75 @@ export function SettingsPanel() {
   return (
     <>
       <Section title="Lieu d’observation" icon="place" defaultOpen summary={location.name}>
-        <Select
-          label="Lieu enregistré"
-          leadingIcon="location_city"
-          value={PRESET_LOCATIONS.some((l) => l.name === shown.name) ? shown.name : ''}
-          options={[
-            ...(PRESET_LOCATIONS.some((l) => l.name === shown.name) ? [] : [{ value: '', label: shown.name }]),
-            ...PRESET_LOCATIONS.map((l) => ({ value: l.name, label: l.name })),
+        <SegmentedButton
+          ariaLabel="Choisir le lieu"
+          fullWidth
+          segments={[
+            { value: 'map', label: 'Carte', icon: 'map' },
+            { value: 'favorites', label: 'Favoris', icon: 'star' },
           ]}
-          onChange={(name) => {
-            const found = PRESET_LOCATIONS.find((l) => l.name === name)
-            if (found) setDraft(found)
-          }}
+          value={placeTab}
+          onChange={setPlaceTab}
         />
 
-        <LocationMap
-          latitudeDeg={shown.latitude}
-          longitudeDeg={shown.longitude}
-          onPick={(latitude, longitude, name) => propose({ name: name ?? 'Lieu choisi sur la carte', latitude, longitude })}
-        />
+        {placeTab === 'map' ? (
+          <LocationMap
+            latitudeDeg={shown.latitude}
+            longitudeDeg={shown.longitude}
+            onPick={(latitude, longitude, name) => propose({ name: name ?? 'Lieu choisi sur la carte', latitude, longitude })}
+          />
+        ) : favorites.length > 0 ? (
+          <List className="settings-location__favorites">
+            {favorites.map((f) => (
+              <ListItem
+                key={`${f.latitude},${f.longitude}`}
+                headline={f.name}
+                supportingText={`${f.latitude.toFixed(3).replace('.', ',')}° · ${f.longitude.toFixed(3).replace('.', ',')}° · ${Math.round(f.elevation)} m`}
+                leadingIcon="star"
+                selected={sameSite(f, shown)}
+                onClick={() => setDraft(f)}
+                trailing={
+                  <IconButton icon="close" label={`Retirer ${f.name} des favoris`} onClick={() => toggleFavorite(f)} />
+                }
+              />
+            ))}
+          </List>
+        ) : (
+          <p className="md-type-body-small">Aucun favori : ajoutez un lieu depuis la carte avec l’étoile.</p>
+        )}
 
-        <TextField
-          label="Latitude"
-          type="number"
-          numeric
-          step="0.0001"
-          suffix="°N"
-          value={shown.latitude.toFixed(4)}
-          onChange={(e) => propose({ name: 'Lieu personnalisé', latitude: Number(e.target.value) })}
-        />
-        <TextField
-          label="Longitude"
-          type="number"
-          numeric
-          step="0.0001"
-          suffix="°E"
-          value={shown.longitude.toFixed(4)}
-          onChange={(e) => propose({ name: 'Lieu personnalisé', longitude: Number(e.target.value) })}
-        />
+        <div className={cx('settings-location__confirm', !pending && 'is-current')} role="group" aria-label="Lieu proposé">
+          <div className="settings-location__place">
+            <p className="md-type-body-medium">
+              {pending ? 'Nouveau lieu' : 'Lieu actuel'} : <strong>{shown.name}</strong>
+              <span className="md-type-body-small md-numeric settings-location__coords">
+                {shown.latitude.toFixed(4).replace('.', ',')}° · {shown.longitude.toFixed(4).replace('.', ',')}°
+              </span>
+            </p>
+            <IconButton
+              icon="star"
+              selectedIcon="star"
+              selected={favorites.some((f) => sameSite(f, shown))}
+              label={favorites.some((f) => sameSite(f, shown)) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+              onClick={() => toggleFavorite(shown)}
+            />
+          </div>
+          {pending && (
+            <div className="settings-location__actions">
+              <Button variant="text" onClick={() => setDraft(null)}>
+                Annuler
+              </Button>
+              <Button variant="filled" icon="check" onClick={validate}>
+                Valider ce lieu
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <Button variant="outlined" icon="my_location" fullWidth disabled={locating} onClick={useMyPosition}>
+          {locating ? 'Localisation…' : 'Utiliser ma position'}
+        </Button>
+
         <TextField
           label="Altitude du sol"
           type="number"
@@ -174,30 +211,6 @@ export function SettingsPanel() {
           value={shown.elevation.toFixed(0)}
           onChange={(e) => propose({ elevation: Number(e.target.value) })}
         />
-
-        <Button variant="outlined" icon="my_location" fullWidth disabled={locating} onClick={useMyPosition}>
-          {locating ? 'Localisation…' : 'Utiliser ma position'}
-        </Button>
-
-        {pending && (
-          <div className="settings-location__confirm" role="group" aria-label="Nouveau lieu à valider">
-            <p className="md-type-body-medium">
-              Nouveau lieu : <strong>{draft.name}</strong>
-              <span className="md-type-body-small md-numeric settings-location__coords">
-                {draft.latitude.toFixed(4).replace('.', ',')}° · {draft.longitude.toFixed(4).replace('.', ',')}°
-              </span>
-            </p>
-            <div className="settings-location__actions">
-              <Button variant="text" onClick={() => setDraft(null)}>
-                Annuler
-              </Button>
-              <Button variant="filled" icon="check" onClick={validate}>
-                Valider ce lieu
-              </Button>
-            </div>
-          </div>
-        )}
-
         <TextField
           label="Hauteur au-dessus du sol"
           type="number"

@@ -101,6 +101,13 @@ interface SkyState {
   location: GeoLocation
   setLocation: (l: GeoLocation) => void
   /**
+   * Lieux favoris de l'utilisateur. Les lieux predefinis en sont la graine :
+   * on peut les retirer comme les autres.
+   */
+  favorites: GeoLocation[]
+  /** Ajoute le lieu aux favoris, ou l'en retire s'il y est deja. */
+  toggleFavorite: (l: GeoLocation) => void
+  /**
    * Hauteur ajoutee au-dessus du sol, m.
    *
    * Distincte de l'altitude du lieu, et pour une raison de fond : l'altitude du
@@ -293,6 +300,13 @@ export const useSkyStore = create<SkyState>()(
         // de lieu ferait croire au loader que le nouveau relief est deja la.
         set(moved ? { location, terrainProgress: null } : { location })
       },
+      favorites: [...PRESET_LOCATIONS],
+      toggleFavorite: (l) =>
+        set((s) => ({
+          favorites: s.favorites.some((f) => sameSite(f, l))
+            ? s.favorites.filter((f) => !sameSite(f, l))
+            : [...s.favorites, l],
+        })),
       elevationOffsetM: 0,
       setElevationOffsetM: (elevationOffsetM) => set({ elevationOffsetM }),
 
@@ -376,6 +390,7 @@ export const useSkyStore = create<SkyState>()(
       // Le temps et la selection sont volatils : on ne persiste que les preferences.
       partialize: (s) => ({
         location: s.location,
+        favorites: s.favorites,
         elevationOffsetM: s.elevationOffsetM,
         layers: s.layers,
         magnitudeLimit: s.magnitudeLimit,
@@ -413,6 +428,14 @@ export const useSkyStore = create<SkyState>()(
     },
   ),
 )
+
+/**
+ * Deux lieux sont-ils le meme site ? Au dix-millieme de degre, une dizaine de
+ * metres : un favori retrouve par la recherche ou la carte n'aura jamais les
+ * memes decimales que celui qu'on a enregistre.
+ */
+export const sameSite = (a: GeoLocation, b: GeoLocation): boolean =>
+  Math.abs(a.latitude - b.latitude) < 1e-4 && Math.abs(a.longitude - b.longitude) < 1e-4
 
 /** Instant simule sous forme de `Date`. */
 export const selectDate = (s: SkyState) => new Date(s.time)

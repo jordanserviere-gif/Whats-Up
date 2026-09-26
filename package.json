@@ -25,6 +25,7 @@
     "@react-three/fiber": "^8.18.0",
     "@react-three/postprocessing": "^2.19.1",
     "astronomy-engine": "^2.1.19",
+    "maplibre-gl": "^6.11.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "satellite.js": "^7.1.0",
@@ -33,7 +34,6 @@
   },
   "devDependencies": {
     "@material/material-color-utilities": "^0.4.0",
-    "@types/google.maps": "^3.66.4",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/three": "^0.171.0",

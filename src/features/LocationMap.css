@@ -2,14 +2,45 @@
   display: flex;
   flex-direction: column;
   gap: var(--md-sys-spacing-2);
-  /* Carte et recherche affichent des couleurs qui ne sont pas les notres : en
-   * night, elles passent par la meme conversion que le sol de la scene. */
-  filter: var(--app-physical-filter);
 }
 
-.location-map__search gmp-place-autocomplete {
+.location-map__search {
+  position: relative;
+}
+
+/* Resultats de recherche : une liste deroulee sous le champ, au-dessus de la
+ * carte, qu'on quitte en choisissant. */
+.location-map__hits {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + var(--md-sys-spacing-1));
+  z-index: 5;
+  margin: 0;
+  padding: var(--md-sys-spacing-1) 0;
+  list-style: none;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-highest);
+  box-shadow: var(--md-sys-elevation-level2);
+  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+}
+.location-map__hits button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   width: 100%;
-  color-scheme: inherit;
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+  border: 0;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  text-align: start;
+  cursor: pointer;
+}
+.location-map__hits button:hover,
+.location-map__hits button:focus-visible {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+}
+.location-map__hit-detail {
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .location-map__frame {
@@ -24,21 +55,25 @@
 .location-map__canvas {
   position: absolute;
   inset: 0;
+  /* La carte est peinte avec les tokens, mais son marqueur et ses controles
+   * gardent des couleurs a eux : en night, tout passe par la conversion
+   * commune, comme le sol de la scene. */
+  filter: var(--app-physical-filter);
 }
 
-.location-map__state {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-.location-map__missing {
-  margin: 0;
-  padding: var(--md-sys-spacing-3);
+/* Controles MapLibre, ramenes au langage de l'interface. */
+.location-map .maplibregl-ctrl-group {
   border-radius: var(--md-sys-shape-corner-medium);
-  border: var(--md-sys-outline-width-thin) dashed var(--md-sys-color-outline-variant);
-  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-container-highest);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+.location-map .maplibregl-ctrl-group button + button {
+  border-top-color: var(--md-sys-color-outline-variant);
+}
+.location-map .maplibregl-ctrl-attrib {
+  font-size: 0.625rem;
+}
+/* Les icones des controles sont des SVG sombres, dessines pour un fond clair. */
+:root:not([data-theme='light']) .location-map .maplibregl-ctrl-icon {
+  filter: invert(1);
 }

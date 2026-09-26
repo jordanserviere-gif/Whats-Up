@@ -64,6 +64,7 @@ export function App() {
   return (
     <div className="app">
       <NightFilter />
+      <AppLoader />
       <NavigationRail
         destinations={DESTINATIONS.map((d) =>
           d.value === 'satellites' && satelliteCount > 0 ? { ...d, badge: satelliteCount } : d,
@@ -92,7 +93,6 @@ export function App() {
       <main className="app__stage">
         <SkyCanvas />
         <SkyHud />
-        <AppLoader />
         <div className="app__timeline">
           <TimelineBar />
         </div>

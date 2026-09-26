@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { Map as MapLibre, Marker, NavigationControl, setWorkerUrl } from 'maplibre-gl'
+import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import { TextField } from '@/ui'
 import { useTheme } from '@/ui/ThemeProvider'
-import { GOOGLE_MAPS_MAP_ID, googleMapsConfigured, loadGoogleMaps } from './googleMaps'
+import { readToken } from '@/scene/sceneMath'
+import { buildMapStyle } from './mapStyle'
 import './LocationMap.css'
 
 /**
- * Carte de selection du lieu — un petit client Google Maps.
+ * Carte de selection du lieu — MapLibre sur tuiles OpenFreeMap.
  *
  * On s'y deplace et on y zoome librement ; un clic, ou le marqueur qu'on
  * glisse, **propose** un lieu, et la recherche en trouve un par son nom. Rien
@@ -12,9 +17,9 @@ import './LocationMap.css'
  * que l'utilisateur valide ensuite — un changement de lieu reconstruit tout le
  * ciel, il ne doit pas partir d'un clic egare.
  *
- * Le fond suit le theme : clair, sombre, et en night le filtre physique
- * commun (`--app-physical-filter`) le ramene a l'ambre comme le sol de la
- * scene.
+ * Aucune cle : les tuiles viennent d'OpenFreeMap, la recherche de Photon
+ * (geocodeur OpenStreetMap de Komoot). Le style est peint avec les tokens du
+ * theme, et en night le filtre physique commun le ramene a l'ambre.
  */
 export interface LocationMapProps {
   latitudeDeg: number
@@ -23,147 +28,175 @@ export interface LocationMapProps {
   onPick: (latitudeDeg: number, longitudeDeg: number, name?: string) => void
 }
 
-type Status = 'loading' | 'ready' | 'error'
+// Le worker de MapLibre importe un module voisin : servi tel quel depuis le
+// prebundle de Vite, il ne le trouve plus. `?worker&url` le fait empaqueter
+// avec ses dependances, et on lui donne son adresse.
+setWorkerUrl(mapWorkerUrl)
+
+interface SearchHit {
+  name: string
+  detail: string
+  lat: number
+  lon: number
+}
+
+const PHOTON = 'https://photon.komoot.io/api/'
+/** Delai de frappe avant d'interroger le geocodeur, ms. */
+const SEARCH_DEBOUNCE_MS = 300
+
+async function searchPlaces(query: string, signal: AbortSignal): Promise<SearchHit[]> {
+  const params = new URLSearchParams({ q: query, limit: '6', lang: 'fr' })
+  const response = await fetch(`${PHOTON}?${params}`, { signal })
+  if (!response.ok) return []
+  const data = (await response.json()) as {
+    features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string | undefined> }>
+  }
+  return data.features.map(({ geometry, properties: p }) => ({
+    name: p.name ?? p.city ?? p.county ?? 'Lieu',
+    detail: [p.city !== p.name ? p.city : undefined, p.state, p.country].filter(Boolean).join(', '),
+    lon: geometry.coordinates[0],
+    lat: geometry.coordinates[1],
+  }))
+}
 
 export function LocationMap({ latitudeDeg, longitudeDeg, onPick }: LocationMapProps) {
   const { mode } = useTheme()
-  const mapHost = useRef<HTMLDivElement>(null)
-  const searchHost = useRef<HTMLDivElement>(null)
-  const map = useRef<google.maps.Map | null>(null)
-  const marker = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
-  const [status, setStatus] = useState<Status>(googleMapsConfigured() ? 'loading' : 'error')
+  const host = useRef<HTMLDivElement>(null)
+  const map = useRef<MapLibre | null>(null)
+  const marker = useRef<Marker | null>(null)
   // Le rappel change a chaque rendu du panneau ; la carte, elle, n'est creee
-  // qu'une fois par theme. On lit donc toujours le dernier par une reference.
+  // qu'une fois. On lit donc toujours le dernier par une reference.
   const pick = useRef(onPick)
   pick.current = onPick
-  const initial = useRef({ lat: latitudeDeg, lng: longitudeDeg })
-  initial.current = { lat: latitudeDeg, lng: longitudeDeg }
+  const initial = useRef<[number, number]>([longitudeDeg, latitudeDeg])
 
-  // --- La carte, recreee au changement de theme --------------------------
-  // `colorScheme` ne se fixe qu'a la creation : c'est la seule facon, sans
-  // style cartographique dedie, de suivre le clair et le sombre.
-  useEffect(() => {
-    if (!googleMapsConfigured()) return
-    let alive = true
-    const listeners: google.maps.MapsEventListener[] = []
-    void (async () => {
-      try {
-        const maps = await loadGoogleMaps()
-        const [{ Map }, { AdvancedMarkerElement }, core] = await Promise.all([
-          maps.importLibrary('maps') as Promise<google.maps.MapsLibrary>,
-          maps.importLibrary('marker') as Promise<google.maps.MarkerLibrary>,
-          maps.importLibrary('core') as Promise<google.maps.CoreLibrary>,
-        ])
-        if (!alive || !mapHost.current) return
-        const centre = map.current?.getCenter()?.toJSON() ?? initial.current
-        const zoom = map.current?.getZoom() ?? 9
-        const instance = new Map(mapHost.current, {
-          center: centre,
-          zoom,
-          mapId: GOOGLE_MAPS_MAP_ID,
-          colorScheme: mode === 'light' ? core.ColorScheme.LIGHT : core.ColorScheme.DARK,
-          disableDefaultUI: true,
-          zoomControl: true,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
-          clickableIcons: false,
-          // Dans un panneau etroit, exiger Ctrl pour zoomer serait une gene : la
-          // carte est l'unique cible de la molette quand on la survole.
-          gestureHandling: 'greedy',
-        })
-        const pin = new AdvancedMarkerElement({ map: instance, position: initial.current, gmpDraggable: true, title: 'Lieu proposé' })
-        listeners.push(
-          instance.addListener('click', (e: google.maps.MapMouseEvent) => {
-            if (e.latLng) pick.current(e.latLng.lat(), e.latLng.lng())
-          }),
-          pin.addListener('dragend', () => {
-            const p = pin.position
-            if (!p) return
-            const at = p instanceof google.maps.LatLng ? p.toJSON() : { lat: Number(p.lat), lng: Number(p.lng) }
-            pick.current(at.lat, at.lng)
-          }),
-        )
-        map.current = instance
-        marker.current = pin
-        setStatus('ready')
-      } catch {
-        if (alive) setStatus('error')
-      }
-    })()
-    return () => {
-      alive = false
-      listeners.forEach((l) => l.remove())
-      if (marker.current) marker.current.map = null
-    }
-  }, [mode])
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<SearchHit[]>([])
+  const [searching, setSearching] = useState(false)
 
-  // --- La recherche, creee une fois ---------------------------------------
+  // --- La carte, creee une fois ----------------------------------------------
   useEffect(() => {
-    if (!googleMapsConfigured()) return
-    let alive = true
-    let element: google.maps.places.PlaceAutocompleteElement | null = null
-    const onSelect = async (event: Event) => {
-      const { placePrediction } = event as unknown as { placePrediction: google.maps.places.PlacePrediction }
-      const place = placePrediction.toPlace()
-      await place.fetchFields({ fields: ['displayName', 'location'] })
-      if (!place.location) return
-      const lat = place.location.lat()
-      const lng = place.location.lng()
-      map.current?.panTo({ lat, lng })
-      map.current?.setZoom(11)
-      pick.current(lat, lng, place.displayName ?? undefined)
-    }
-    void (async () => {
-      try {
-        const maps = await loadGoogleMaps()
-        const { PlaceAutocompleteElement } = (await maps.importLibrary('places')) as google.maps.PlacesLibrary
-        if (!alive || !searchHost.current) return
-        element = new PlaceAutocompleteElement({})
-        element.setAttribute('placeholder', 'Rechercher un lieu')
-        element.addEventListener('gmp-select', onSelect)
-        searchHost.current.appendChild(element)
-      } catch {
-        /* la carte signale deja l'erreur */
-      }
-    })()
+    if (!host.current) return
+    const instance = new MapLibre({
+      container: host.current,
+      style: buildMapStyle(),
+      center: initial.current,
+      zoom: 8,
+      attributionControl: { compact: true },
+      dragRotate: false,
+      pitchWithRotate: false,
+    })
+    instance.touchZoomRotate.disableRotation()
+    // L'attribution compacte s'ouvre d'elle-meme sur une carte large : dans un
+    // panneau, elle masquerait le tiers du bas. On la replie, le « i » reste.
+    instance.once('load', () => {
+      host.current?.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show')
+    })
+    instance.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+
+    const pin = new Marker({ draggable: true, color: readToken('--md-sys-color-primary', '#2c4f9e') })
+      .setLngLat(initial.current)
+      .addTo(instance)
+    pin.on('dragend', () => {
+      const at = pin.getLngLat()
+      pick.current(at.lat, at.lng)
+    })
+    instance.on('click', (e) => pick.current(e.lngLat.lat, e.lngLat.lng))
+
+    map.current = instance
+    marker.current = pin
     return () => {
-      alive = false
-      element?.removeEventListener('gmp-select', onSelect)
-      element?.remove()
+      instance.remove()
+      map.current = null
+      marker.current = null
     }
   }, [])
 
-  // --- Le marqueur suit le lieu propose -----------------------------------
-  // Quelle qu'en soit l'origine — clic, recherche, saisie, prereglage — et la
-  // carte recentre seulement si le lieu sort de la vue : un clic ne doit pas
-  // faire sauter la carte sous le curseur.
+  // --- Le style suit le theme --------------------------------------------------
+  // Les tokens sont deja ceux du nouveau theme : `ThemeProvider` pose
+  // l'attribut pendant le rendu, avant cet effet.
+  // Le marqueur, lui, garde sa couleur : le primaire est le meme en clair et
+  // en sombre, et le night le convertit par filtre.
+  const styledFor = useRef(mode)
   useEffect(() => {
-    const at = { lat: latitudeDeg, lng: longitudeDeg }
-    if (marker.current) marker.current.position = at
-    const bounds = map.current?.getBounds()
-    if (map.current && bounds && !bounds.contains(at)) map.current.panTo(at)
-  }, [latitudeDeg, longitudeDeg, status])
+    if (styledFor.current === mode) return
+    styledFor.current = mode
+    map.current?.setStyle(buildMapStyle())
+  }, [mode])
 
-  if (!googleMapsConfigured()) {
-    return (
-      <p className="md-type-body-small location-map__missing">
-        Carte indisponible : la clé Google Maps n’est pas configurée (<code>VITE_GOOGLE_MAPS_API_KEY</code> dans{' '}
-        <code>.env.local</code>). Les coordonnées restent saisissables ci-dessus.
-      </p>
-    )
+  // --- Le marqueur suit le lieu propose ---------------------------------------
+  // Quelle qu'en soit l'origine — clic, recherche, saisie, prereglage — et la
+  // carte ne recentre que si le lieu sort de la vue : un clic ne doit pas faire
+  // sauter la carte sous le curseur.
+  useEffect(() => {
+    const at: [number, number] = [longitudeDeg, latitudeDeg]
+    marker.current?.setLngLat(at)
+    const m = map.current
+    if (m && !m.getBounds().contains(at)) m.easeTo({ center: at })
+  }, [latitudeDeg, longitudeDeg])
+
+  // --- Recherche ----------------------------------------------------------------
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 3) {
+      setHits([])
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      searchPlaces(q, controller.signal)
+        .then(setHits)
+        .catch(() => {
+          if (!controller.signal.aborted) setHits([])
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false)
+        })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [query])
+
+  const choose = (hit: SearchHit) => {
+    map.current?.flyTo({ center: [hit.lon, hit.lat], zoom: 11 })
+    pick.current(hit.lat, hit.lon, hit.name)
+    setQuery('')
+    setHits([])
   }
 
   return (
     <div className="location-map">
-      <div ref={searchHost} className="location-map__search" />
-      <div className="location-map__frame">
-        <div ref={mapHost} className="location-map__canvas" aria-label="Carte — cliquer pour proposer un lieu" />
-        {status !== 'ready' && (
-          <p className="md-type-body-small location-map__state">
-            {status === 'loading' ? 'Chargement de la carte…' : 'La carte n’a pas pu se charger.'}
-          </p>
+      <div className="location-map__search">
+        <TextField
+          label="Rechercher un lieu"
+          leadingIcon="search"
+          density="compact"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && hits[0]) choose(hits[0])
+            if (e.key === 'Escape') setQuery('')
+          }}
+          supportingText={searching ? 'Recherche…' : undefined}
+        />
+        {hits.length > 0 && (
+          <ul className="location-map__hits" role="listbox" aria-label="Lieux trouvés">
+            {hits.map((hit) => (
+              <li key={`${hit.lat},${hit.lon}`}>
+                <button type="button" role="option" aria-selected="false" onClick={() => choose(hit)}>
+                  <span className="md-type-body-medium">{hit.name}</span>
+                  {hit.detail && <span className="md-type-body-small location-map__hit-detail">{hit.detail}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
+      </div>
+      <div className="location-map__frame">
+        <div ref={host} className="location-map__canvas" aria-label="Carte — cliquer pour proposer un lieu" />
       </div>
     </div>
   )

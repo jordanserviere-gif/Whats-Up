@@ -1,14 +1,37 @@
-/* Loader : il recouvre la scene, pas l'interface. Le rail et le panneau
- * restent utilisables pendant que le ciel se calcule. */
+/* Loader pleine page : les etoiles du logo, au centre de l'ecran. */
+
+/* Les deux axes de l'echelle sont deux proprietes distinctes, animees chacune
+ * pour son compte : c'est ce qui les rend independantes. Enregistrees, elles
+ * s'interpolent comme des nombres au lieu de sauter d'une valeur a l'autre. */
+@property --app-loader-sx {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
+@property --app-loader-sy {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
+@property --app-loader-glow {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
 .app-loader {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: calc(var(--app-z-overlay) + 10);
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--md-sys-spacing-6);
+  padding: var(--md-sys-spacing-6);
+  background: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-surface);
+  text-align: center;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -23,14 +46,60 @@
   transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
 }
 
-.app-loader__card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--md-sys-spacing-4);
-  padding: var(--md-sys-spacing-6);
-  text-align: center;
-  color: var(--md-sys-color-on-surface);
+.app-loader__stars {
+  position: relative;
+  width: min(60vw, 20rem);
+}
+
+/* Demi-periode et `alternate` : l'aller-retour fait une periode entiere, et
+ * `ease-in-out` en fait une oscillation douce plutot qu'un va-et-vient sec.
+ * Amplitude du tremblement : ±6 %, l'etoile vit sans se deformer. */
+.app-loader__star {
+  position: absolute;
+  height: auto;
+  overflow: visible;
+  color: var(--app-brand-logo);
+  transform: scale(var(--app-loader-sx), var(--app-loader-sy));
+  filter: drop-shadow(0 0 var(--app-loader-glow) currentColor);
+  animation:
+    app-loader-glow var(--glow-half-period) ease-in-out var(--glow-delay) infinite alternate,
+    app-loader-sx var(--wiggle-half-period) ease-in-out var(--sx-delay) infinite alternate,
+    app-loader-sy var(--wiggle-half-period) ease-in-out var(--sy-delay) infinite alternate;
+}
+/* Hors ecran, rien ne tourne pour rien. */
+.app-loader:not(.is-active) .app-loader__star {
+  animation-play-state: paused;
+}
+
+@keyframes app-loader-glow {
+  from {
+    --app-loader-glow: 1px;
+  }
+  to {
+    --app-loader-glow: 14px;
+  }
+}
+@keyframes app-loader-sx {
+  from {
+    --app-loader-sx: 0.94;
+  }
+  to {
+    --app-loader-sx: 1.06;
+  }
+}
+@keyframes app-loader-sy {
+  from {
+    --app-loader-sy: 0.94;
+  }
+  to {
+    --app-loader-sy: 1.06;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loader__star {
+    animation: app-loader-glow var(--glow-half-period) ease-in-out var(--glow-delay) infinite alternate;
+  }
 }
 
 .app-loader__text {
@@ -62,10 +131,4 @@
 }
 .app-loader__steps .md-icon {
   font-size: 1.125rem;
-}
-
-:root[data-theme='night'] .app-loader {
-  background: var(--md-sys-color-surface);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }

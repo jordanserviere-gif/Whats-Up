@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { LoadingIndicator } from '@/ui'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useSkyStore } from '@/state/store'
 import { aerialSkyReady } from '@/scene/useAerialLut'
 import { cx } from '@/ui/utils'
+import { LOGO_STARS } from '@/brand/logoStars'
 import './AppLoader.css'
 
 /**
@@ -18,6 +18,34 @@ const MIN_VISIBLE_MS = 600
 const MAX_VISIBLE_MS = 25_000
 const POLL_MS = 150
 
+/**
+ * Periodes des animations, s. La lueur ondule en trois secondes ; l'echelle
+ * tremble a 1,5 Hz, chaque axe pour son compte.
+ */
+const GLOW_PERIOD_S = 3
+const WIGGLE_PERIOD_S = 1 / 1.5
+
+/**
+ * Phases, en fraction de periode, par etoile et par animation. Choisies a la
+ * main plutot que tirees au hasard : un tirage peut aligner deux etoiles, ou
+ * les deux axes d'une meme etoile, et l'on verrait alors un battement commun.
+ */
+const PHASES = [
+  { glow: 0, x: 0.1, y: 0.47 },
+  { glow: 0.42, x: 0.63, y: 0.05 },
+  { glow: 0.17, x: 0.35, y: 0.79 },
+  { glow: 0.71, x: 0.88, y: 0.31 },
+  { glow: 0.55, x: 0.22, y: 0.66 },
+] as const
+
+/** Boite englobante des etoiles, unites du logo. */
+const MIN_X = Math.min(...LOGO_STARS.map((s) => s.cx - s.half))
+const MAX_X = Math.max(...LOGO_STARS.map((s) => s.cx + s.half))
+const MIN_Y = Math.min(...LOGO_STARS.map((s) => s.cy - s.half))
+const MAX_Y = Math.max(...LOGO_STARS.map((s) => s.cy + s.half))
+const SPAN_X = MAX_X - MIN_X
+const SPAN_Y = MAX_Y - MIN_Y
+
 interface Step {
   label: string
   done: boolean
@@ -26,11 +54,15 @@ interface Step {
 /**
  * Loader de l'application.
  *
- * Il couvre la scene au lancement et a chaque changement de lieu, tant que le
- * ciel **du nouveau lieu** n'est pas construit — et son relief, si le calque est
+ * Pleine page, au lancement et a chaque changement de lieu, tant que le ciel
+ * **du nouveau lieu** n'est pas construit — et son relief, si le calque est
  * actif. Changer d'altitude seule ne le rappelle pas : c'est le relief lui-meme
  * qui publie l'altitude du sol une fois charge, et le loader ne doit pas se
  * relancer sur sa propre fin.
+ *
+ * Il montre les cinq etoiles du logo, chacune vivant pour son compte : une
+ * lueur qui ondule en trois secondes, une echelle qui tremble a 1,5 Hz, les
+ * deux axes independants, et des phases differentes d'une etoile a l'autre.
  */
 export function AppLoader() {
   const location = useSkyStore((s) => s.location)
@@ -67,25 +99,55 @@ export function AppLoader() {
 
   return (
     <div className={cx('app-loader', active && 'is-active')} aria-hidden={!active} role="status" aria-live="polite">
-      <div className="app-loader__card">
-        <LoadingIndicator size={64} label="Préparation du ciel" />
-        <div className="app-loader__text">
-          <span className="md-type-title-medium">{location.name}</span>
-          <span className="md-type-body-small app-loader__sub md-numeric">
-            {location.latitude.toFixed(3).replace('.', ',')}° · {location.longitude.toFixed(3).replace('.', ',')}°
-          </span>
-        </div>
-        <ul className="app-loader__steps">
-          {steps.map((s) => (
-            <li key={s.label} className={cx('md-type-label-medium', s.done && 'is-done')}>
-              <span className="md-icon" aria-hidden="true">
-                {s.done ? 'check_circle' : 'radio_button_unchecked'}
-              </span>
-              {s.label}
-            </li>
-          ))}
-        </ul>
+      <div
+        className="app-loader__stars"
+        style={{ aspectRatio: `${SPAN_X} / ${SPAN_Y}` }}
+        role="img"
+        aria-label="Préparation du ciel"
+      >
+        {LOGO_STARS.map((star, i) => {
+          const phase = PHASES[i % PHASES.length]
+          // Chaque etoile est son propre SVG : filtre et transformation CSS s'y
+          // appliquent partout, ce qui n'est pas acquis sur un element interne.
+          const style = {
+            left: `${((star.cx - star.half - MIN_X) / SPAN_X) * 100}%`,
+            top: `${((star.cy - star.half - MIN_Y) / SPAN_Y) * 100}%`,
+            width: `${((2 * star.half) / SPAN_X) * 100}%`,
+            '--glow-delay': `${-phase.glow * GLOW_PERIOD_S}s`,
+            '--sx-delay': `${-phase.x * WIGGLE_PERIOD_S}s`,
+            '--sy-delay': `${-phase.y * WIGGLE_PERIOD_S}s`,
+            '--glow-half-period': `${GLOW_PERIOD_S / 2}s`,
+            '--wiggle-half-period': `${WIGGLE_PERIOD_S / 2}s`,
+          } as CSSProperties
+          return (
+            <svg
+              key={i}
+              className="app-loader__star"
+              style={style}
+              viewBox={`${star.cx - star.half} ${star.cy - star.half} ${2 * star.half} ${2 * star.half}`}
+              aria-hidden="true"
+            >
+              <path d={star.d} fill="currentColor" />
+            </svg>
+          )
+        })}
       </div>
+      <div className="app-loader__text">
+        <span className="md-type-title-medium">{location.name}</span>
+        <span className="md-type-body-small app-loader__sub md-numeric">
+          {location.latitude.toFixed(3).replace('.', ',')}° · {location.longitude.toFixed(3).replace('.', ',')}°
+        </span>
+      </div>
+      <ul className="app-loader__steps">
+        {steps.map((s) => (
+          <li key={s.label} className={cx('md-type-label-medium', s.done && 'is-done')}>
+            <span className="md-icon" aria-hidden="true">
+              {s.done ? 'check_circle' : 'radio_button_unchecked'}
+            </span>
+            {s.label}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

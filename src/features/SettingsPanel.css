@@ -42,3 +42,21 @@
 .settings-location__confirm .md-button--text {
   --_label: var(--md-sys-color-on-secondary-container);
 }
+
+/* Le lieu propose sous la carte, et l'etoile qui l'ajoute aux favoris. Sans
+ * brouillon, c'est le lieu actuel qu'on lit : le bloc perd son conteneur, il
+ * n'appelle aucune action. */
+.settings-location__place {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-sys-spacing-2);
+}
+.settings-location__confirm.is-current {
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  padding-block: 0;
+}
+:root[data-theme='night'] .settings-location__confirm.is-current {
+  box-shadow: none;
+}

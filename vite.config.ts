@@ -23,6 +23,9 @@ export default defineConfig({
     // la compilation, elle, passerait.
     esbuildOptions: { target: 'es2022' },
   },
+  // Les workers sont des modules ES : celui de MapLibre en est un, et le
+  // format par defaut (iife) ne sait pas en produire a partir d'imports.
+  worker: { format: 'es' },
   build: {
     target: 'es2022',
     rollupOptions: {
