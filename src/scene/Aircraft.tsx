@@ -4,7 +4,7 @@
  * coordonnees horizontales, aucune propagation a faire ici.
  */
 import { useEffect, useMemo, useRef } from 'react'
-import { BufferAttribute, BufferGeometry, Color, DoubleSide, LineSegments, Mesh, ShaderMaterial, Sphere, Vector3 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, DoubleSide, LineSegments, Mesh, ShaderMaterial, Sphere, Vector3, Vector4 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import {
   advanceGeodetic,
@@ -18,7 +18,10 @@ import type { GeoLocation } from '@/astro/types'
 import { horizontalToScene, sceneDepth, sceneRadiusForBody } from './sceneMath'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
-import { aerialUniforms, applyAerialUniforms } from './useAerialLut'
+import { aerialTextures, aerialUniforms, applyAerialUniforms } from './useAerialLut'
+import { CLOUD_PHASE_GLSL } from '@/atmosphere/cloud/phase'
+import { CONTRAIL_GLSL, DEFAULT_CONTRAIL, contrailSigmaM } from '@/atmosphere/cloud/contrail'
+import { ambientRadianceAtAltitude, sunAltitudeAt, sunIrradianceAtAltitude } from './contrailLighting'
 
 const DEG = Math.PI / 180
 
@@ -190,30 +193,41 @@ function AircraftMesh({
 }
 
 /**
- * Trainee de condensation.
+ * Trainee de condensation — le tube de glace de `atmosphere/cloud/contrail.ts`.
  *
- * Deux panaches, un par groupe de reacteurs, ecartes de vingt metres. Chacun
- * part etroit derriere l'aile et s'evase en s'eloignant, comme le fait une
- * trainee reelle en se melangeant a l'air ambiant.
+ * ## Ce que porte chaque sommet
  *
- * Le ruban est **construit depuis la position extrapolee de l'avion**, pas
- * depuis l'historique des mesures. L'historique n'a qu'un point toutes les
- * vingt secondes : il ne donnerait qu'un ou deux segments, et surtout sa tete
- * resterait accrochee a la derniere position recue pendant que l'avion, lui,
- * continue d'avancer — la trainee se detachait alors de son avion.
+ * Le ruban est construit, a chaque image, depuis la position extrapolee de
+ * l'avion ; chaque rangee est un **age** — le temps ecoule depuis que l'avion
+ * y est passe —, et tout le reste en decoule : la largeur du tube, sa quantite
+ * de glace, sa formation derriere les reacteurs. Les rangees sont resserrees
+ * pres de l'avion, la ou la trainee change vite.
  *
- * La longueur est fixee en **degres apparents** plutot qu'en kilometres :
- * c'est ce qui se voit. Un avion lointain traine donc physiquement plus long,
- * pour une meme empreinte a l'ecran.
+ * Le ruban fait face a l'observateur et s'etend a ±3σ de l'axe : sa coordonnee
+ * laterale **est** la distance entre le rayon de visee et l'axe du tube, celle
+ * qu'attend l'epaisseur optique en forme close. L'angle entre la visee et
+ * l'axe, lui, est calcule en metres, pas dans la scene compressee.
+ *
+ * ## Ce que fait le nuanceur
+ *
+ * Rien de peint. L'opacite vaut `1 − e^(−τ)`. La couleur est ce que la glace
+ * diffuse vers l'oeil : le Soleil **tel qu'il arrive a l'altitude de vol**
+ * — rougi, ou eteint par l'ombre de la Terre — pondere par la fonction de
+ * phase des cristaux, plus la lumiere diffuse du ciel et du sol. Le trajet
+ * jusqu'a l'oeil passe par la perspective atmospherique, rangee par rangee.
+ * Tout est en radiance, sur l'echelle du ciel : c'est le transform d'affichage
+ * qui decide de ce qui brille.
+ *
+ * Diffusion simple : une trainee a une epaisseur optique de quelques dixiemes,
+ * ou la diffusion multiple ne pese que quelques pour cent.
  */
-const CONTRAIL_SEGMENTS = 28
-/** Longueur apparente visee, en degres. */
-const CONTRAIL_LENGTH_DEG = 6
-/** Ecartement des deux panaches, en kilometres. */
-const CONTRAIL_SPACING_KM = 0.02
-/** Demi-largeur du panache a la sortie du reacteur, puis en fin de course. */
-const CONTRAIL_WIDTH_START_KM = 0.012
-const CONTRAIL_WIDTH_END_KM = 0.32
+const CONTRAIL_ROWS = 64
+/** Resserrement des rangees vers l'avion : age ∝ (i/N)^k. */
+const CONTRAIL_ROW_EXPONENT = 1.8
+/** Au-dela de quelques durees de vie, il ne reste plus de glace a voir. */
+const CONTRAIL_LIFETIMES_SHOWN = 4
+/** Demi-largeur du ruban, en ecarts-types de la section. */
+const CONTRAIL_HALF_WIDTH_SIGMAS = 3
 
 function contrailMaterial() {
   return new ShaderMaterial({
@@ -221,21 +235,30 @@ function contrailMaterial() {
     depthWrite: false,
     side: DoubleSide,
     uniforms: {
-      uColor: { value: new Color('#ffffff') },
-      /**
-       * Distance a la tete du panache, en metres. La queue est un peu plus
-       * loin, mais la trainee ne couvre que quelques degres : l'ecart de
-       * colonne d'air entre ses deux bouts est sans effet visible.
-       */
-      uRangeM: { value: 0 },
-      uOpacity: { value: 0 },
+      /** (σ₀ m, D m²/s, K₀ m²/m, duree de vie s) — voir `ContrailParameters`. */
+      uContrail: { value: new Vector4() },
+      uFormationS: { value: 1 },
+      /** Irradiance solaire directe a l'altitude de la trainee, sRGB lineaire. */
+      uSunIrradiance: { value: new Vector3() },
+      /** Radiance diffuse moyenne recue par la glace. */
+      uAmbientRadiance: { value: new Vector3() },
       ...aerialUniforms(),
     },
     vertexShader: /* glsl */ `
-      varying vec2 vUv;
+      attribute float aAge;
+      attribute float aLateral;
+      attribute float aSinAngle;
+      attribute float aRangeM;
+      varying float vAge;
+      varying float vLateral;
+      varying float vSinAngle;
+      varying float vRangeM;
       varying vec3 vView;
       void main() {
-        vUv = uv;
+        vAge = aAge;
+        vLateral = aLateral;
+        vSinAngle = aSinAngle;
+        vRangeM = aRangeM;
         // L'observateur est a l'origine : la position dans le monde donne
         // directement la direction sous laquelle on voit ce point.
         vView = normalize((modelMatrix * vec4(position, 1.0)).xyz);
@@ -243,88 +266,74 @@ function contrailMaterial() {
       }
     `,
     fragmentShader: /* glsl */ `
-      ${DISPLAY_TONEMAP_GLSL}
       ${AERIAL_LUT_GLSL}
-      varying vec2 vUv;
+      ${CLOUD_PHASE_GLSL}
+      ${CONTRAIL_GLSL}
+      varying float vAge;
+      varying float vLateral;
+      varying float vSinAngle;
+      varying float vRangeM;
       varying vec3 vView;
-      uniform vec3 uColor;
-      uniform float uRangeM;
-      uniform float uOpacity;
+      uniform vec4 uContrail;
+      uniform float uFormationS;
+      uniform vec3 uSunIrradiance;
+      uniform vec3 uAmbientRadiance;
 
       void main() {
-        // vUv.x traverse le panache, vUv.y le parcourt. Aucun bord net : le
-        // profil transversal est une gaussienne, et la queue se dissout.
-        float across = vUv.x * 2.0 - 1.0;
-        float radial = exp(-across * across * 3.2);
+        float tau = contrailOpticalDepth(vAge, vLateral, vSinAngle, uContrail, uFormationS);
+        float alpha = 1.0 - exp(-tau);
+        if (!(alpha > 0.002)) discard;
 
-        // Naissance juste derriere le reacteur, puis dissipation progressive.
-        float birth = smoothstep(0.0, 0.06, vUv.y);
-        // ⚠️ Borne indispensable : sur la derniere rangee, l'interpolation
-        // depasse 1 d'un epsilon, et \`pow\` d'un negatif vaut NaN — qui echappe
-        // au \`discard\` ci-dessous (toute comparaison a NaN est fausse) et
-        // dessinait un liseré de pixels invalides en bout de trainee.
-        float decay = pow(max(0.0, 1.0 - vUv.y), 1.6);
+        // Angle de diffusion : entre la lumiere qui arrive du Soleil et celle
+        // qui repart vers l'oeil. Face au Soleil, c'est le pic avant.
+        vec3 view = normalize(vView);
+        float mu = dot(view, normalize(uAerialSunDir));
+        vec3 scattered = uSunIrradiance * cloudIcePhase(mu) + uAmbientRadiance;
 
-        // Les cristaux de glace diffusent surtout vers l'avant : une trainee
-        // vue a contre-jour est bien plus lumineuse que la meme vue dos au
-        // Soleil. C'est ce qui la fait ressortir en fin de journee.
-        float forward = max(0.0, dot(normalize(vView), normalize(uAerialSunDir)));
-        float scatter = 0.75 + 1.9 * pow(forward, 6.0);
-
-        float alpha = radial * birth * decay * uOpacity * scatter;
-        if (alpha < 0.004) discard;
-
-        // Meme traitement que la silhouette, borne a la meme distance : de
-        // nuit le voile ajoute est reellement noir — plus de trainee qui
-        // ressort a contretemps du ciel — et de jour les cristaux perdent en
-        // s'eloignant ce que l'air leur prend.
         vec3 transmittance;
-        vec3 haze = aerialPerspective(vView, uRangeM, transmittance);
-        gl_FragColor = vec4(radianceFromDisplay(uColor) * transmittance + haze, min(alpha, 0.85));
+        vec3 haze = aerialPerspective(view, vRangeM, transmittance);
+        gl_FragColor = vec4(scattered * uAerialExposure * transmittance + haze, alpha);
       }
     `,
   })
 }
 
-/**
- * Ruban unique portant les deux panaches.
- *
- * Un seul tampon les contient tous les deux — deux bandes de triangles a la
- * suite — pour n'avoir qu'un appel de dessin par avion plutot que deux.
- */
 function AircraftContrail({
   state,
   location,
   sunDirection,
+  sunAltitudeDeg,
+  sunAzimuthDeg,
+  groundSunIrradiance,
   skyExposure,
-  dayFactor,
 }: {
   state: AircraftState
   location: GeoLocation
   sunDirection: [number, number, number]
+  /** Hauteur et azimut du Soleil pour l'observateur, degres. */
+  sunAltitudeDeg: number
+  sunAzimuthDeg: number
+  /** Irradiance solaire directe au sol, pour la lumiere que le sol renvoie vers la trainee. */
+  groundSunIrradiance: readonly [number, number, number]
   /** Exposition de la diffusion atmospherique — voir `SkyCanvas.tsx`, meme valeur que le fond de ciel. */
   skyExposure: number
-  /** Charge en aerosols, identique a celle du fond de ciel. */
-  dayFactor: number
 }) {
   const mesh = useRef<Mesh>(null)
   const material = useMemo(contrailMaterial, [])
+  const params = DEFAULT_CONTRAIL
 
   const geometry = useMemo(() => {
     const geo = new BufferGeometry()
-    const rows = CONTRAIL_SEGMENTS + 1
-    const vertices = rows * 2 * 2 // deux panaches, deux bords par section
+    const vertices = CONTRAIL_ROWS * 2
     geo.setAttribute('position', new BufferAttribute(new Float32Array(vertices * 3), 3))
-    geo.setAttribute('uv', new BufferAttribute(new Float32Array(vertices * 2), 2))
-
-    // Indices fixes : seules les positions changent d'une image a l'autre.
+    for (const name of ['aAge', 'aLateral', 'aSinAngle', 'aRangeM']) {
+      geo.setAttribute(name, new BufferAttribute(new Float32Array(vertices), 1))
+    }
+    // Indices fixes : seules les valeurs des sommets changent d'une image a l'autre.
     const indices: number[] = []
-    for (let plume = 0; plume < 2; plume++) {
-      const base = plume * rows * 2
-      for (let i = 0; i < CONTRAIL_SEGMENTS; i++) {
-        const a = base + i * 2
-        indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
-      }
+    for (let i = 0; i < CONTRAIL_ROWS - 1; i++) {
+      const a = i * 2
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
     }
     geo.setIndex(indices)
     // La trainee couvre plusieurs degres et bouge sans cesse : une sphere
@@ -336,19 +345,17 @@ function AircraftContrail({
   useEffect(() => () => geometry.dispose(), [geometry])
   useEffect(() => () => material.dispose(), [material])
 
-  /**
-   * Axe du panache en coordonnees de scene, reconstruit a chaque image.
-   *
-   * Deux passes : on pose d'abord l'axe, puis on l'epaissit. La largeur d'une
-   * section a besoin de la direction *locale* de l'axe, donc de ses voisins des
-   * deux cotes — ce qu'une passe unique ne peut pas fournir pour le premier
-   * point.
-   */
-  const axis = useMemo(
-    () => Array.from({ length: CONTRAIL_SEGMENTS + 1 }, () => ({ point: new Vector3(), halfWidth: 0 })),
+  const rows = useMemo(
+    () =>
+      Array.from({ length: CONTRAIL_ROWS }, () => ({
+        scene: new Vector3(),
+        metric: new Vector3(),
+        ageS: 0,
+        rangeKm: 0,
+      })),
     [],
   )
-  const scratch = useRef({ direction: new Vector3(), radial: new Vector3(), side: new Vector3() })
+  const scratch = useRef({ direction: new Vector3(), radial: new Vector3(), side: new Vector3(), axis: new Vector3() })
 
   useFrame(() => {
     const m = mesh.current
@@ -356,79 +363,93 @@ function AircraftContrail({
 
     const head = extrapolatedGeodetic(state, Date.now())
     const headView = geodeticToHorizontal(head.latitude, head.longitude, head.altitudeKm, location)
-
-    // Longueur physique deduite de la longueur apparente voulue.
-    const lengthKm = Math.max(0.4, headView.rangeKm * Math.tan(CONTRAIL_LENGTH_DEG * DEG))
     const track = state.trackDeg ?? 0
     const backBearing = (track + 180) % 360
-    const sideBearing = (track + 90) % 360
-    // La trainee se depose derriere l'avion : elle garde l'altitude qu'il avait
-    // en la produisant, donc perd ce qu'il vient de gagner en montant.
     const perSecondKm = groundDistanceKm(state, 1)
-    const spannedSeconds = perSecondKm > 0 ? lengthKm / perSecondKm : 0
-    const dropKm = ((state.verticalRateFtMin ?? 0) / 60) * 0.0003048 * spannedSeconds
+    const climbKmPerS = ((state.verticalRateFtMin ?? 0) / 60) * 0.0003048
+    const maxAgeS = CONTRAIL_LIFETIMES_SHOWN * params.lifetimeS
 
-    const position = geometry.getAttribute('position') as BufferAttribute
-    const uv = geometry.getAttribute('uv') as BufferAttribute
-    const { direction, radial, side } = scratch.current
-    const rows = CONTRAIL_SEGMENTS + 1
-
-    for (let plume = 0; plume < 2; plume++) {
-      const lateralKm = (plume === 0 ? -1 : 1) * (CONTRAIL_SPACING_KM / 2)
-      const lateralBearing = lateralKm < 0 ? (sideBearing + 180) % 360 : sideBearing
-
-      // Passe 1 — l'axe.
-      for (let i = 0; i < rows; i++) {
-        const t = i / CONTRAIL_SEGMENTS
-        const along = advanceGeodetic(head, lengthKm * t, backBearing, -dropKm * t)
-        const at = advanceGeodetic(along, Math.abs(lateralKm), lateralBearing)
-        const view = geodeticToHorizontal(at.latitude, at.longitude, at.altitudeKm, location)
-        const [x, y, z] = horizontalToScene(view.horizontal, sceneDepth(view.rangeKm))
-        axis[i].point.set(x, y, z)
-        // Demi-largeur croissante : le panache s'evase en vieillissant.
-        const halfWidthKm =
-          CONTRAIL_WIDTH_START_KM + (CONTRAIL_WIDTH_END_KM - CONTRAIL_WIDTH_START_KM) * Math.pow(t, 0.7)
-        axis[i].halfWidth = sceneRadiusForBody(halfWidthKm, view.rangeKm)
-      }
-
-      // Passe 2 — l'epaisseur, face a l'observateur.
-      for (let i = 0; i < rows; i++) {
-        const previous = axis[Math.max(0, i - 1)].point
-        const next = axis[Math.min(rows - 1, i + 1)].point
-        direction.copy(next).sub(previous)
-        if (direction.lengthSq() === 0) direction.set(1, 0, 0)
-
-        // Le ruban se developpe perpendiculairement a la fois a l'axe du
-        // panache et a la ligne de visee : sans cela il disparaitrait vu par
-        // la tranche, exactement quand on regarde l'avion s'eloigner.
-        radial.copy(axis[i].point).normalize()
-        side.copy(direction).cross(radial)
-        if (side.lengthSq() === 0) side.set(1, 0, 0)
-        side.normalize().multiplyScalar(axis[i].halfWidth)
-
-        const p = axis[i].point
-        const index = plume * rows * 2 + i * 2
-        position.setXYZ(index, p.x - side.x, p.y - side.y, p.z - side.z)
-        position.setXYZ(index + 1, p.x + side.x, p.y + side.y, p.z + side.z)
-        uv.setXY(index, 0, i / CONTRAIL_SEGMENTS)
-        uv.setXY(index + 1, 1, i / CONTRAIL_SEGMENTS)
-      }
+    // Passe 1 — l'axe, en scene et en metres (repere local centre sur l'observateur).
+    for (let i = 0; i < CONTRAIL_ROWS; i++) {
+      const ageS = maxAgeS * Math.pow(i / (CONTRAIL_ROWS - 1), CONTRAIL_ROW_EXPONENT)
+      // La trainee se depose derriere l'avion, a l'altitude qu'il avait alors.
+      const at = advanceGeodetic(head, perSecondKm * ageS, backBearing, -climbKmPerS * ageS)
+      const view = geodeticToHorizontal(at.latitude, at.longitude, at.altitudeKm, location)
+      const [x, y, z] = horizontalToScene(view.horizontal, sceneDepth(view.rangeKm))
+      const row = rows[i]
+      row.scene.set(x, y, z)
+      const alt = view.horizontal.altitude * DEG
+      const az = view.horizontal.azimuth * DEG
+      row.metric
+        .set(Math.cos(alt) * Math.sin(az), Math.sin(alt), Math.cos(alt) * Math.cos(az))
+        .multiplyScalar(view.rangeKm * 1000)
+      row.ageS = ageS
+      row.rangeKm = view.rangeKm
     }
 
-    position.needsUpdate = true
-    uv.needsUpdate = true
+    // Passe 2 — l'epaisseur, face a l'observateur, et ce que porte chaque sommet.
+    const position = geometry.getAttribute('position') as BufferAttribute
+    const aAge = geometry.getAttribute('aAge') as BufferAttribute
+    const aLateral = geometry.getAttribute('aLateral') as BufferAttribute
+    const aSinAngle = geometry.getAttribute('aSinAngle') as BufferAttribute
+    const aRangeM = geometry.getAttribute('aRangeM') as BufferAttribute
+    const { direction, radial, side, axis } = scratch.current
+    for (let i = 0; i < CONTRAIL_ROWS; i++) {
+      const previous = rows[Math.max(0, i - 1)]
+      const next = rows[Math.min(CONTRAIL_ROWS - 1, i + 1)]
+      const row = rows[i]
 
-    material.uniforms.uRangeM.value = headView.rangeKm * 1000
-    applyAerialUniforms(
-      material.uniforms as unknown as ReturnType<typeof aerialUniforms>,
-      sunDirection,
-      skyExposure,
+      // Le ruban se developpe perpendiculairement a la fois a l'axe et a la
+      // ligne de visee : sans cela il disparaitrait vu par la tranche.
+      direction.copy(next.scene).sub(previous.scene)
+      if (direction.lengthSq() === 0) direction.set(1, 0, 0)
+      radial.copy(row.scene).normalize()
+      side.copy(direction).cross(radial)
+      if (side.lengthSq() === 0) side.set(1, 0, 0)
+      const halfWidthM = CONTRAIL_HALF_WIDTH_SIGMAS * contrailSigmaM(row.ageS, params)
+      side.normalize().multiplyScalar(sceneRadiusForBody(halfWidthM / 1000, row.rangeKm))
+
+      // Angle entre la visee et l'axe, en vraie geometrie.
+      axis.copy(next.metric).sub(previous.metric)
+      const sinAngle =
+        axis.lengthSq() > 0 ? axis.normalize().cross(radial.copy(row.metric).normalize()).length() : 1
+
+      const index = i * 2
+      const p = row.scene
+      position.setXYZ(index, p.x - side.x, p.y - side.y, p.z - side.z)
+      position.setXYZ(index + 1, p.x + side.x, p.y + side.y, p.z + side.z)
+      for (const [v, lateral] of [
+        [index, -halfWidthM],
+        [index + 1, halfWidthM],
+      ] as const) {
+        aAge.setX(v, row.ageS)
+        aLateral.setX(v, lateral)
+        aSinAngle.setX(v, sinAngle)
+        aRangeM.setX(v, row.rangeKm * 1000)
+      }
+    }
+    for (const a of [position, aAge, aLateral, aSinAngle, aRangeM]) a.needsUpdate = true
+
+    // Eclairage, a l'altitude et au lieu de la trainee.
+    const altitudeM = head.altitudeKm * 1000
+    const groundRangeKm = headView.rangeKm * Math.cos(headView.horizontal.altitude * DEG)
+    const localSun = sunAltitudeAt(sunAltitudeDeg, sunAzimuthDeg, headView.horizontal.azimuth, groundRangeKm)
+    const sun = sunIrradianceAtAltitude(localSun, altitudeM)
+    const ambient = ambientRadianceAtAltitude(altitudeM, aerialTextures.skyIrradiance, groundSunIrradiance, sunAltitudeDeg)
+    const u = material.uniforms
+    ;(u.uSunIrradiance.value as Vector3).set(sun[0], sun[1], sun[2])
+    ;(u.uAmbientRadiance.value as Vector3).set(ambient[0], ambient[1], ambient[2])
+    // La probabilite de condensation dose la glace deposee : sous le seuil,
+    // la trainee s'amincit jusqu'a disparaitre au lieu de s'eteindre d'un coup.
+    ;(u.uContrail.value as Vector4).set(
+      params.initialSigmaM,
+      params.diffusivityM2S,
+      params.initialExtinctionPerLengthM * state.contrailLikelihood,
+      params.lifetimeS,
     )
-    // Sous l'horizon rien a montrer ; sinon l'opacite suit la probabilite de
-    // condensation a l'altitude courante et la lumiere du jour.
-    const visible = headView.horizontal.altitude > -1 ? state.contrailLikelihood * dayFactor : 0
-    material.uniforms.uOpacity.value = visible * 0.55
-    m.visible = visible > 0.01
+    u.uFormationS.value = params.formationS
+    applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
+    m.visible = headView.horizontal.altitude > -1 && state.contrailLikelihood > 0.02
   })
 
   return <mesh ref={mesh} geometry={geometry} material={material} renderOrder={8} frustumCulled={false} />
@@ -507,6 +528,9 @@ export function AircraftLayer({
   sunDirection,
   skyExposure,
   dayFactor,
+  sunAltitudeDeg,
+  sunAzimuthDeg,
+  groundSunIrradiance,
   selectedHex,
   trackColor,
 }: {
@@ -518,6 +542,11 @@ export function AircraftLayer({
   skyExposure: number
   /** Charge en aerosols, identique a celle du fond de ciel. */
   dayFactor: number
+  /** Hauteur et azimut du Soleil pour l'observateur, degres — la trainee s'eclaire a sa propre altitude. */
+  sunAltitudeDeg: number
+  sunAzimuthDeg: number
+  /** Irradiance solaire directe au sol, sRGB lineaire. */
+  groundSunIrradiance: readonly [number, number, number]
   selectedHex: string | null
   /** Couleur de la trace suivie de l'avion selectionne. */
   trackColor: string
@@ -539,8 +568,10 @@ export function AircraftLayer({
               state={s}
               location={location}
               sunDirection={sunDirection}
+              sunAltitudeDeg={sunAltitudeDeg}
+              sunAzimuthDeg={sunAzimuthDeg}
+              groundSunIrradiance={groundSunIrradiance}
               skyExposure={skyExposure}
-                dayFactor={dayFactor}
             />
           )}
         </group>

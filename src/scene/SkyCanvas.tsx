@@ -668,6 +668,9 @@ export function SkyCanvas() {
             sunDirection={sunDirection}
             skyExposure={skyExposure}
             dayFactor={dayFactor}
+            sunAltitudeDeg={sky.sunAltitude}
+            sunAzimuthDeg={sky.sunAzimuth}
+            groundSunIrradiance={sunIrradiance}
             selectedHex={selectedAircraftHex}
             trackColor={colors.selection}
           />
