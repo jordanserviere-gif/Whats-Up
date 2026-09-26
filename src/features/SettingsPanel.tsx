@@ -13,6 +13,7 @@ import {
   useTheme,
 } from '@/ui'
 import { PRESET_LOCATIONS, useSkyStore, type LayerVisibility } from '@/state/store'
+import type { GeoLocation } from '@/astro/types'
 import { useSkyConditions } from '@/state/hooks'
 import { bortleLabel, bortleSkyBrightness } from '@/astro/photometry'
 import { formatAge } from '@/data-sources/types'
@@ -71,9 +72,33 @@ export function SettingsPanel() {
   const setAerosolAuto = useSkyStore((s) => s.setAerosolAuto)
   const autoAerosolStatus = useSkyStore((s) => s.autoAerosolStatus)
   const sky = useSkyConditions()
-  const { mode, setMode, contrast, setContrast } = useTheme()
+  const { mode, setMode } = useTheme()
   const { show } = useSnackbar()
   const [locating, setLocating] = useState(false)
+
+  /**
+   * Lieu propose, pas encore applique.
+   *
+   * Changer de lieu reconstruit tout le ciel et, avec le relief, telecharge des
+   * dizaines de megaoctets : chaque saisie, chaque clic sur la carte ne fait
+   * donc que remplir ce brouillon, et rien ne part avant « Valider ».
+   */
+  const [draft, setDraft] = useState<GeoLocation | null>(null)
+  const shown = draft ?? location
+  const propose = (next: Partial<GeoLocation>) => setDraft({ ...shown, ...next })
+  const pending =
+    draft !== null &&
+    (draft.latitude !== location.latitude ||
+      draft.longitude !== location.longitude ||
+      draft.elevation !== location.elevation ||
+      draft.name !== location.name)
+
+  const validate = () => {
+    if (!draft) return
+    setLocation(draft)
+    setDraft(null)
+    show(`Lieu d’observation : ${draft.name}`)
+  }
 
   const useMyPosition = () => {
     if (!navigator.geolocation) {
@@ -83,14 +108,13 @@ export function SettingsPanel() {
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLocation({
+        propose({
           name: 'Position actuelle',
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
-          elevation: pos.coords.altitude ?? 0,
+          elevation: pos.coords.altitude ?? shown.elevation,
         })
         setLocating(false)
-        show('Lieu d’observation mis à jour')
       },
       () => {
         setLocating(false)
@@ -106,15 +130,21 @@ export function SettingsPanel() {
         <Select
           label="Lieu enregistré"
           leadingIcon="location_city"
-          value={PRESET_LOCATIONS.some((l) => l.name === location.name) ? location.name : ''}
+          value={PRESET_LOCATIONS.some((l) => l.name === shown.name) ? shown.name : ''}
           options={[
-            ...(PRESET_LOCATIONS.some((l) => l.name === location.name) ? [] : [{ value: '', label: location.name }]),
+            ...(PRESET_LOCATIONS.some((l) => l.name === shown.name) ? [] : [{ value: '', label: shown.name }]),
             ...PRESET_LOCATIONS.map((l) => ({ value: l.name, label: l.name })),
           ]}
           onChange={(name) => {
             const found = PRESET_LOCATIONS.find((l) => l.name === name)
-            if (found) setLocation(found)
+            if (found) setDraft(found)
           }}
+        />
+
+        <LocationMap
+          latitudeDeg={shown.latitude}
+          longitudeDeg={shown.longitude}
+          onPick={(latitude, longitude, name) => propose({ name: name ?? 'Lieu choisi sur la carte', latitude, longitude })}
         />
 
         <TextField
@@ -123,8 +153,8 @@ export function SettingsPanel() {
           numeric
           step="0.0001"
           suffix="°N"
-          value={location.latitude.toFixed(4)}
-          onChange={(e) => setLocation({ ...location, name: 'Lieu personnalisé', latitude: Number(e.target.value) })}
+          value={shown.latitude.toFixed(4)}
+          onChange={(e) => propose({ name: 'Lieu personnalisé', latitude: Number(e.target.value) })}
         />
         <TextField
           label="Longitude"
@@ -132,8 +162,8 @@ export function SettingsPanel() {
           numeric
           step="0.0001"
           suffix="°E"
-          value={location.longitude.toFixed(4)}
-          onChange={(e) => setLocation({ ...location, name: 'Lieu personnalisé', longitude: Number(e.target.value) })}
+          value={shown.longitude.toFixed(4)}
+          onChange={(e) => propose({ name: 'Lieu personnalisé', longitude: Number(e.target.value) })}
         />
         <TextField
           label="Altitude du sol"
@@ -141,9 +171,33 @@ export function SettingsPanel() {
           numeric
           step="1"
           suffix="m"
-          value={location.elevation.toFixed(0)}
-          onChange={(e) => setLocation({ ...location, elevation: Number(e.target.value) })}
+          value={shown.elevation.toFixed(0)}
+          onChange={(e) => propose({ elevation: Number(e.target.value) })}
         />
+
+        <Button variant="outlined" icon="my_location" fullWidth disabled={locating} onClick={useMyPosition}>
+          {locating ? 'Localisation…' : 'Utiliser ma position'}
+        </Button>
+
+        {pending && (
+          <div className="settings-location__confirm" role="group" aria-label="Nouveau lieu à valider">
+            <p className="md-type-body-medium">
+              Nouveau lieu : <strong>{draft.name}</strong>
+              <span className="md-type-body-small md-numeric settings-location__coords">
+                {draft.latitude.toFixed(4).replace('.', ',')}° · {draft.longitude.toFixed(4).replace('.', ',')}°
+              </span>
+            </p>
+            <div className="settings-location__actions">
+              <Button variant="text" onClick={() => setDraft(null)}>
+                Annuler
+              </Button>
+              <Button variant="filled" icon="check" onClick={validate}>
+                Valider ce lieu
+              </Button>
+            </div>
+          </div>
+        )}
+
         <TextField
           label="Hauteur au-dessus du sol"
           type="number"
@@ -158,18 +212,6 @@ export function SettingsPanel() {
             ? `Horizon abaisse de ${horizonDipDeg(location.elevation + elevationOffsetM).toFixed(2).replace('.', ',')}° — le relief visible porte jusqu'a ${Math.round(horizonRangeM(4000, location.elevation + elevationOffsetM, 7_669_000) / 1000)} km sur un sommet de 4000 m.`
             : `L'altitude du sol est relue sur le modele numerique de terrain des que celui-ci est charge ; la hauteur ci-dessus s'y ajoute.`}
         </p>
-
-        <LocationMap
-          latitudeDeg={location.latitude}
-          longitudeDeg={location.longitude}
-          onPick={(latitude, longitude) =>
-            setLocation({ ...location, name: 'Lieu choisi sur la carte', latitude, longitude })
-          }
-        />
-
-        <Button variant="tonal" icon="my_location" fullWidth disabled={locating} onClick={useMyPosition}>
-          {locating ? 'Localisation…' : 'Utiliser ma position'}
-        </Button>
         <p className="md-type-body-small">Fuseau horaire : {localTimeZone()}</p>
       </Section>
 
@@ -327,17 +369,6 @@ export function SettingsPanel() {
           ]}
           value={mode}
           onChange={setMode}
-        />
-        <SegmentedButton
-          ariaLabel="Niveau de contraste"
-          fullWidth
-          segments={[
-            { value: 'standard', label: 'Standard' },
-            { value: 'medium', label: 'Moyen' },
-            { value: 'high', label: 'Élevé' },
-          ]}
-          value={contrast}
-          onChange={setContrast}
         />
       </Section>
 

@@ -1,292 +1,170 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchBinary } from '@/data-sources/fetchJson'
-import { decodeTile } from '@/scene/terrain/elevationSource'
-import { TILE_SIZE, lonLatToTile, tileGroundResolutionM, tileToLonLat } from '@/scene/terrain/geodesy'
-import { TERRARIUM_ATTRIBUTION, TERRARIUM_MAX_ZOOM, terrariumUrl } from '@/scene/terrain/terrarium'
+import { useEffect, useRef, useState } from 'react'
+import { useTheme } from '@/ui/ThemeProvider'
+import { GOOGLE_MAPS_MAP_ID, googleMapsConfigured, loadGoogleMaps } from './googleMaps'
 import './LocationMap.css'
 
 /**
- * Carte de selection du lieu.
+ * Carte de selection du lieu — un petit client Google Maps.
  *
- * ## Pourquoi elle ne charge aucune image de carte
+ * On s'y deplace et on y zoome librement ; un clic, ou le marqueur qu'on
+ * glisse, **propose** un lieu, et la recherche en trouve un par son nom. Rien
+ * n'est applique ici : la carte ne fait que remplir le brouillon du panneau,
+ * que l'utilisateur valide ensuite — un changement de lieu reconstruit tout le
+ * ciel, il ne doit pas partir d'un clic egare.
  *
- * Un fond de carte classique demanderait une source de plus, ses conditions
- * d'usage et sa cle. Or le moteur telecharge deja, pour le relief, un modele
- * numerique de terrain **mondial**. Cette carte est dessinee a partir de ces
- * memes tuiles : la mer par le signe de l'altitude, le relief par un ombrage.
- *
- * L'avantage n'est pas seulement d'economiser une dependance. La carte montre
- * **exactement ce que le moteur sait du terrain** — sa resolution, ses defauts,
- * ses trous. Cliquer sur une crete visible ici, c'est cliquer sur la crete qui
- * sera rendue.
- *
- * ## L'ombrage est cartographique, et l'assume
- *
- * L'eclairement vient du nord-ouest a quarante-cinq degres. Ce n'est pas une
- * position solaire, c'est la **convention des cartes topographiques** depuis le
- * dix-neuvieme siecle : elle place les ombres la ou l'oeil les attend et evite
- * l'illusion de relief inverse.
- *
- * C'est une image d'interface, pas une image du ciel. Aucune de ces couleurs ne
- * touche au rendu de la scene, et rien ici ne remonte dans le moteur.
+ * Le fond suit le theme : clair, sombre, et en night le filtre physique
+ * commun (`--app-physical-filter`) le ramene a l'ambre comme le sol de la
+ * scene.
  */
-
-/** Cote de la carte, pixels. */
-const MAP_W = 320
-const MAP_H = 220
-
-/** Zoom minimal : le monde entier tient dans la fenetre. */
-const MIN_ZOOM = 1
-/** Au-dela, on telechargerait de l'interpolation — voir `terrarium`. */
-const MAX_ZOOM = TERRARIUM_MAX_ZOOM
-
-/** Un mois, comme le relief : la topographie ne bouge pas. */
-const TILE_TTL_MS = 30 * 24 * 3600 * 1000
-
-/** Tuiles decodees, gardees en memoire le temps de la session. */
-const tileCache = new Map<string, Int16Array | null>()
-const pending = new Map<string, Promise<Int16Array | null>>()
-
-function loadTile(zoom: number, x: number, y: number): Promise<Int16Array | null> {
-  const key = `${zoom}/${x}/${y}`
-  const cached = tileCache.get(key)
-  if (cached !== undefined) return Promise.resolve(cached)
-  const inflight = pending.get(key)
-  if (inflight) return inflight
-
-  const promise = (async () => {
-    try {
-      const raw = await fetchBinary(
-        terrariumUrl(zoom, x, y),
-        { key: `terrarium:${key}`, ttlMs: TILE_TTL_MS, timeoutMs: 12_000, attempts: 2 },
-        (buffer) => buffer,
-      )
-      const decoded = raw ? await decodeTile(raw.value) : null
-      tileCache.set(key, decoded)
-      return decoded
-    } catch {
-      tileCache.set(key, null)
-      return null
-    } finally {
-      pending.delete(key)
-    }
-  })()
-  pending.set(key, promise)
-  return promise
-}
-
-/**
- * Rampe hypsometrique et ombrage.
- *
- * `slopeScale` convertit la difference d'altitude entre deux pixels voisins en
- * pente : sans lui, la meme montagne paraitrait plate au zoom large et
- * verticale au zoom serre, puisque le pixel ne couvre pas la meme distance.
- */
-function paint(
-  heights: Int16Array,
-  width: number,
-  height: number,
-  metresPerPixel: number,
-): ImageData {
-  const image = new ImageData(width, height)
-  const data = image.data
-  // Lumiere du nord-ouest, quarante-cinq degres — la convention des cartes.
-  const lx = -Math.SQRT1_2 * Math.SQRT1_2
-  const ly = Math.SQRT1_2 * Math.SQRT1_2
-  const lz = Math.SQRT1_2
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x
-      const h = heights[i]
-      const j = i * 4
-      data[j + 3] = 255
-
-      if (h < 0) {
-        // La mer, par la profondeur. Le signe suffit a la distinguer : c'est
-        // pour cela que le decodage garde la bathymetrie.
-        const deep = Math.min(1, -h / 5000)
-        data[j] = 14 + 22 * (1 - deep)
-        data[j + 1] = 42 + 52 * (1 - deep)
-        data[j + 2] = 78 + 66 * (1 - deep)
-        continue
-      }
-
-      // Pente locale, en vraies unites : difference d'altitude sur la distance
-      // que couvre reellement un pixel.
-      const xl = heights[y * width + Math.max(0, x - 1)]
-      const xr = heights[y * width + Math.min(width - 1, x + 1)]
-      const yu = heights[Math.max(0, y - 1) * width + x]
-      const yd = heights[Math.min(height - 1, y + 1) * width + x]
-      const nx = (xl - xr) / (2 * metresPerPixel)
-      const ny = (yd - yu) / (2 * metresPerPixel)
-      const norm = Math.sqrt(nx * nx + ny * ny + 1)
-      const shade = Math.max(0.25, (nx * lx + ny * ly + lz) / norm)
-
-      // Rampe : vert des plaines, ocre des moyennes altitudes, gris puis blanc.
-      const t = Math.min(1, h / 4000)
-      let r: number
-      let g: number
-      let b: number
-      if (t < 0.35) {
-        const u = t / 0.35
-        r = 96 + 92 * u
-        g = 124 + 46 * u
-        b = 84 + 24 * u
-      } else if (t < 0.7) {
-        const u = (t - 0.35) / 0.35
-        r = 188 + 20 * u
-        g = 170 + 12 * u
-        b = 108 + 40 * u
-      } else {
-        const u = (t - 0.7) / 0.3
-        r = 208 + 47 * u
-        g = 182 + 73 * u
-        b = 148 + 107 * u
-      }
-      data[j] = Math.round(r * shade)
-      data[j + 1] = Math.round(g * shade)
-      data[j + 2] = Math.round(b * shade)
-    }
-  }
-  return image
-}
-
 export interface LocationMapProps {
   latitudeDeg: number
   longitudeDeg: number
-  onPick: (latitudeDeg: number, longitudeDeg: number) => void
+  /** Un lieu est propose ; `name` vient de la recherche, s'il y en a une. */
+  onPick: (latitudeDeg: number, longitudeDeg: number, name?: string) => void
 }
 
+type Status = 'loading' | 'ready' | 'error'
+
 export function LocationMap({ latitudeDeg, longitudeDeg, onPick }: LocationMapProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const [zoom, setZoom] = useState(5)
-  const [centre, setCentre] = useState({ lat: latitudeDeg, lon: longitudeDeg })
-  const [loading, setLoading] = useState(false)
+  const { mode } = useTheme()
+  const mapHost = useRef<HTMLDivElement>(null)
+  const searchHost = useRef<HTMLDivElement>(null)
+  const map = useRef<google.maps.Map | null>(null)
+  const marker = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const [status, setStatus] = useState<Status>(googleMapsConfigured() ? 'loading' : 'error')
+  // Le rappel change a chaque rendu du panneau ; la carte, elle, n'est creee
+  // qu'une fois par theme. On lit donc toujours le dernier par une reference.
+  const pick = useRef(onPick)
+  pick.current = onPick
+  const initial = useRef({ lat: latitudeDeg, lng: longitudeDeg })
+  initial.current = { lat: latitudeDeg, lng: longitudeDeg }
 
-  // Le lieu change ailleurs — saisie manuelle, geolocalisation, prereglage — et
-  // la carte doit suivre plutot que de rester ou elle etait.
+  // --- La carte, recreee au changement de theme --------------------------
+  // `colorScheme` ne se fixe qu'a la creation : c'est la seule facon, sans
+  // style cartographique dedie, de suivre le clair et le sombre.
   useEffect(() => {
-    setCentre({ lat: latitudeDeg, lon: longitudeDeg })
-  }, [latitudeDeg, longitudeDeg])
-
-  const draw = useCallback(async () => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('2d')
-    if (!context) return
-
-    const centreTile = lonLatToTile(centre.lon, centre.lat, zoom)
-    const originX = centreTile.x * TILE_SIZE - MAP_W / 2
-    const originY = centreTile.y * TILE_SIZE - MAP_H / 2
-    const worldPx = TILE_SIZE * 2 ** zoom
-
-    // Quelles tuiles couvrent la fenetre.
-    const needed: Array<{ x: number; y: number }> = []
-    for (let ty = Math.floor(originY / TILE_SIZE); ty <= Math.floor((originY + MAP_H) / TILE_SIZE); ty++) {
-      if (ty < 0 || ty >= 2 ** zoom) continue
-      for (let tx = Math.floor(originX / TILE_SIZE); tx <= Math.floor((originX + MAP_W) / TILE_SIZE); tx++) {
-        needed.push({ x: ((tx % 2 ** zoom) + 2 ** zoom) % 2 ** zoom, y: ty })
+    if (!googleMapsConfigured()) return
+    let alive = true
+    const listeners: google.maps.MapsEventListener[] = []
+    void (async () => {
+      try {
+        const maps = await loadGoogleMaps()
+        const [{ Map }, { AdvancedMarkerElement }, core] = await Promise.all([
+          maps.importLibrary('maps') as Promise<google.maps.MapsLibrary>,
+          maps.importLibrary('marker') as Promise<google.maps.MarkerLibrary>,
+          maps.importLibrary('core') as Promise<google.maps.CoreLibrary>,
+        ])
+        if (!alive || !mapHost.current) return
+        const centre = map.current?.getCenter()?.toJSON() ?? initial.current
+        const zoom = map.current?.getZoom() ?? 9
+        const instance = new Map(mapHost.current, {
+          center: centre,
+          zoom,
+          mapId: GOOGLE_MAPS_MAP_ID,
+          colorScheme: mode === 'light' ? core.ColorScheme.LIGHT : core.ColorScheme.DARK,
+          disableDefaultUI: true,
+          zoomControl: true,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          clickableIcons: false,
+          // Dans un panneau etroit, exiger Ctrl pour zoomer serait une gene : la
+          // carte est l'unique cible de la molette quand on la survole.
+          gestureHandling: 'greedy',
+        })
+        const pin = new AdvancedMarkerElement({ map: instance, position: initial.current, gmpDraggable: true, title: 'Lieu proposé' })
+        listeners.push(
+          instance.addListener('click', (e: google.maps.MapMouseEvent) => {
+            if (e.latLng) pick.current(e.latLng.lat(), e.latLng.lng())
+          }),
+          pin.addListener('dragend', () => {
+            const p = pin.position
+            if (!p) return
+            const at = p instanceof google.maps.LatLng ? p.toJSON() : { lat: Number(p.lat), lng: Number(p.lng) }
+            pick.current(at.lat, at.lng)
+          }),
+        )
+        map.current = instance
+        marker.current = pin
+        setStatus('ready')
+      } catch {
+        if (alive) setStatus('error')
       }
+    })()
+    return () => {
+      alive = false
+      listeners.forEach((l) => l.remove())
+      if (marker.current) marker.current.map = null
     }
+  }, [mode])
 
-    setLoading(true)
-    const loaded = await Promise.all(needed.map((t) => loadTile(zoom, t.x, t.y)))
-    setLoading(false)
-    const tiles = new Map<string, Int16Array | null>()
-    needed.forEach((t, i) => tiles.set(`${t.x}/${t.y}`, loaded[i]))
-
-    // Rassemblement : pour chaque pixel de la carte, l'altitude de la tuile qui
-    // le contient. Le meme sens que le remplissage de la pyramide, et pour la
-    // meme raison — disperser laisserait des trous.
-    const heights = new Int16Array(MAP_W * MAP_H)
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        let gx = Math.round(originX + x)
-        const gy = Math.round(originY + y)
-        gx = ((gx % worldPx) + worldPx) % worldPx
-        if (gy < 0 || gy >= worldPx) continue
-        const tx = Math.floor(gx / TILE_SIZE)
-        const ty = Math.floor(gy / TILE_SIZE)
-        const tile = tiles.get(`${tx}/${ty}`)
-        if (!tile) continue
-        heights[y * MAP_W + x] = tile[(gy - ty * TILE_SIZE) * TILE_SIZE + (gx - tx * TILE_SIZE)]
-      }
-    }
-
-    context.putImageData(paint(heights, MAP_W, MAP_H, tileGroundResolutionM(centre.lat, zoom)), 0, 0)
-
-    // Le lieu courant, s'il tombe dans la fenetre.
-    const here = lonLatToTile(longitudeDeg, latitudeDeg, zoom)
-    const hx = here.x * TILE_SIZE - originX
-    const hy = here.y * TILE_SIZE - originY
-    if (hx >= 0 && hx < MAP_W && hy >= 0 && hy < MAP_H) {
-      context.strokeStyle = '#ff4d4d'
-      context.lineWidth = 2
-      context.beginPath()
-      context.arc(hx, hy, 6, 0, Math.PI * 2)
-      context.stroke()
-      context.beginPath()
-      context.moveTo(hx - 10, hy)
-      context.lineTo(hx + 10, hy)
-      context.moveTo(hx, hy - 10)
-      context.lineTo(hx, hy + 10)
-      context.stroke()
-    }
-  }, [centre, zoom, latitudeDeg, longitudeDeg])
-
+  // --- La recherche, creee une fois ---------------------------------------
   useEffect(() => {
-    void draw()
-  }, [draw])
+    if (!googleMapsConfigured()) return
+    let alive = true
+    let element: google.maps.places.PlaceAutocompleteElement | null = null
+    const onSelect = async (event: Event) => {
+      const { placePrediction } = event as unknown as { placePrediction: google.maps.places.PlacePrediction }
+      const place = placePrediction.toPlace()
+      await place.fetchFields({ fields: ['displayName', 'location'] })
+      if (!place.location) return
+      const lat = place.location.lat()
+      const lng = place.location.lng()
+      map.current?.panTo({ lat, lng })
+      map.current?.setZoom(11)
+      pick.current(lat, lng, place.displayName ?? undefined)
+    }
+    void (async () => {
+      try {
+        const maps = await loadGoogleMaps()
+        const { PlaceAutocompleteElement } = (await maps.importLibrary('places')) as google.maps.PlacesLibrary
+        if (!alive || !searchHost.current) return
+        element = new PlaceAutocompleteElement({})
+        element.setAttribute('placeholder', 'Rechercher un lieu')
+        element.addEventListener('gmp-select', onSelect)
+        searchHost.current.appendChild(element)
+      } catch {
+        /* la carte signale deja l'erreur */
+      }
+    })()
+    return () => {
+      alive = false
+      element?.removeEventListener('gmp-select', onSelect)
+      element?.remove()
+    }
+  }, [])
 
-  const pickAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * MAP_W
-    const y = ((event.clientY - rect.top) / rect.height) * MAP_H
-    const centreTile = lonLatToTile(centre.lon, centre.lat, zoom)
-    const gx = centreTile.x * TILE_SIZE - MAP_W / 2 + x
-    const gy = centreTile.y * TILE_SIZE - MAP_H / 2 + y
-    const picked = tileToLonLat(gx / TILE_SIZE, gy / TILE_SIZE, zoom)
-    onPick(picked.latitudeDeg, picked.longitudeDeg)
+  // --- Le marqueur suit le lieu propose -----------------------------------
+  // Quelle qu'en soit l'origine — clic, recherche, saisie, prereglage — et la
+  // carte recentre seulement si le lieu sort de la vue : un clic ne doit pas
+  // faire sauter la carte sous le curseur.
+  useEffect(() => {
+    const at = { lat: latitudeDeg, lng: longitudeDeg }
+    if (marker.current) marker.current.position = at
+    const bounds = map.current?.getBounds()
+    if (map.current && bounds && !bounds.contains(at)) map.current.panTo(at)
+  }, [latitudeDeg, longitudeDeg, status])
+
+  if (!googleMapsConfigured()) {
+    return (
+      <p className="md-type-body-small location-map__missing">
+        Carte indisponible : la clé Google Maps n’est pas configurée (<code>VITE_GOOGLE_MAPS_API_KEY</code> dans{' '}
+        <code>.env.local</code>). Les coordonnées restent saisissables ci-dessus.
+      </p>
+    )
   }
 
   return (
     <div className="location-map">
-      <canvas
-        ref={canvasRef}
-        width={MAP_W}
-        height={MAP_H}
-        onClick={pickAt}
-        aria-label="Carte du relief — cliquer pour choisir le lieu d’observation"
-      />
-      <div className="location-map__zoom">
-        <button
-          type="button"
-          onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 1))}
-          disabled={zoom <= MIN_ZOOM}
-          aria-label="Dézoomer"
-        >
-          −
-        </button>
-        <span>{loading ? '…' : `z${zoom}`}</span>
-        <button
-          type="button"
-          onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 1))}
-          disabled={zoom >= MAX_ZOOM}
-          aria-label="Zoomer"
-        >
-          +
-        </button>
+      <div ref={searchHost} className="location-map__search" />
+      <div className="location-map__frame">
+        <div ref={mapHost} className="location-map__canvas" aria-label="Carte — cliquer pour proposer un lieu" />
+        {status !== 'ready' && (
+          <p className="md-type-body-small location-map__state">
+            {status === 'loading' ? 'Chargement de la carte…' : 'La carte n’a pas pu se charger.'}
+          </p>
+        )}
       </div>
-      <p className="md-type-body-small location-map__hint">
-        {TERRARIUM_ATTRIBUTION}. Un pixel couvre{' '}
-        {tileGroundResolutionM(centre.lat, zoom) < 1000
-          ? `${Math.round(tileGroundResolutionM(centre.lat, zoom))} m`
-          : `${(tileGroundResolutionM(centre.lat, zoom) / 1000).toFixed(1)} km`}
-        .
-      </p>
     </div>
   )
 }

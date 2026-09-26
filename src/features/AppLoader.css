@@ -1,0 +1,71 @@
+/* Loader : il recouvre la scene, pas l'interface. Le rail et le panneau
+ * restent utilisables pendant que le ciel se calcule. */
+.app-loader {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--app-z-overlay) + 10);
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--md-sys-motion-spring-effects-slow-duration) var(--md-sys-motion-spring-effects-slow),
+    visibility 0s linear var(--md-sys-motion-spring-effects-slow-duration);
+}
+.app-loader.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+}
+
+.app-loader__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-sys-spacing-4);
+  padding: var(--md-sys-spacing-6);
+  text-align: center;
+  color: var(--md-sys-color-on-surface);
+}
+
+.app-loader__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-1);
+}
+.app-loader__sub {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.app-loader__steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-loader__steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-1);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.app-loader__steps li.is-done {
+  color: var(--md-sys-color-on-surface);
+}
+.app-loader__steps .md-icon {
+  font-size: 1.125rem;
+}
+
+:root[data-theme='night'] .app-loader {
+  background: var(--md-sys-color-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

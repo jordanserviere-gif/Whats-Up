@@ -322,6 +322,20 @@ export interface AerialTextures {
    * l'entoure sont donc sur la meme echelle radiometrique, sans raccord.
    */
   skyIrradiance: [number, number, number]
+  /**
+   * Altitude d'observateur pour laquelle la derniere table a ete publiee, m ;
+   * `NaN` tant qu'aucune ne l'a ete. Le loader s'en sert pour savoir que le
+   * ciel **du lieu courant** est pret — pas celui du lieu precedent. Une vue
+   * sans atmosphere publie aussi, sa table neutre valant pour tout lieu :
+   * elle vaut alors `Infinity`.
+   */
+  publishedElevationM: number
+  /**
+   * Altitude d'observateur demandee a la derniere image, m. Le ciel du lieu
+   * courant est pret quand elle egale `publishedElevationM` — voir
+   * `aerialSkyReady`.
+   */
+  requestedElevationM: number
 }
 
 /**
@@ -432,7 +446,20 @@ export const aerialTextures: AerialTextures = {
   observerRadiusM: EARTH_MEAN_RADIUS_M,
   meanSkyLuminanceCdPerM2: 0,
   skyIrradiance: [0, 0, 0],
+  publishedElevationM: Number.NaN,
+  requestedElevationM: Number.NaN,
 }
+
+/**
+ * Le ciel affiche est-il celui du lieu courant ?
+ *
+ * Une construction en cours n'est jamais interrompue : au changement de lieu,
+ * la table de l'ancien site peut encore se publier. Seule l'egalite entre ce
+ * qui est demande et ce qui est publie dit que le nouveau ciel est la.
+ */
+export const aerialSkyReady = (): boolean =>
+  aerialTextures.publishedElevationM === Number.POSITIVE_INFINITY ||
+  aerialTextures.publishedElevationM === aerialTextures.requestedElevationM
 
 /**
  * Bloc d'uniformes attendu par `AERIAL_LUT_GLSL`.
@@ -621,6 +648,7 @@ export function useAerialLut(
   aerialTextures.ambient = ambient
   aerialTextures.transmittance = transmittance
   aerialTextures.observerRadiusM = EARTH_MEAN_RADIUS_M + observerElevationM
+  aerialTextures.requestedElevationM = observerElevationM
 
   useFrame(() => {
     const current = state.current
@@ -650,6 +678,7 @@ export function useAerialLut(
         ambient.needsUpdate = true
         transmittance.needsUpdate = true
         current.cleared = true
+        aerialTextures.publishedElevationM = Number.POSITIVE_INFINITY
         current.altitude = Number.NaN
         current.turbidity = Number.NaN
         current.pendingDirection = -1
@@ -751,6 +780,7 @@ export function useAerialLut(
         transmittance.needsUpdate = true
         current.altitude = current.pendingAltitude
         current.elevation = current.pendingElevation
+        aerialTextures.publishedElevationM = current.pendingElevation
         current.turbidity = current.pendingTurbidity
         current.cleared = false
         current.pendingDirection = -1
@@ -785,6 +815,8 @@ export function useAerialLut(
     // Ils sont simplement pris a leur valeur du moment.
     current.pendingDistanceAu = sunDistanceAu
     current.pendingOzoneDu = ozoneColumnDobsonUnits
+    // Retour de la vue sans atmosphere : sa table neutre ne vaut plus.
+    if (current.cleared) aerialTextures.publishedElevationM = Number.NaN
     current.pendingDirection = 0
   })
 

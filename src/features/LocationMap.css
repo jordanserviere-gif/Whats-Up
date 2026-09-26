@@ -1,65 +1,44 @@
 .location-map {
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.location-map canvas {
-  /* Tuiles de relief en couleurs reelles : converties en night comme le sol. */
+  gap: var(--md-sys-spacing-2);
+  /* Carte et recherche affichent des couleurs qui ne sont pas les notres : en
+   * night, elles passent par la meme conversion que le sol de la scene. */
   filter: var(--app-physical-filter);
+}
+
+.location-map__search gmp-place-autocomplete {
   width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 12px;
-  cursor: crosshair;
-  background: var(--md-sys-color-surface-container-high, #1c1f24);
-  border: 1px solid var(--md-sys-color-outline-variant, #3a3f47);
+  color-scheme: inherit;
 }
 
-.location-map__zoom {
+.location-map__frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--md-sys-shape-corner-large);
+  overflow: hidden;
+  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.location-map__canvas {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--md-sys-color-surface, #14171b) 78%, transparent);
-  backdrop-filter: blur(6px);
+  inset: 0;
 }
 
-.location-map__zoom button {
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--md-sys-color-on-surface, #e3e6ea);
-  background: transparent;
-}
-
-.location-map__zoom button:hover:not(:disabled) {
-  background: var(--md-sys-color-surface-container-highest, #2a2e34);
-}
-
-.location-map__zoom button:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.location-map__zoom span {
-  min-width: 26px;
-  text-align: center;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--md-sys-color-on-surface-variant, #b9bfc7);
-}
-
-.location-map__hint {
+.location-map__state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   margin: 0;
-  color: var(--md-sys-color-on-surface-variant, #b9bfc7);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.location-map__missing {
+  margin: 0;
+  padding: var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-medium);
+  border: var(--md-sys-outline-width-thin) dashed var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
 }

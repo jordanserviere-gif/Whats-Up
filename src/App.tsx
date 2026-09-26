@@ -9,6 +9,7 @@ import { AircraftDetail } from '@/features/AircraftDetail'
 import { SettingsPanel } from '@/features/SettingsPanel'
 import { NightFilter } from '@/features/NightFilter'
 import { Logo } from '@/brand/Logo'
+import { AppLoader } from '@/features/AppLoader'
 import { useSkyStore, type ViewTab } from '@/state/store'
 import { useTimeEngine } from '@/state/hooks'
 import './App.css'
@@ -91,6 +92,7 @@ export function App() {
       <main className="app__stage">
         <SkyCanvas />
         <SkyHud />
+        <AppLoader />
         <div className="app__timeline">
           <TimelineBar />
         </div>

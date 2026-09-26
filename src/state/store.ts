@@ -286,7 +286,13 @@ export const useSkyStore = create<SkyState>()(
       setSpeed: (speed) => set({ speed, live: speed === 1 ? get().live : false }),
 
       location: PRESET_LOCATIONS[0],
-      setLocation: (location) => set({ location }),
+      setLocation: (location) => {
+        const previous = get().location
+        const moved = previous.latitude !== location.latitude || previous.longitude !== location.longitude
+        // L'avancement du relief est celui d'un lieu : le garder au changement
+        // de lieu ferait croire au loader que le nouveau relief est deja la.
+        set(moved ? { location, terrainProgress: null } : { location })
+      },
       elevationOffsetM: 0,
       setElevationOffsetM: (elevationOffsetM) => set({ elevationOffsetM }),
 

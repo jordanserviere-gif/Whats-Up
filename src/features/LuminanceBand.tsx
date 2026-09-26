@@ -64,7 +64,7 @@ export function LuminanceBand({
   location: GeoLocation
   samples?: number
 }) {
-  const { mode, contrast } = useTheme()
+  const { mode } = useTheme()
 
   const gradient = useMemo(() => {
     const stops: string[] = []
@@ -78,7 +78,6 @@ export function LuminanceBand({
   }, [start, end, location, samples])
 
   void mode
-  void contrast
 
   return <div className="luminance-band" style={{ background: gradient }} aria-hidden="true" />
 }

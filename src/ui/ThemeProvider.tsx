@@ -5,16 +5,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
  * ambre, pour observer sans perdre l'adaptation de l'oeil a l'obscurite.
  */
 export type ThemeMode = 'dark' | 'light' | 'night'
-export type ContrastLevel = 'standard' | 'medium' | 'high'
 
 interface ThemeApi {
   mode: ThemeMode
-  contrast: ContrastLevel
   setMode: (m: ThemeMode) => void
   toggleMode: () => void
   /** Bascule night ↔ le dernier theme de jour choisi. */
   toggleNight: () => void
-  setContrast: (c: ContrastLevel) => void
 }
 
 const ThemeContext = createContext<ThemeApi | null>(null)
@@ -30,15 +27,12 @@ const isMode = (v: string | null): v is ThemeMode => v === 'light' || v === 'dar
  * lire les tokens du theme precedent — invisible entre clair et sombre, dont
  * les accents se ressemblent, flagrant en night.
  */
-function applyTheme(mode: ThemeMode, contrast: ContrastLevel) {
-  const root = document.documentElement
-  root.dataset.theme = mode
-  if (contrast === 'standard') delete root.dataset.contrast
-  else root.dataset.contrast = contrast
+function applyTheme(mode: ThemeMode) {
+  document.documentElement.dataset.theme = mode
 }
 
 /**
- * Applique le theme via les attributs `data-theme` / `data-contrast` sur `<html>`,
+ * Applique le theme via l'attribut `data-theme` sur `<html>`,
  * ce qui bascule d'un jeu de tokens de couleur a l'autre sans re-render de l'arbre.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -46,12 +40,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem(`${STORAGE_KEY}.mode`)
     return isMode(saved) ? saved : 'dark'
   })
-  const [contrast, setContrastState] = useState<ContrastLevel>(
-    () => (localStorage.getItem(`${STORAGE_KEY}.contrast`) as ContrastLevel) ?? 'standard',
-  )
   // Pendant le rendu, et non dans un effet : voir `applyTheme`. L'operation est
   // idempotente, la repeter a chaque rendu ne coute rien.
-  applyTheme(mode, contrast)
+  applyTheme(mode)
   // Theme vers lequel revenir en quittant night.
   const [dayMode, setDayMode] = useState<Exclude<ThemeMode, 'night'>>(() =>
     localStorage.getItem(`${STORAGE_KEY}.day`) === 'light' ? 'light' : 'dark',
@@ -73,18 +64,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(t)
   }, [mode])
 
-  useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY}.contrast`, contrast)
-  }, [contrast])
-
   const setMode = useCallback((m: ThemeMode) => setModeState(m), [])
   const toggleMode = useCallback(() => setModeState((m) => (m === 'light' ? 'dark' : 'light')), [])
   const toggleNight = useCallback(() => setModeState((m) => (m === 'night' ? dayMode : 'night')), [dayMode])
-  const setContrast = useCallback((c: ContrastLevel) => setContrastState(c), [])
 
   const api = useMemo(
-    () => ({ mode, contrast, setMode, toggleMode, toggleNight, setContrast }),
-    [mode, contrast, setMode, toggleMode, toggleNight, setContrast],
+    () => ({ mode, setMode, toggleMode, toggleNight }),
+    [mode, setMode, toggleMode, toggleNight],
   )
 
   return <ThemeContext.Provider value={api}>{children}</ThemeContext.Provider>

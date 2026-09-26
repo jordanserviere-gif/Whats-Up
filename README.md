@@ -116,7 +116,8 @@ plutôt que dérivées d'un variant :
 - **secondary / tertiary** — le même bleu désaturé, et un pivot vers le cyan.
 
 Les palettes tonales sont exposées en `--md-ref-palette-*`, les rôles MD3 en
-`--md-sys-color-*`, pour trois thèmes × trois niveaux de contraste.
+`--md-sys-color-*`, pour trois thèmes — clair, sombre, night — à un seul niveau
+de contraste.
 
 ### Le thème night
 

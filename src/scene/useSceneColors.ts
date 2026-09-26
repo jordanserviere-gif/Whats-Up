@@ -10,7 +10,7 @@ import { hexToLinearRgb, readToken } from './sceneMath'
  * et on les transmet en props.
  */
 export function useSceneColors() {
-  const { mode, contrast } = useTheme()
+  const { mode } = useTheme()
 
   return useMemo(
     () => ({
@@ -42,8 +42,8 @@ export function useSceneColors() {
       /** Teinte du post-process night, RGB lineaire ; `null` hors night. */
       nightTint: mode === 'night' ? hexToLinearRgb(readToken('--app-night-tint', '#f09703')) : null,
     }),
-    // Les tokens changent avec le theme et le niveau de contraste.
-    [mode, contrast],
+    // Les tokens changent avec le theme.
+    [mode],
   )
 }
 

@@ -1,7 +1,7 @@
 /**
  * Genere src/styles/tokens/color.css : l'integralite des roles de couleur
- * Material 3 de What's Up?, en clair, en sombre et en night, chacun decline aux
- * trois paliers de contraste, plus les palettes tonales de reference.
+ * Material 3 de What's Up?, en clair, en sombre et en night, plus les palettes
+ * tonales de reference. Un seul palier de contraste par theme : le standard.
  *
  * Usage : npm run color
  *
@@ -87,11 +87,11 @@ const ROLES = Object.getOwnPropertyNames(MaterialDynamicColors)
   })
   .sort()
 
-function makeScheme(dark, contrast) {
+function makeScheme(dark) {
   return new DynamicScheme({
     sourceColorHct: source,
     variant: Variant.VIBRANT,
-    contrastLevel: contrast,
+    contrastLevel: 0,
     isDark: dark,
     primaryPalette: PALETTES.primary,
     secondaryPalette: PALETTES.secondary,
@@ -102,11 +102,10 @@ function makeScheme(dark, contrast) {
 }
 
 /**
- * Roles imposes par la marque, au contraste standard : le primaire **est** le
+ * Roles imposes par la marque : le primaire **est** le
  * bleu du logo, en clair comme en sombre, et ce qui s'y pose est blanc. MD3
  * placerait le primaire sombre au ton 80, un bleu pastel qui n'est plus la
- * couleur de What's Up?. Les paliers de contraste moyen et eleve gardent les
- * tons calcules : ils existent pour qui en a besoin, la marque passe apres.
+ * couleur de What's Up?.
  */
 const BRAND_ROLES = {
   primary: SOURCE,
@@ -114,11 +113,11 @@ const BRAND_ROLES = {
   onPrimary: '#FFFFFF',
 }
 
-function scheme(dark, contrast) {
-  const s = makeScheme(dark, contrast)
+function scheme(dark) {
+  const s = makeScheme(dark)
   return ROLES.map((role) => {
     const hex =
-      contrast === 0 && role in BRAND_ROLES
+      role in BRAND_ROLES
         ? BRAND_ROLES[role].toLowerCase()
         : hexFromArgb(MaterialDynamicColors[role].getArgb(s))
     return `  --md-sys-color-${kebab(role)}: ${hex};`
@@ -148,8 +147,6 @@ const NIGHT_LEVELS = {
   /** Separateur, contour decoratif : a peine visible, et c'est voulu. */
   hairline: 16,
 }
-/** Gain de ton par palier de contraste : moyen, puis eleve. */
-const NIGHT_CONTRAST_STEP = 10
 
 const NIGHT_ROLE_LEVEL = {
   primary: 'active',
@@ -180,9 +177,8 @@ const NIGHT_ROLE_LEVEL = {
 }
 const NIGHT_ERROR_LEVEL = { error: 'text', onErrorContainer: 'text' }
 
-function nightScheme(contrast) {
-  const boost = contrast * 2 * NIGHT_CONTRAST_STEP
-  const tone = (level) => Math.min(100, NIGHT_LEVELS[level] + boost)
+function nightScheme() {
+  const tone = (level) => NIGHT_LEVELS[level]
   return ROLES.map((role) => {
     let argb = 0xff000000 // fonds, conteneurs, « on-* » poses sur un aplat
     if (role in NIGHT_ROLE_LEVEL) argb = NIGHT_PALETTES.amber.tone(tone(NIGHT_ROLE_LEVEL[role]))
@@ -209,22 +205,16 @@ blocks.push('/* Palettes tonales de reference. */')
 blocks.push(`:root {\n${refPalettes({ ...PALETTES, ...NIGHT_PALETTES })}\n}`)
 blocks.push('')
 blocks.push('/* Clair = base ; le theme sombre est le defaut applicatif (voir base.css). */')
-blocks.push(`:root {\n${scheme(false, 0)}\n}`)
+blocks.push(`:root {\n${scheme(false)}\n}`)
 blocks.push('')
-blocks.push(`:root[data-theme='dark'] {\n${scheme(true, 0)}\n}`)
+blocks.push(`:root[data-theme='dark'] {\n${scheme(true)}\n}`)
 blocks.push('')
-blocks.push(`:root[data-contrast='medium'] {\n${scheme(false, 0.5)}\n}`)
-blocks.push(`:root[data-contrast='medium'][data-theme='dark'] {\n${scheme(true, 0.5)}\n}`)
 blocks.push('')
-blocks.push(`:root[data-contrast='high'] {\n${scheme(false, 1)}\n}`)
-blocks.push(`:root[data-contrast='high'][data-theme='dark'] {\n${scheme(true, 1)}\n}`)
 blocks.push('')
 blocks.push('/* Night — noir pur et ambre, pour garder l oeil adapte a l obscurite. */')
-blocks.push(`:root[data-theme='night'] {\n${nightScheme(0)}\n}`)
-blocks.push(`:root[data-contrast='medium'][data-theme='night'] {\n${nightScheme(0.5)}\n}`)
-blocks.push(`:root[data-contrast='high'][data-theme='night'] {\n${nightScheme(1)}\n}`)
+blocks.push(`:root[data-theme='night'] {\n${nightScheme()}\n}`)
 blocks.push('')
 
 mkdirSync(OUT, { recursive: true })
 writeFileSync(join(OUT, 'color.css'), blocks.join('\n'))
-console.log(`src/styles/tokens/color.css genere — ${ROLES.length} roles x 9 variantes`)
+console.log(`src/styles/tokens/color.css genere — ${ROLES.length} roles x 3 themes`)
