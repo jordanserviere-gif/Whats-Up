@@ -65,6 +65,7 @@
  * elliptique vue de dessous, l'integrale verticale donne exactement cette forme.
  */
 import { ICE_DENSITY_KG_M3 } from './microphysics'
+import { DEFAULT_LAYOUT, vortexSpacingM, type AircraftLayout } from '../../astro/aircraftTypes'
 
 /** Etat de l'air ambiant au niveau de vol, tel que la trainee le rencontre. */
 export interface ContrailEnvironment {
@@ -238,9 +239,10 @@ export function contrailExtinctionAt(
  * — la distance parcourue par l'avion quand la glace a ete emise —, pour que
  * les irregularites restent en place pendant que l'avion avance :
  *
- * - **Deux panaches.** Chaque groupe de reacteurs emet le sien, ecartes d'une
- *   vingtaine de metres ; les tourbillons de bout d'aile les enroulent et les
- *   fusionnent en une vingtaine de secondes.
+ * - **Un panache par reacteur.** Chaque reacteur emet le sien ; les
+ *   tourbillons de bout d'aile les enroulent, un par cote, puis fusionnent. Un
+ *   quadrireacteur trace quatre trainees, puis deux, puis une ; un biréacteur
+ *   garde souvent sa double trainee une a deux minutes.
  * - **Des bords irreguliers.** Les tourbillons qui dispersent un panache sont
  *   de sa taille : plus petits, ils ne font que l'elargir, ce que la
  *   diffusivite decrit deja ; beaucoup plus grands, ils le deplacent d'un bloc.
@@ -249,24 +251,39 @@ export function contrailExtinctionAt(
  *   sont un **choix** : la litterature n'en donne pas de valeur a reprendre.
  * - **L'instabilite de Crow.** Les deux tourbillons ondulent l'un vers l'autre
  *   a une longueur d'onde de 8,6 fois leur ecartement (Crow 1970) — environ
- *   240 m pour un long-courrier —, se reconnectent, et la trainee se pince en
+ *   230 m pour un monocouloir, 540 m pour un A380 —, se reconnectent, et la trainee se pince en
  *   un chapelet de bouffees au bout d'une a deux minutes. La modulation est de
  *   **moyenne nulle** : elle deplace la glace le long de l'axe sans en creer.
  */
 export const CONTRAIL_STRUCTURE = {
-  /** Ecartement initial des deux panaches, m. */
-  plumeSeparationM: 24,
   /**
-   * Ecart-type initial de **chaque** panache, m. Un jet de reacteur fait
-   * quelques metres a la sortie ; `initialSigmaM` decrit, lui, le sillage deja
-   * fusionne. Sans cette distinction les deux panaches, plus larges que leur
-   * ecartement, se confondaient des la formation.
+   * Chaque panache de reacteur, pendant la phase de jet : ecart-type initial,
+   * m, et diffusivite de melange du jet, m²/s. Le panache est alors pris dans
+   * le systeme tourbillonnaire de l'avion ; il s'elargit par le melange du jet,
+   * pas par la turbulence ambiante de 15 m²/s, qui confondait des la premiere
+   * seconde deux jets ecartes de onze metres. Tant que les tourbillons
+   * existent, la glace reste concentree autour de leurs coeurs — le sillage
+   * primaire ; elle ne s'etale a la largeur du sillage qu'a leur rupture,
+   * c'est-a-dire a leur fusion.
    */
-  plumeSigmaM: 5,
-  /** Duree de leur fusion, s. */
-  plumeMergeS: 20,
-  /** Longueur d'onde de Crow, m. */
-  crowWavelengthM: 240,
+  jetSigmaM: 2,
+  jetDiffusivityM2S: 1.5,
+  /**
+   * Duree d'enroulement des panaches par les tourbillons de bout d'aile, s :
+   * pendant la phase de jet, chaque panache est aspire par le tourbillon de
+   * son cote. Un quadrireacteur passe ainsi de quatre trainees a deux.
+   */
+  rollupS: 15,
+  /**
+   * Fusion des deux tourbillons, en fractions de la phase de sillage : ils
+   * descendent ensemble puis se reconnectent (Crow), et les deux trainees n'en
+   * font plus qu'une. C'est ce qui garde souvent un biréacteur en double
+   * trainee pendant une a deux minutes.
+   */
+  vortexMergeFrom: 0.7,
+  vortexMergeTo: 1.5,
+  /** Rapport longueur d'onde de Crow / ecartement des tourbillons (Crow 1970). */
+  crowWavelengthPerSpacing: 8.6,
   /** Debut et fin du pincement, s ; profondeur maximale de la modulation. */
   crowOnsetS: 50,
   crowFullS: 150,
@@ -277,48 +294,94 @@ export const CONTRAIL_STRUCTURE = {
   turbulenceOffset: 0.5,
 } as const
 
-/** Ecartement des deux panaches a l'age `t`, m. */
-export const plumeSeparationM = (ageS: number): number =>
-  CONTRAIL_STRUCTURE.plumeSeparationM * (1 - smooth01(ageS / CONTRAIL_STRUCTURE.plumeMergeS))
+/** Nombre maximal de panaches que le nuanceur sait porter. */
+export const MAX_PLUMES = 4
 
-/** Facteur de Crow sur l'extinction lineique, de moyenne 1 sur une longueur d'onde. */
-export function crowModulation(ageS: number, alongM: number): number {
+/** Fraction de la fusion des tourbillons a l'age `t`, de 0 a 1. */
+export function vortexMerge(ageS: number, p: ContrailParameters = DEFAULT_CONTRAIL): number {
   const s = CONTRAIL_STRUCTURE
-  const depth = s.crowDepth * smooth01((ageS - s.crowOnsetS) / (s.crowFullS - s.crowOnsetS))
-  return 1 + depth * Math.cos((2 * Math.PI * alongM) / s.crowWavelengthM)
+  return smooth01((ageS - s.vortexMergeFrom * p.wakePhaseS) / ((s.vortexMergeTo - s.vortexMergeFrom) * p.wakePhaseS))
 }
 
 /**
- * Epaisseur optique d'une trainee a deux panaches : la somme de deux tubes de
- * moitie, ecartes de `plumeSeparationM`. Integree sur la section, elle rend la
- * meme extinction lineique que le tube unique — les panaches se partagent la
- * glace, ils ne la doublent pas.
+ * Position laterale de chaque panache a l'age `t`, m.
+ *
+ * Trois temps : le panache part de son reacteur ; il est enroule par le
+ * tourbillon de son cote, a `±b₀/2` ; les deux tourbillons fusionnent sur
+ * l'axe. Un reacteur central (trireacteur) reste sur l'axe.
  */
-export function twinPlumeOpticalDepth(
+export function plumePositionsM(
   ageS: number,
-  missDistanceM: number,
-  sinAngle: number,
+  layout: AircraftLayout,
+  p: ContrailParameters = DEFAULT_CONTRAIL,
+): number[] {
+  const rolled = smooth01(ageS / CONTRAIL_STRUCTURE.rollupS)
+  const merged = vortexMerge(ageS, p)
+  const halfB0 = vortexSpacingM(layout) / 2
+  return layout.enginesYM.map((y) => {
+    const vortex = Math.sign(y) * halfB0
+    return (y + (vortex - y) * rolled) * (1 - merged)
+  })
+}
+
+/** Longueur d'onde de Crow de cet appareil, m. */
+export const crowWavelengthM = (layout: AircraftLayout): number =>
+  CONTRAIL_STRUCTURE.crowWavelengthPerSpacing * vortexSpacingM(layout)
+
+/** Facteur de Crow sur l'extinction lineique, de moyenne 1 sur une longueur d'onde. */
+export function crowModulation(ageS: number, alongM: number, layout: AircraftLayout = DEFAULT_LAYOUT): number {
+  const s = CONTRAIL_STRUCTURE
+  const depth = s.crowDepth * smooth01((ageS - s.crowOnsetS) / (s.crowFullS - s.crowOnsetS))
+  return 1 + depth * Math.cos((2 * Math.PI * alongM) / crowWavelengthM(layout))
+}
+
+/** Ecart-type de chaque panache, m : celui du jet, puis, a la rupture des tourbillons, celui du sillage. */
+export function plumeSigmaM(
+  ageS: number,
   env: ContrailEnvironment = DEFAULT_ENVIRONMENT,
   p: ContrailParameters = DEFAULT_CONTRAIL,
 ): number {
-  const half = plumeSeparationM(ageS) / 2
-  const merged = smooth01(ageS / CONTRAIL_STRUCTURE.plumeMergeS)
-  const plume = { ...p, initialSigmaM: CONTRAIL_STRUCTURE.plumeSigmaM + (p.initialSigmaM - CONTRAIL_STRUCTURE.plumeSigmaM) * merged }
+  const s = CONTRAIL_STRUCTURE
+  const t = Math.max(0, ageS)
+  const jet = Math.sqrt(s.jetSigmaM * s.jetSigmaM + 2 * s.jetDiffusivityM2S * t)
+  return jet + (contrailSigmaM(t, env, p) - jet) * vortexMerge(t, p)
+}
+
+/**
+ * Epaisseur optique d'une trainee a plusieurs panaches : la somme de N tubes,
+ * chacun portant `1/N` de la glace. Integree sur la section, elle rend la meme
+ * extinction lineique que le tube unique — les panaches se partagent la
+ * glace, ils ne la multiplient pas.
+ *
+ * Chaque panache part de la largeur d'un jet et rejoint celle du sillage a
+ * la fin de la phase de sillage — voir `plumeSigmaM`.
+ */
+export function enginePlumeOpticalDepth(
+  ageS: number,
+  missDistanceM: number,
+  sinAngle: number,
+  layout: AircraftLayout = DEFAULT_LAYOUT,
+  env: ContrailEnvironment = DEFAULT_ENVIRONMENT,
+  p: ContrailParameters = DEFAULT_CONTRAIL,
+): number {
   // La glace est celle du sillage : la largeur des jets ne change pas sa masse.
   const k = contrailExtinctionPerLengthM(ageS, env, p)
-  const tube = (b: number) => {
-    const sigma = contrailSigmaM(ageS, env, plume)
-    return (k / (Math.sqrt(2 * Math.PI) * sigma * Math.max(0.05, Math.abs(sinAngle)))) * Math.exp(-(b * b) / (2 * sigma * sigma))
-  }
-  return 0.5 * (tube(missDistanceM - half) + tube(missDistanceM + half))
+  const sigma = plumeSigmaM(ageS, env, p)
+  const norm = k / (Math.sqrt(2 * Math.PI) * sigma * Math.max(0.05, Math.abs(sinAngle)))
+  const positions = plumePositionsM(ageS, layout, p)
+  let sum = 0
+  for (const y of positions) sum += Math.exp(-((missDistanceM - y) ** 2) / (2 * sigma * sigma))
+  return (norm * sum) / positions.length
 }
 
 /**
  * Le meme modele pour le nuanceur.
  *
- * `params` = (σ₀ m, D_h m²/s, D_v m²/s, K₀ m²/m) ;
- * `wake`   = (σ_z sillage m, phase de sillage s, M₀ kg/m, formation s) ;
- * `env`    = (cisaillement s⁻¹, exces de vapeur kg/m³).
+ * `params`  = (σ₀ m, D_h m²/s, D_v m²/s, K₀ m²/m) ;
+ * `wake`    = (σ_z sillage m, phase de sillage s, M₀ kg/m, formation s) ;
+ * `env`     = (cisaillement s⁻¹, exces de vapeur kg/m³) ;
+ * `engines` = positions laterales des reacteurs, m, jusqu'a quatre ;
+ * `plumes`  = (nombre de reacteurs, demi-ecartement des tourbillons m) ; `layout` est un mot reserve en GLSL.
  */
 export const CONTRAIL_GLSL = /* glsl */ `
   float contrailSmooth(float x) {
@@ -363,7 +426,7 @@ export const CONTRAIL_GLSL = /* glsl */ `
   // pixel, m. Un motif plus fin que le pixel est filtre plutot que dessine :
   // echantillonne, il donnait un pointille.
   float contrailStructuredDepth(float age, float miss, float sinAngle, vec4 params, vec4 wake, vec2 env,
-                                float along, float footprint) {
+                                vec4 engines, vec2 plumes, float along, float footprint) {
     float k = contrailExtinctionPerLength(age, params, wake, env);
     float sigma = contrailSigmaY(age, params.x, params, wake, env);
 
@@ -375,7 +438,8 @@ export const CONTRAIL_GLSL = /* glsl */ `
     float widthScale = 1.0 + ${CONTRAIL_STRUCTURE.turbulenceWidth.toFixed(3)} * grow * contrailFbm(q);
     float offset = ${CONTRAIL_STRUCTURE.turbulenceOffset.toFixed(3)} * grow * sigma * contrailFbm(q + vec2(9.2, 3.7));
 
-    float wavelength = ${CONTRAIL_STRUCTURE.crowWavelengthM.toFixed(1)};
+    // Crow : longueur d'onde proportionnelle a l'ecartement des tourbillons.
+    float wavelength = ${CONTRAIL_STRUCTURE.crowWavelengthPerSpacing.toFixed(2)} * 2.0 * plumes.y;
     float crow = smoothstep(${CONTRAIL_STRUCTURE.crowOnsetS.toFixed(1)}, ${CONTRAIL_STRUCTURE.crowFullS.toFixed(1)}, age) * ${CONTRAIL_STRUCTURE.crowDepth.toFixed(3)};
     // Sous une vingtaine de pixels par longueur d'onde, des bouffees se lisent
     // comme un pointille : la moyenne d'un cosinus sur le pixel tend vers zero,
@@ -388,14 +452,25 @@ export const CONTRAIL_GLSL = /* glsl */ `
     offset += 0.35 * crow * sigma * sin(phase);
     k *= 1.0 + crow * cos(phase);
 
-    // Deux panaches avant fusion, chacun partant de la largeur d'un jet.
-    float merged = smoothstep(0.0, ${CONTRAIL_STRUCTURE.plumeMergeS.toFixed(1)}, age);
-    float sigma0 = mix(${CONTRAIL_STRUCTURE.plumeSigmaM.toFixed(1)}, params.x, merged);
-    float plumeSigma = contrailSigmaY(age, sigma0, params, wake, env) * widthScale;
-    float halfSep = ${CONTRAIL_STRUCTURE.plumeSeparationM.toFixed(1)} * (1.0 - merged) * 0.5;
+    // Un panache par reacteur, enroule par le tourbillon de son cote, puis
+    // fusionne avec l'autre sur l'axe — voir plumePositionsM.
+    float merged = contrailSmooth((age - ${CONTRAIL_STRUCTURE.vortexMergeFrom.toFixed(2)} * wake.y) /
+                                  (${(CONTRAIL_STRUCTURE.vortexMergeTo - CONTRAIL_STRUCTURE.vortexMergeFrom).toFixed(2)} * wake.y));
+    float rolled = contrailSmooth(age / ${CONTRAIL_STRUCTURE.rollupS.toFixed(1)});
+    // Largeur de chaque panache : celle du jet, puis celle du sillage.
+    float jet = sqrt(${(CONTRAIL_STRUCTURE.jetSigmaM ** 2).toFixed(2)} + ${(2 * CONTRAIL_STRUCTURE.jetDiffusivityM2S).toFixed(2)} * max(0.0, age));
+    float plumeSigma = mix(jet, sigma, merged) * widthScale;
     float b = miss - offset;
-    float norm = k / (2.5066282746 * plumeSigma * max(0.05, abs(sinAngle)));
     float inv = 1.0 / (2.0 * plumeSigma * plumeSigma);
-    return 0.5 * norm * (exp(-(b - halfSep) * (b - halfSep) * inv) + exp(-(b + halfSep) * (b + halfSep) * inv));
+    float sum = 0.0;
+    for (int i = 0; i < ${MAX_PLUMES}; i++) {
+      if (float(i) >= plumes.x) break;
+      float y = engines[i];
+      float vortex = sign(y) * plumes.y;
+      float at = mix(y, vortex, rolled) * (1.0 - merged);
+      sum += exp(-(b - at) * (b - at) * inv);
+    }
+    float norm = k / (2.5066282746 * plumeSigma * max(0.05, abs(sinAngle)));
+    return norm * sum / max(1.0, plumes.x);
   }
 `

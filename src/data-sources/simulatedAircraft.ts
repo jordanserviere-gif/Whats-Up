@@ -44,6 +44,8 @@ const FLEET: readonly SimulatedFlight[] = [
   { flight: 'SIM707', typeCode: 'A320', description: 'Airbus A320', trackDeg: 200, offsetKm: 12, altitudeFt: 24000, verticalRateFtMin: 2200, speedKt: 380, phase: 0.35 },
   { flight: 'SIM808', typeCode: 'E190', description: 'Embraer 190', trackDeg: 110, offsetKm: -25, altitudeFt: 27000, verticalRateFtMin: -1800, speedKt: 400, phase: 0.6 },
   { flight: 'SIM909', typeCode: 'AT76', description: 'ATR 72-600', trackDeg: 275, offsetKm: 6, altitudeFt: 7000, verticalRateFtMin: 0, speedKt: 260, phase: 0.45 },
+  // Un quadrireacteur, pour ses quatre trainees : A380 a son altitude de croisiere.
+  { flight: 'SIM111', typeCode: 'A388', description: 'Airbus A380-800', trackDeg: 300, offsetKm: 9, altitudeFt: 38000, verticalRateFtMin: 0, speedKt: 490, phase: 0.47 },
   { flight: 'SIM010', typeCode: 'C172', description: 'Cessna 172', trackDeg: 30, offsetKm: -3, altitudeFt: 3500, verticalRateFtMin: 0, speedKt: 110, phase: 0.52 },
 ]
 
@@ -76,7 +78,7 @@ export function simulatedAircraft(latitude: number, longitude: number, nowMs = D
       registration: `F-SIM${i}`,
       typeCode: f.typeCode,
       description: f.description,
-      category: f.typeCode === 'C172' ? 'A1' : 'A3',
+      category: f.typeCode === 'C172' ? 'A1' : f.typeCode === 'A388' || f.typeCode.startsWith('B77') || f.typeCode.startsWith('A35') || f.typeCode.startsWith('B78') ? 'A5' : 'A3',
       altitudeFt: Math.round(p.altitudeFt),
       altitudeGeomFt: Math.round(p.altitudeFt + 350),
       onGround: false,

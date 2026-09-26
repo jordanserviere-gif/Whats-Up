@@ -17,6 +17,7 @@
  *    de l'extinction lineique quand la section s'elargit.
  */
 import { suite, type SuiteResult } from '../validation/harness'
+import { aircraftLayout, vortexSpacingM, type AircraftLayout } from '../../astro/aircraftTypes'
 import { mieCoefficients, mieEfficiencies, miePhaseFunction, sizeParameter, type Complex } from '../mie/mie'
 import {
   draine,
@@ -41,10 +42,10 @@ import {
   contrailEffectiveRadiusM,
   contrailIceKgPerM,
   initialExtinctionPerLengthM,
-  CONTRAIL_STRUCTURE,
   crowModulation,
-  plumeSeparationM,
-  twinPlumeOpticalDepth,
+  enginePlumeOpticalDepth,
+  plumePositionsM,
+  crowWavelengthM,
   DEFAULT_CONTRAIL,
   contrailExtinctionAt,
   contrailExtinctionPerLengthM,
@@ -210,33 +211,64 @@ export function cloudSuite(): SuiteResult {
       const young = contrailOpticalDepth(10, 0, 1)
       t.check('trainee jeune : epaisseur optique au centre', young, 0.4, 0.1)
       // --- 4 bis. Structure fine ----------------------------------------------
-      // Deux panaches se partagent la glace : integree sur la section, leur
-      // somme rend l'extinction lineique du tube unique.
-      for (const age of [2, 8]) {
-        const sigma = contrailSigmaM(age)
-        const span = 8 * sigma + CONTRAIL_STRUCTURE.plumeSeparationM
-        let integral = 0
-        const steps = 6000
-        for (let i = 0; i < steps; i++) {
-          const b = -span + ((i + 0.5) * 2 * span) / steps
-          integral += twinPlumeOpticalDepth(age, b, 1) * ((2 * span) / steps)
+      // Les panaches se partagent la glace : integree sur la section, leur
+      // somme rend l'extinction lineique du tube unique, quel que soit leur
+      // nombre.
+      const a380 = aircraftLayout('A388', 'A5')
+      const narrowbody = aircraftLayout('A320', 'A3')
+      for (const [layout, label] of [[narrowbody, 'biréacteur'], [a380, 'quadrireacteur']] as const) {
+        for (const age of [2, 40]) {
+          const sigma = contrailSigmaM(age)
+          const span = 8 * sigma + layout.spanM
+          let integral = 0
+          const steps = 8000
+          for (let i = 0; i < steps; i++) {
+            const b = -span + ((i + 0.5) * 2 * span) / steps
+            integral += enginePlumeOpticalDepth(age, b, 1, layout) * ((2 * span) / steps)
+          }
+          t.checkRelative(`${label} : meme glace qu’un tube unique, t = ${age} s`, integral, contrailExtinctionPerLengthM(age), 1e-4)
         }
-        t.checkRelative(`deux panaches : meme glace qu’un seul, t = ${age} s`, integral, contrailExtinctionPerLengthM(age), 1e-4)
       }
-      t.check('panaches fusionnes au bout de la duree de fusion', plumeSeparationM(CONTRAIL_STRUCTURE.plumeMergeS), 0, 1e-9, 'm')
-      t.checkTrue(
-        'panaches encore distincts a la formation',
-        twinPlumeOpticalDepth(1, 0, 1) < twinPlumeOpticalDepth(1, CONTRAIL_STRUCTURE.plumeSeparationM / 2, 1),
-        'le creux entre les deux panaches doit exister avant leur fusion',
+      // Combien de trainees distinctes voit-on ? Un maximum local du profil
+      // d'epaisseur optique en travers, a plus de 2 % du maximum, en est une.
+      // En air sature, pour que la trainee vive assez pour etre comptee a tout age.
+      const saturatedAir = { shearPerS: 0.004, excessVapourKgM3: 0 }
+      const trails = (layout: AircraftLayout, age: number) => {
+        const values: number[] = []
+        for (let b = -80; b <= 80; b += 0.25) values.push(enginePlumeOpticalDepth(age, b, 1, layout, saturatedAir))
+        const peak = Math.max(...values)
+        let count = 0
+        for (let i = 1; i < values.length - 1; i++) {
+          if (values[i] > values[i - 1] && values[i] >= values[i + 1] && values[i] > 0.02 * peak) count++
+        }
+        return count
+      }
+      t.check('quadrireacteur : quatre trainees derriere l’avion', trails(a380, 1), 4, 0)
+      t.check('quadrireacteur : deux apres l’enroulement', trails(a380, 40), 2, 0)
+      t.check('quadrireacteur : une apres la fusion des tourbillons', trails(a380, 200), 1, 0)
+      t.check('biréacteur : deux trainees derriere l’avion', trails(narrowbody, 1), 2, 0)
+      t.check('biréacteur : toujours deux a 40 s, une par tourbillon', trails(narrowbody, 40), 2, 0)
+      t.check('biréacteur : une apres la fusion des tourbillons', trails(narrowbody, 200), 1, 0)
+      t.check(
+        'ecartement des trainees apres enroulement : π/4 de l’envergure',
+        Math.abs(plumePositionsM(40, a380)[3] - plumePositionsM(40, a380)[0]),
+        vortexSpacingM(a380),
+        0.5,
+        'm',
       )
       // Crow deplace la glace le long de l'axe sans en creer.
       {
         const n = 2000
+        const wavelength = crowWavelengthM(narrowbody)
         let mean = 0
-        for (let i = 0; i < n; i++) mean += crowModulation(600, ((i + 0.5) / n) * CONTRAIL_STRUCTURE.crowWavelengthM) / n
+        for (let i = 0; i < n; i++) mean += crowModulation(600, ((i + 0.5) / n) * wavelength, narrowbody) / n
         t.check('pincement de Crow de moyenne 1 sur une longueur d’onde', mean, 1, 1e-6)
       }
       t.check('pas de pincement avant le debut de l’instabilite', crowModulation(10, 0), 1, 1e-12)
+      t.note(
+        `longueur d’onde de Crow : ${crowWavelengthM(narrowbody).toFixed(0)} m pour un monocouloir, ` +
+          `${crowWavelengthM(a380).toFixed(0)} m pour un A380`,
+      )
 
       // --- 5. Critere de Schmidt-Appleman -----------------------------------
       for (const pressureHPa of [200, 250, 300]) {

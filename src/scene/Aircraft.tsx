@@ -24,11 +24,13 @@ import {
   CONTRAIL_GLSL,
   DEFAULT_CONTRAIL,
   DEFAULT_ENVIRONMENT,
+  MAX_PLUMES,
   contrailDeathAgeS,
   contrailSigmaM,
   initialExtinctionPerLengthM,
 } from '@/atmosphere/cloud/contrail'
 import { ambientRadianceAtAltitude, sunAltitudeAt, sunIrradianceAtAltitude } from './contrailLighting'
+import { aircraftLayout, vortexSpacingM } from '@/astro/aircraftTypes'
 
 const DEG = Math.PI / 180
 
@@ -81,8 +83,6 @@ function buildAircraftGeometry(): BufferGeometry {
 }
 
 const AIRCRAFT_GEOMETRY = buildAircraftGeometry()
-/** Envergure representee : quarante metres, comme demande — un moyen-courrier type. */
-const WINGSPAN_KM = 0.04
 
 function aircraftMaterial() {
   return new ShaderMaterial({
@@ -177,7 +177,9 @@ function AircraftMesh({
     const trackRad = (state.trackDeg ?? 0) * DEG
     m.rotation.set(0, Math.PI - trackRad, 0)
 
-    const halfSpan = sceneRadiusForBody(WINGSPAN_KM / 2, rangeKm)
+    // Envergure reelle du type — voir `aircraftTypes.ts` : un A380 fait le
+    // double d'un moyen-courrier, et ses trainees s'ecartent d'autant.
+    const halfSpan = sceneRadiusForBody(aircraftLayout(state.typeCode, state.category).spanM / 2000, rangeKm)
     m.scale.setScalar(halfSpan * 2)
 
     material.uniforms.uRangeM.value = rangeKm * 1000
@@ -260,6 +262,9 @@ function contrailMaterial() {
       uContrailWake: { value: new Vector4() },
       /** (cisaillement s⁻¹, exces de vapeur kg/m³) : l'air au niveau de vol. */
       uContrailEnv: { value: new Vector2() },
+      /** Positions laterales des reacteurs, m, et (nombre, demi-ecartement des tourbillons m). */
+      uEngines: { value: new Vector4() },
+      uLayout: { value: new Vector2() },
       /** Irradiance solaire directe a l'altitude de la trainee, sRGB lineaire. */
       uSunIrradiance: { value: new Vector3() },
       /** Radiance diffuse moyenne recue par la glace. */
@@ -302,6 +307,8 @@ function contrailMaterial() {
       uniform vec4 uContrail;
       uniform vec4 uContrailWake;
       uniform vec2 uContrailEnv;
+      uniform vec4 uEngines;
+      uniform vec2 uLayout;
       uniform vec3 uSunIrradiance;
       uniform vec3 uAmbientRadiance;
       uniform float uNowS;
@@ -312,7 +319,7 @@ function contrailMaterial() {
         // quand cette glace a ete emise. La structure y est attachee, et reste
         // en place pendant que l'avion avance.
         float along = (uNowS - vAge) * uSpeedMS;
-        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uContrailWake, uContrailEnv, along, fwidth(along));
+        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uContrailWake, uContrailEnv, uEngines, uLayout, along, fwidth(along));
         float alpha = 1.0 - exp(-tau);
         if (!(alpha > 0.002)) discard;
 
@@ -485,6 +492,11 @@ function AircraftContrail({
     )
     ;(u.uContrailWake.value as Vector4).set(params.wakeSigmaZM, params.wakePhaseS, params.initialIceKgPerM, params.formationS)
     ;(u.uContrailEnv.value as Vector2).set(env.shearPerS, env.excessVapourKgM3)
+    // Un panache par reacteur, a leur place reelle sur l'aile de ce type.
+    const layout = aircraftLayout(state.typeCode, state.category)
+    const engines = layout.enginesYM.slice(0, MAX_PLUMES)
+    ;(u.uEngines.value as Vector4).set(engines[0] ?? 0, engines[1] ?? 0, engines[2] ?? 0, engines[3] ?? 0)
+    ;(u.uLayout.value as Vector2).set(engines.length, vortexSpacingM(layout) / 2)
     u.uNowS.value = (Date.now() / 1000) % CONTRAIL_CLOCK_PERIOD_S
     u.uSpeedMS.value = perSecondKm * 1000
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
