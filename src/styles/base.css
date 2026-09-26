@@ -5,6 +5,7 @@
 @import './tokens/elevation.css';
 @import './tokens/dimension.css';
 @import './tokens/sky.css';
+@import './night.css';
 
 *,
 *::before,
@@ -34,7 +35,8 @@ html {
   }
 }
 
-/* Le theme sombre est le defaut : on observe le ciel de nuit. */
+/* Le theme sombre est le defaut : on observe le ciel de nuit. Night reste un
+ * theme sombre pour le navigateur (barres de defilement, controles natifs). */
 :root {
   color-scheme: dark;
 }

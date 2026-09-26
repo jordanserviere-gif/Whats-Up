@@ -22,6 +22,10 @@
   pointer-events: none;
   overflow: hidden;
   z-index: var(--app-z-overlay);
+  /* Les etiquettes prennent la couleur propre de ce qu'elles nomment : en
+   * night, elles passent par la meme conversion que la scene qu'elles
+   * annotent. */
+  filter: var(--app-physical-filter);
 }
 
 .sky-label {

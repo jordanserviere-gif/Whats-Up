@@ -104,6 +104,7 @@ export function Globe({
   sunDirection,
   sunIrradiance,
   skyExposure,
+  nightTint = null,
 }: {
   /** Altitude de l'observateur, metres — elle seule fixe ou est l'horizon. */
   observerElevationM: number
@@ -113,6 +114,8 @@ export function Globe({
   /** Irradiance solaire directe transmise, sRGB lineaire. */
   sunIrradiance: readonly [number, number, number]
   skyExposure: number
+  /** Teinte du theme night, RGB lineaire, ou `null` hors night — voir `Terrain`. */
+  nightTint?: readonly [number, number, number] | null
 }) {
   const material = useMemo(
     () =>
@@ -135,6 +138,8 @@ export function Globe({
           uAlbedo: { value: GROUND_ALBEDO },
           uObserverAltitude: { value: 0 },
           uEffectiveRadius: { value: 6_371_000 },
+          uNight: { value: 0 },
+          uNightTint: { value: new Vector3(1, 1, 1) },
         },
         vertexShader: /* glsl */ `
           varying vec3 vDir;
@@ -153,6 +158,8 @@ export function Globe({
           uniform float uAlbedo;
           uniform float uObserverAltitude;
           uniform float uEffectiveRadius;
+          uniform float uNight;
+          uniform vec3 uNightTint;
 
           void main() {
             vec3 d = normalize(vDir);
@@ -188,7 +195,10 @@ export function Globe({
             // --- Le trajet jusqu'a l'oeil -----------------------------------
             vec3 transmittance;
             vec3 haze = aerialPerspective(d, range, transmittance);
-            gl_FragColor = vec4(outgoing * transmittance * uAerialExposure + haze, 1.0);
+            vec3 radiance = outgoing * transmittance * uAerialExposure + haze;
+            // Theme night : meme conversion que le relief, luminance → ambre.
+            float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+            gl_FragColor = vec4(mix(radiance, luma * uNightTint, uNight), 1.0);
           }
         `,
       }),
@@ -200,6 +210,8 @@ export function Globe({
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     ;(u.uSunIrradiance.value as Vector3).set(sunIrradiance[0], sunIrradiance[1], sunIrradiance[2])
+    u.uNight.value = nightTint ? 1 : 0
+    if (nightTint) (u.uNightTint.value as Vector3).set(nightTint[0], nightTint[1], nightTint[2])
     // Mesure sur la table du ciel, comme pour le relief : le meme eclairement
     // diffus nourrit les deux surfaces.
     const sky = aerialTextures.skyIrradiance

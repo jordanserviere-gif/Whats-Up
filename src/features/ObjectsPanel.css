@@ -5,3 +5,9 @@
 .objects-panel__below.is-selected .md-list-item__surface {
   opacity: 1;
 }
+
+/* La pastille porte la couleur propre de l'objet — corps ou satellite, telle
+ * que la scene la dessine : en night, elle passe par la meme conversion. */
+.md-list-item__dot {
+  filter: var(--app-physical-filter);
+}

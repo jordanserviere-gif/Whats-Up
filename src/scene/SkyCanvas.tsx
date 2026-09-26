@@ -681,6 +681,7 @@ export function SkyCanvas() {
             sunDirection={sunDirection}
             sunIrradiance={sunIrradiance}
             skyExposure={skyExposure}
+            nightTint={colors.nightTint}
           />
         )}
         {layers.terrain && (
@@ -694,6 +695,7 @@ export function SkyCanvas() {
             sunAltitudeDeg={sky.sunAltitude}
             sunAzimuthDeg={sky.sunAzimuth}
             skyExposure={skyExposure}
+            nightTint={colors.nightTint}
           />
         )}
 

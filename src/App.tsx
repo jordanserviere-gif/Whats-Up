@@ -7,6 +7,7 @@ import { ObjectsDetail, ObjectsPanel } from '@/features/ObjectsPanel'
 import { SatelliteDetail, SatellitesPanel } from '@/features/SatellitesPanel'
 import { AircraftDetail } from '@/features/AircraftDetail'
 import { SettingsPanel } from '@/features/SettingsPanel'
+import { NightFilter } from '@/features/NightFilter'
 import { useSkyStore, type ViewTab } from '@/state/store'
 import { useTimeEngine } from '@/state/hooks'
 import './App.css'
@@ -36,7 +37,7 @@ export function App() {
   const goLive = useSkyStore((s) => s.goLive)
   const satelliteCount = useSkyStore((s) => s.satellites.length)
   const selectedAircraftHex = useSkyStore((s) => s.selectedAircraftHex)
-  const { mode, toggleMode } = useTheme()
+  const { mode, toggleNight } = useTheme()
 
   // Raccourcis clavier : espace = pause, N = maintenant, Echap = fermer le panneau.
   useEffect(() => {
@@ -60,6 +61,7 @@ export function App() {
 
   return (
     <div className="app">
+      <NightFilter />
       <NavigationRail
         destinations={DESTINATIONS.map((d) =>
           d.value === 'satellites' && satelliteCount > 0 ? { ...d, badge: satelliteCount } : d,
@@ -74,12 +76,16 @@ export function App() {
             <span className="app__mark-dot" />
           </span>
         }
+        /* Le night est la bascule qu'on cherche dehors, dans le noir : elle a
+           sa place fixe dans le rail. Clair et sombre, choix d'une fois pour
+           toutes, vivent dans les reglages. */
         footer={
-          <Tooltip content={mode === 'dark' ? 'Thème clair' : 'Thème sombre'} placement="end">
+          <Tooltip content={mode === 'night' ? 'Quitter le mode night' : 'Mode night'} placement="end">
             <IconButton
-              icon={mode === 'dark' ? 'light_mode' : 'dark_mode'}
-              label="Changer de thème"
-              onClick={toggleMode}
+              icon="nightlight"
+              label="Mode night"
+              selected={mode === 'night'}
+              onClick={toggleNight}
             />
           </Tooltip>
         }

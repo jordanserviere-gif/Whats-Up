@@ -1,4 +1,4 @@
-# Ciel — observation en direct
+# What's Up? — observation en direct
 
 Webapp d'observation du ciel : vue en direct du ciel local avec frise temporelle,
 corps majeurs du système solaire, et un outil de tracé satellite piloté par des
@@ -106,10 +106,31 @@ L'échelle de forme sert la **morphologie** : un bouton sélectionné passe de
 pastille de couleur devient un cercle. Le mouvement de forme utilise le ressort
 spatial, donc rebondit légèrement.
 
-La palette dérive d'une couleur source (`#4C6FFF`) par
-`@material/material-color-utilities`, variante `SchemeVibrant` : elle conserve la
-teinte source pour le primaire, là où `SchemeExpressive` la fait fortement pivoter
-— ce qui donnait un primaire vert, incohérent avec un fond de ciel nocturne.
+La palette est générée par `scripts/gen-color.mjs` avec
+`@material/material-color-utilities`, à partir de palettes tonales choisies
+plutôt que dérivées d'un variant :
+
+- **primary** — le bleu du logo, `#2C4F9E` ;
+- **neutral / neutral-variant** — un noir et blanc à peine bleuté (teinte du
+  logo, chroma 3 et 5) pour les fonds, surfaces, textes et contours ;
+- **secondary / tertiary** — le même bleu désaturé, et un pivot vers le cyan.
+
+Les palettes tonales sont exposées en `--md-ref-palette-*`, les rôles MD3 en
+`--md-sys-color-*`, pour trois thèmes × trois niveaux de contraste.
+
+### Le thème night
+
+Pour observer sans perdre l'adaptation de l'œil à l'obscurité. Tout fond est
+**noir pur** — surfaces, conteneurs, rôles *fixed* — et l'ambre ne porte que le
+contenu, sur cinq niveaux d'emphase (actif, texte, secondaire, contour,
+séparateur), au plus bas que permet WCAG AA sur le noir. La sélection, que MD3
+signale par un aplat, passe par un contour ambre (`src/styles/night.css`).
+
+Le **sol** (relief et sol plat) est converti dans son shader : sa radiance est
+réduite à sa luminance puis portée par l'ambre — le blanc devient ambre, le noir
+reste noir. Le ciel n'est pas converti. Les éléments du DOM qui affichent une
+couleur physique (pastilles des corps, frise d'éclairement, cadran lunaire,
+étiquettes, carte) passent par la même loi via un filtre SVG (`NightFilter`).
 
 ## Composants
 
