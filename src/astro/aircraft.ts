@@ -90,6 +90,11 @@ export interface AircraftState extends AdsbAircraft {
   /** Altitude au-dessus du niveau de la mer, en kilometres. */
   altitudeKm: number
   contrailLikelihood: number
+  /**
+   * Duree de vie de la glace de sa trainee, s, selon l'humidite au niveau de
+   * vol ; `null` sans mesure — la valeur par defaut du modele s'applique.
+   */
+  contrailLifetimeS: number | null
 }
 
 /**
@@ -100,7 +105,7 @@ export function computeAircraftState(aircraft: AdsbAircraft, observer: GeoLocati
   if (aircraft.onGround || aircraft.altitudeFt === null) return null
   const altitudeKm = aircraft.altitudeFt * 0.0003048
   const { horizontal, rangeKm } = geodeticToHorizontal(aircraft.latitude, aircraft.longitude, altitudeKm, observer)
-  return { ...aircraft, horizontal, rangeKm, altitudeKm, contrailLikelihood: contrailLikelihood(altitudeKm) }
+  return { ...aircraft, horizontal, rangeKm, altitudeKm, contrailLikelihood: contrailLikelihood(altitudeKm), contrailLifetimeS: null }
 }
 
 export interface GeodeticPoint {

@@ -10,6 +10,7 @@ import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
 import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
 import {
   useAerosolAutoSync,
+  useUpperAirSync,
   useLightPollutionAutoSync,
   useAllSatellites,
   useBodyStates,
@@ -116,6 +117,7 @@ export function SkyCanvas() {
   const bodies = useBodyStates()
   const sky = useSkyConditions()
   useAerosolAutoSync()
+  useUpperAirSync()
   useLightPollutionAutoSync()
   // Miroir des ephemerides pour le navigateur automatise : il a besoin de
   // connaitre la position d'un corps pour pointer la camera dessus.
@@ -158,6 +160,9 @@ export function SkyCanvas() {
         alt: a.horizontal.altitude,
         rangeKm: a.rangeKm,
         measuredAtMs: a.measuredAtMs,
+        altitudeKm: a.altitudeKm,
+        contrailLikelihood: a.contrailLikelihood,
+        contrailLifetimeS: a.contrailLifetimeS,
         shownAz: view.horizontal.azimuth,
         shownAlt: view.horizontal.altitude,
       }

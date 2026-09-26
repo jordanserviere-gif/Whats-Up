@@ -30,6 +30,14 @@ import {
 } from './phase'
 import { WATER_DENSITY_KG_M3, extinctionCoefficient } from './microphysics'
 import {
+  contrailConditions,
+  contrailLifetimeS,
+  mixingLineSlope,
+  schumannTangentTemperatureC,
+  tangentTemperatureK,
+} from './contrailFormation'
+import { saturationVapourPressureOverIce, saturationVapourPressureOverWater } from '../thermodynamics/waterVapour'
+import {
   DEFAULT_CONTRAIL,
   contrailExtinctionAt,
   contrailExtinctionPerLengthM,
@@ -194,6 +202,44 @@ export function cloudSuite(): SuiteResult {
       t.check('invisible au passage des reacteurs', contrailOpticalDepth(0, 0, 1), 0, 1e-12)
       const young = contrailOpticalDepth(10, 0, 1)
       t.check('trainee jeune : epaisseur optique au centre', young, 0.4, 0.1)
+      // --- 5. Critere de Schmidt-Appleman -----------------------------------
+      for (const pressureHPa of [200, 250, 300]) {
+        const g = mixingLineSlope(pressureHPa * 100)
+        const exact = tangentTemperatureK(g) - 273.15
+        t.check(
+          `temperature de tangence contre Schumann (1996), ${pressureHPa} hPa`,
+          exact,
+          schumannTangentTemperatureC(g),
+          0.6,
+          '°C',
+        )
+      }
+      // Rapport des saturations eau / glace a −40 °C : 1,47 environ, la raison
+      // pour laquelle un air « sec » a 70 % sur eau est sursature sur glace.
+      t.check(
+        'saturation eau / glace a −40 °C',
+        saturationVapourPressureOverWater(233.15) / saturationVapourPressureOverIce(233.15),
+        1.47,
+        0.02,
+      )
+      {
+        const p = 250e2
+        const tangent = tangentTemperatureK(mixingLineSlope(p))
+        t.checkTrue('air sec tres froid : la trainee se forme', contrailConditions(tangent - 12, 0, p).forms)
+        t.checkTrue('air plus chaud que la tangence : jamais', !contrailConditions(tangent + 1, 1, p).forms)
+        t.checkTrue(
+          'a la meme temperature, l’humidite fait passer le seuil',
+          !contrailConditions(tangent - 1, 0, p).forms && contrailConditions(tangent - 1, 1, p).forms,
+        )
+        t.note(`a 250 hPa, η = 0,3 : tangence a ${(tangent - 273.15).toFixed(1)} °C`)
+      }
+      t.checkMonotonic(
+        'la duree de vie croit avec la saturation sur glace',
+        [0.3, 0.5, 0.8, 0.99, 1.0, 1.05, 1.2].map(contrailLifetimeS),
+        'croissant',
+      )
+      t.check('duree de vie continue a saturation', contrailLifetimeS(0.99999), contrailLifetimeS(1), 0.1, 's')
+
       t.note(
         `largeur a mi-hauteur : ${(2.355 * contrailSigmaM(60)).toFixed(0)} m a 1 min, ` +
           `${(2.355 * contrailSigmaM(1800)).toFixed(0)} m a 30 min ; τ au centre ${young.toFixed(2)} a 10 s, ` +

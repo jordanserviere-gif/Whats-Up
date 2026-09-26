@@ -14,6 +14,8 @@ import {
 } from '@/astro/bodies'
 import { bortleFromSkyBrightness, lightPollutionLux } from '@/astro/photometry'
 import { fetchSurfaceAerosol } from '@/data-sources/airQuality'
+import { airAt, fetchUpperAir, profileAt } from '@/data-sources/upperAir'
+import { contrailConditions } from '@/atmosphere/cloud/contrailFormation'
 import { fetchSkyBrightness } from '@/data-sources/lightPollution'
 import { turbidityFromSurfaceAerosol } from '@/scene/atmosphere'
 import { computeSatelliteStates, findPasses, sampleSkyTrack } from '@/astro/satellite'
@@ -182,6 +184,51 @@ export function useAerosolAutoSync() {
       clearInterval(interval)
     }
   }, [auto, lat, lon])
+}
+
+/** L'air en altitude est republie a l'heure : une demi-heure suffit. */
+const UPPER_AIR_REFRESH_MS = 30 * 60_000
+
+/**
+ * Tient a jour l'air en altitude — voir `data-sources/upperAir.ts` — tant que
+ * les avions sont affiches. Rien a interroger sans eux.
+ */
+export function useUpperAirSync() {
+  const enabled = useSkyStore((s) => s.layers.aircraft)
+  const location = useSkyStore((s) => s.location)
+  const lat = Math.round(location.latitude * 10) / 10
+  const lon = Math.round(location.longitude * 10) / 10
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    const refresh = async () => {
+      const result = await fetchUpperAir(lat, lon)
+      if (!cancelled && result) useSkyStore.setState({ upperAir: result.value })
+    }
+    // Le lieu a change : l'ancien profil ne decrit plus l'air au-dessus de nous.
+    useSkyStore.setState({ upperAir: null })
+    refresh()
+    const interval = setInterval(refresh, UPPER_AIR_REFRESH_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [enabled, lat, lon])
+}
+
+/**
+ * Formation et duree de vie de la trainee d'un avion, d'apres l'air a son
+ * altitude. La formation est lissee sur ±1 Pa de marge : un avion qui frole le
+ * seuil voit sa trainee s'amincir plutot que clignoter.
+ */
+function withContrailWeather(state: AircraftState, upperAir: ReturnType<typeof profileAt>): AircraftState {
+  if (!upperAir) return state
+  const air = airAt(upperAir, state.altitudeKm * 1000)
+  if (!air) return { ...state, contrailLikelihood: 0, contrailLifetimeS: null }
+  const c = contrailConditions(air.temperatureK, air.relativeHumidityWater, air.pressurePa)
+  const x = Math.min(1, Math.max(0, (c.formationMarginPa + 1) / 2))
+  return { ...state, contrailLikelihood: x * x * (3 - 2 * x), contrailLifetimeS: c.lifetimeS }
 }
 
 /**
@@ -635,6 +682,7 @@ export function useNearbyAircraft(): AircraftFeed {
   const location = useSkyStore((s) => s.location)
   const time = useSkyStore((s) => s.time)
   const simulated = useSkyStore((s) => s.aircraftSimulated)
+  const upperAir = useSkyStore((s) => s.upperAir)
   // Une flotte simulee existe a toute heure : elle est « disponible » meme
   // quand l'instant affiche n'est pas le present.
   const live = simulated || Math.abs(time - Date.now()) < AIRCRAFT_LIVE_TOLERANCE_MS
@@ -657,15 +705,19 @@ export function useNearbyAircraft(): AircraftFeed {
       forgetAircraftTracks(new Set())
       return EMPTY_AIRCRAFT
     }
+    const profile = profileAt(upperAir, time)
     const out: AircraftState[] = []
     for (const a of snapshot.raw) {
       const s = computeAircraftState(a, location)
-      if (s) out.push(s)
+      if (s) out.push(withContrailWeather(s, profile))
     }
     // Les appareils sortis du rayon n'ont plus de raccord a memoriser.
     forgetAircraftTracks(new Set(out.map((a) => a.hex)))
     return out
-  }, [active, snapshot.raw, location])
+    // L'heure n'entre que par le profil horaire : la recalculer a chaque tic
+    // de l'horloge serait inutile, d'ou l'arrondi a l'heure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, snapshot.raw, location, upperAir, Math.round(time / 3600_000)])
 
   return { aircraft, status: active ? snapshot.status : null, loading: active && snapshot.loading, live }
 }

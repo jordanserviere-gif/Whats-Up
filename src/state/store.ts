@@ -5,6 +5,7 @@ import type { TargetKind } from '@/astro/search'
 import { ALL_CELESTRAK_GROUPS, isCelestrakGroup, type CelestrakGroup } from '@/data-sources/celestrak'
 import { defaultElements } from '@/astro/kepler'
 import { DEFAULT_STATUS, type SourceStatus } from '@/data-sources/types'
+import type { UpperAirForecast } from '@/data-sources/upperAir'
 
 export type ViewTab = 'ciel' | 'objets' | 'satellites' | 'reglages'
 
@@ -245,6 +246,13 @@ interface SkyState {
   setAerosolAuto: (auto: boolean) => void
   /** Provenance de la derniere mesure de qualite de l'air -- defaut tant qu'aucune n'a abouti. */
   autoAerosolStatus: SourceStatus
+  /**
+   * Temperature et humidite aux niveaux de vol, previsions horaires — ce qui
+   * decide de la formation et de la persistance des trainees. `null` tant
+   * qu'aucune mesure n'a abouti : les trainees suivent alors une rampe
+   * d'altitude par defaut.
+   */
+  upperAir: UpperAirForecast | null
 
   // --- Satellites ---
   satellites: OrbitalElements[]
@@ -374,6 +382,7 @@ export const useSkyStore = create<SkyState>()(
       aerosolAuto: false,
       setAerosolAuto: (aerosolAuto) => set({ aerosolAuto }),
       autoAerosolStatus: DEFAULT_STATUS,
+      upperAir: null,
 
       satellites: [],
       addSatellite: (el) => {

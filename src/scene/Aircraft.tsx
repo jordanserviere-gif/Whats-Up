@@ -226,6 +226,11 @@ const CONTRAIL_ROWS = 64
 const CONTRAIL_ROW_EXPONENT = 1.8
 /** Au-dela de quelques durees de vie, il ne reste plus de glace a voir. */
 const CONTRAIL_LIFETIMES_SHOWN = 4
+/**
+ * Age maximal dessine, s. Une trainee persistante vit des heures : a 450 nœuds,
+ * trente minutes font deja 400 km de ruban, d'un horizon a l'autre.
+ */
+const CONTRAIL_MAX_AGE_S = 1800
 /** Demi-largeur du ruban, en ecarts-types de la section. */
 const CONTRAIL_HALF_WIDTH_SIGMAS = 3
 
@@ -367,7 +372,9 @@ function AircraftContrail({
     const backBearing = (track + 180) % 360
     const perSecondKm = groundDistanceKm(state, 1)
     const climbKmPerS = ((state.verticalRateFtMin ?? 0) / 60) * 0.0003048
-    const maxAgeS = CONTRAIL_LIFETIMES_SHOWN * params.lifetimeS
+    // La duree de vie vient de l'humidite au niveau de vol quand on la connait.
+    const lifetimeS = state.contrailLifetimeS ?? params.lifetimeS
+    const maxAgeS = Math.min(CONTRAIL_MAX_AGE_S, CONTRAIL_LIFETIMES_SHOWN * lifetimeS)
 
     // Passe 1 — l'axe, en scene et en metres (repere local centre sur l'observateur).
     for (let i = 0; i < CONTRAIL_ROWS; i++) {
@@ -445,7 +452,7 @@ function AircraftContrail({
       params.initialSigmaM,
       params.diffusivityM2S,
       params.initialExtinctionPerLengthM * state.contrailLikelihood,
-      params.lifetimeS,
+      lifetimeS,
     )
     u.uFormationS.value = params.formationS
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
