@@ -340,16 +340,19 @@ function contrailMaterial() {
       attribute float aAge;
       attribute float aLateral;
       attribute float aSinAngle;
+      attribute float aWingProjection;
       attribute float aRangeM;
       varying float vAge;
       varying float vLateral;
       varying float vSinAngle;
+      varying float vWingProjection;
       varying float vRangeM;
       varying vec3 vView;
       void main() {
         vAge = aAge;
         vLateral = aLateral;
         vSinAngle = aSinAngle;
+        vWingProjection = aWingProjection;
         vRangeM = aRangeM;
         // L'observateur est a l'origine : la position dans le monde donne
         // directement la direction sous laquelle on voit ce point.
@@ -364,6 +367,7 @@ function contrailMaterial() {
       varying float vAge;
       varying float vLateral;
       varying float vSinAngle;
+      varying float vWingProjection;
       varying float vRangeM;
       varying vec3 vView;
       uniform vec4 uContrail;
@@ -381,7 +385,7 @@ function contrailMaterial() {
         // quand cette glace a ete emise. La structure y est attachee, et reste
         // en place pendant que l'avion avance.
         float along = (uNowS - vAge) * uSpeedMS;
-        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uContrailWake, uContrailEnv, uEngines, uLayout, along, fwidth(along));
+        float tau = contrailStructuredDepth(vAge, vLateral, vSinAngle, uContrail, uContrailWake, uContrailEnv, uEngines, uLayout, vWingProjection, along, fwidth(along));
         float alpha = 1.0 - exp(-tau);
         if (!(alpha > 0.002)) discard;
 
@@ -427,7 +431,7 @@ function AircraftContrail({
     const geo = new BufferGeometry()
     const vertices = CONTRAIL_ROWS * 2
     geo.setAttribute('position', new BufferAttribute(new Float32Array(vertices * 3), 3))
-    for (const name of ['aAge', 'aLateral', 'aSinAngle', 'aRangeM']) {
+    for (const name of ['aAge', 'aLateral', 'aSinAngle', 'aRangeM', 'aWingProjection']) {
       geo.setAttribute(name, new BufferAttribute(new Float32Array(vertices), 1))
     }
     // Indices fixes : seules les valeurs des sommets changent d'une image a l'autre.
@@ -456,7 +460,14 @@ function AircraftContrail({
       })),
     [],
   )
-  const scratch = useRef({ direction: new Vector3(), radial: new Vector3(), side: new Vector3(), axis: new Vector3() })
+  const scratch = useRef({
+    direction: new Vector3(),
+    radial: new Vector3(),
+    side: new Vector3(),
+    axis: new Vector3(),
+    wing: new Vector3(),
+    ribbonSide: new Vector3(),
+  })
 
   useFrame(() => {
     const m = mesh.current
@@ -497,8 +508,9 @@ function AircraftContrail({
     const aAge = geometry.getAttribute('aAge') as BufferAttribute
     const aLateral = geometry.getAttribute('aLateral') as BufferAttribute
     const aSinAngle = geometry.getAttribute('aSinAngle') as BufferAttribute
+    const aWingProjection = geometry.getAttribute('aWingProjection') as BufferAttribute
     const aRangeM = geometry.getAttribute('aRangeM') as BufferAttribute
-    const { direction, radial, side, axis } = scratch.current
+    const { direction, radial, side, axis, wing, ribbonSide } = scratch.current
     for (let i = 0; i < CONTRAIL_ROWS; i++) {
       const previous = rows[Math.max(0, i - 1)]
       const next = rows[Math.min(CONTRAIL_ROWS - 1, i + 1)]
@@ -518,6 +530,16 @@ function AircraftContrail({
       axis.copy(next.metric).sub(previous.metric)
       const sinAngle =
         axis.lengthSq() > 0 ? axis.normalize().cross(radial.copy(row.metric).normalize()).length() : 1
+      // Les reacteurs s'ecartent dans le plan de l'aile, horizontalement ; le
+      // ruban, lui, s'etend perpendiculairement a la visee. Vu en biais,
+      // l'ecartement se raccourcit : on projette l'aile sur la largeur du ruban.
+      // `radial` porte ici la visee unitaire, `axis` l'axe unitaire.
+      wing.set(-axis.z, 0, axis.x)
+      const wingLength = wing.length()
+      ribbonSide.copy(axis).cross(radial)
+      const ribbonLength = ribbonSide.length()
+      const wingProjection =
+        wingLength > 1e-6 && ribbonLength > 1e-6 ? wing.dot(ribbonSide) / (wingLength * ribbonLength) : 1
 
       const index = i * 2
       const p = row.scene
@@ -530,10 +552,11 @@ function AircraftContrail({
         aAge.setX(v, row.ageS)
         aLateral.setX(v, lateral)
         aSinAngle.setX(v, sinAngle)
+        aWingProjection.setX(v, wingProjection)
         aRangeM.setX(v, row.rangeKm * 1000)
       }
     }
-    for (const a of [position, aAge, aLateral, aSinAngle, aRangeM]) a.needsUpdate = true
+    for (const a of [position, aAge, aLateral, aSinAngle, aRangeM, aWingProjection]) a.needsUpdate = true
 
     // Eclairage, a l'altitude et au lieu de la trainee.
     const altitudeM = head.altitudeKm * 1000

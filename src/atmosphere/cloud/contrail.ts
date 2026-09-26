@@ -384,6 +384,8 @@ export function enginePlumeOpticalDepth(
  * `env`     = (cisaillement s⁻¹, exces de vapeur kg/m³) ;
  * `engines` = positions laterales des reacteurs, m, jusqu'a quatre ;
  * `plumes`  = (nombre de reacteurs, demi-ecartement des tourbillons m) ; `layout` est un mot reserve en GLSL.
+ * `wingProjection` = cosinus entre l'aile et la largeur du ruban : l'ecart des
+ * reacteurs est horizontal, et se raccourcit vu en biais.
  */
 export const CONTRAIL_GLSL = /* glsl */ `
   float contrailSmooth(float x) {
@@ -428,7 +430,7 @@ export const CONTRAIL_GLSL = /* glsl */ `
   // pixel, m. Un motif plus fin que le pixel est filtre plutot que dessine :
   // echantillonne, il donnait un pointille.
   float contrailStructuredDepth(float age, float miss, float sinAngle, vec4 params, vec4 wake, vec2 env,
-                                vec4 engines, vec2 plumes, float along, float footprint) {
+                                vec4 engines, vec2 plumes, float wingProjection, float along, float footprint) {
     float k = contrailExtinctionPerLength(age, params, wake, env);
     float sigma = contrailSigmaY(age, params.x, params, wake, env);
 
@@ -469,7 +471,8 @@ export const CONTRAIL_GLSL = /* glsl */ `
       if (float(i) >= plumes.x) break;
       float y = engines[i];
       float vortex = sign(y) * plumes.y;
-      float at = mix(y, vortex, rolled) * (1.0 - merged);
+      // Ecart horizontal, vu sous l'angle de la visee : voir aWingProjection.
+      float at = mix(y, vortex, rolled) * (1.0 - merged) * wingProjection;
       sum += exp(-(b - at) * (b - at) * inv);
     }
     float norm = k / (2.5066282746 * plumeSigma * max(0.05, abs(sinAngle)));
