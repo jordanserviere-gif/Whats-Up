@@ -53,7 +53,7 @@
 
 /* Demi-periode et `alternate` : l'aller-retour fait une periode entiere, et
  * `ease-in-out` en fait une oscillation douce plutot qu'un va-et-vient sec.
- * Amplitude du tremblement : ±6 %, l'etoile vit sans se deformer. */
+ * Amplitude du tremblement : ±2,5 %, l'etoile vit sans se deformer. */
 .app-loader__star {
   position: absolute;
   height: auto;
@@ -81,18 +81,18 @@
 }
 @keyframes app-loader-sx {
   from {
-    --app-loader-sx: 0.94;
+    --app-loader-sx: 0.975;
   }
   to {
-    --app-loader-sx: 1.06;
+    --app-loader-sx: 1.025;
   }
 }
 @keyframes app-loader-sy {
   from {
-    --app-loader-sy: 0.94;
+    --app-loader-sy: 0.975;
   }
   to {
-    --app-loader-sy: 1.06;
+    --app-loader-sy: 1.025;
   }
 }
 
