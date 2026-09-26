@@ -4,6 +4,7 @@ import { aerialSkyReady } from '@/scene/useAerialLut'
 import { cx } from '@/ui/utils'
 import { LOGO_STARS } from '@/brand/logoStars'
 import { shuffledPhrases } from './loaderPhrases'
+import { setAerialBuildBudget } from '@/scene/useAerialLut'
 import './AppLoader.css'
 
 /**
@@ -20,6 +21,12 @@ const MAX_VISIBLE_MS = 25_000
 const POLL_MS = 150
 /** Duree d'affichage d'une phrase, ms : le temps de la lire, pas davantage. */
 const PHRASE_MS = 2200
+/**
+ * Budget de construction du ciel par image pendant le chargement, ms — contre
+ * 28 hors chargement. Des images plus breves laissent le navigateur respirer ;
+ * le ciel met un peu plus longtemps a se poser, et personne ne le regarde.
+ */
+const LOADING_BUILD_BUDGET_MS = 10
 
 /**
  * Periodes des animations, s. La lueur ondule en trois secondes ; l'echelle
@@ -88,6 +95,13 @@ export function AppLoader() {
     setActive(true)
   }, [site])
 
+  // La scene se rend au rabais tant qu'on la couvre — voir `sceneLoading`.
+  const setSceneLoading = useSkyStore((s) => s.setSceneLoading)
+  useEffect(() => {
+    setSceneLoading(active)
+    setAerialBuildBudget(active ? LOADING_BUILD_BUDGET_MS : undefined)
+  }, [active, setSceneLoading])
+
   useEffect(() => {
     if (!active) return
     const id = window.setInterval(() => setPhraseIndex((i) => i + 1), PHRASE_MS)
@@ -101,7 +115,13 @@ export function AppLoader() {
       const levels = state.terrainProgress?.levelsReady ?? 0
       const next: Step[] = [{ label: 'Atmosphère du lieu', done: aerialSkyReady() }]
       if (terrainOn) next.push({ label: 'Relief', done: levels >= 1 })
-      setSteps(next)
+      // Pas de rendu si rien n'a change : le loader ne doit rien couter au fil
+      // principal qu'il cherche justement a menager.
+      setSteps((prev) =>
+        prev.length === next.length && prev.every((s, k) => s.done === next[k].done && s.label === next[k].label)
+          ? prev
+          : next,
+      )
       const elapsed = performance.now() - startedAt.current
       if ((elapsed >= MIN_VISIBLE_MS && next.every((s) => s.done)) || elapsed >= MAX_VISIBLE_MS) setActive(false)
     }
@@ -132,16 +152,29 @@ export function AppLoader() {
             '--glow-half-period': `${GLOW_PERIOD_S / 2}s`,
             '--wiggle-half-period': `${WIGGLE_PERIOD_S / 2}s`,
           } as CSSProperties
+          const viewBox = `${star.cx - star.half} ${star.cy - star.half} ${2 * star.half} ${2 * star.half}`
+          // ⚠️ Rien ici n'anime autre chose que `transform` et `opacity` : ce
+          // sont les seules proprietes que le navigateur anime **hors du fil
+          // principal**. Or ce fil est pris, pendant le chargement, par la
+          // construction du ciel — une lueur en `filter` ou une echelle en
+          // propriete personnalisee s'y figeaient a chaque image longue.
+          //
+          // Les deux axes vivent sur deux boites imbriquees, chacune son
+          // `scaleX` ou son `scaleY` ; la lueur est une copie deja floutee,
+          // dont seule l'opacite respire.
           return (
-            <svg
-              key={i}
-              className="app-loader__star"
-              style={style}
-              viewBox={`${star.cx - star.half} ${star.cy - star.half} ${2 * star.half} ${2 * star.half}`}
-              aria-hidden="true"
-            >
-              <path d={star.d} fill="currentColor" />
-            </svg>
+            <div key={i} className="app-loader__star" style={style}>
+              <div className="app-loader__sx">
+                <div className="app-loader__sy">
+                  <svg className="app-loader__glow" viewBox={viewBox} aria-hidden="true">
+                    <path d={star.d} fill="currentColor" />
+                  </svg>
+                  <svg className="app-loader__shape" viewBox={viewBox} aria-hidden="true">
+                    <path d={star.d} fill="currentColor" />
+                  </svg>
+                </div>
+              </div>
+            </div>
           )
         })}
       </div>

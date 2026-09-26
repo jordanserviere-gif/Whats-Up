@@ -1,24 +1,5 @@
 /* Loader pleine page : les etoiles du logo, au centre de l'ecran. */
 
-/* Les deux axes de l'echelle sont deux proprietes distinctes, animees chacune
- * pour son compte : c'est ce qui les rend independantes. Enregistrees, elles
- * s'interpolent comme des nombres au lieu de sauter d'une valeur a l'autre. */
-@property --app-loader-sx {
-  syntax: '<number>';
-  inherits: false;
-  initial-value: 1;
-}
-@property --app-loader-sy {
-  syntax: '<number>';
-  inherits: false;
-  initial-value: 1;
-}
-@property --app-loader-glow {
-  syntax: '<length>';
-  inherits: false;
-  initial-value: 0px;
-}
-
 .app-loader {
   position: fixed;
   inset: 0;
@@ -53,52 +34,75 @@
 
 /* Demi-periode et `alternate` : l'aller-retour fait une periode entiere, et
  * `ease-in-out` en fait une oscillation douce plutot qu'un va-et-vient sec.
- * Amplitude du tremblement : ±2,5 %, l'etoile vit sans se deformer. */
+ * Amplitude du tremblement : ±2,5 %, l'etoile vit sans se deformer.
+ *
+ * Seuls `transform` et `opacity` sont animes : voir `AppLoader.tsx`. */
 .app-loader__star {
   position: absolute;
-  height: auto;
-  overflow: visible;
+  aspect-ratio: 1;
   color: var(--app-brand-logo);
-  transform: scale(var(--app-loader-sx), var(--app-loader-sy));
-  filter: drop-shadow(0 0 var(--app-loader-glow) currentColor);
-  animation:
-    app-loader-glow var(--glow-half-period) ease-in-out var(--glow-delay) infinite alternate,
-    app-loader-sx var(--wiggle-half-period) ease-in-out var(--sx-delay) infinite alternate,
-    app-loader-sy var(--wiggle-half-period) ease-in-out var(--sy-delay) infinite alternate;
+}
+.app-loader__sx,
+.app-loader__sy {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+.app-loader__sx {
+  animation: app-loader-sx var(--wiggle-half-period) ease-in-out var(--sx-delay) infinite alternate;
+}
+.app-loader__sy {
+  animation: app-loader-sy var(--wiggle-half-period) ease-in-out var(--sy-delay) infinite alternate;
+}
+.app-loader__shape,
+.app-loader__glow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+/* Le flou est pose une fois pour toutes ; sa respiration n'est qu'une
+ * opacite, que le compositeur anime seul. */
+.app-loader__glow {
+  filter: blur(6px);
+  will-change: opacity;
+  animation: app-loader-glow var(--glow-half-period) ease-in-out var(--glow-delay) infinite alternate;
 }
 /* Hors ecran, rien ne tourne pour rien. */
-.app-loader:not(.is-active) .app-loader__star {
+.app-loader:not(.is-active) :is(.app-loader__sx, .app-loader__sy, .app-loader__glow) {
   animation-play-state: paused;
 }
 
 @keyframes app-loader-glow {
   from {
-    --app-loader-glow: 1px;
+    opacity: 0.1;
   }
   to {
-    --app-loader-glow: 14px;
+    opacity: 1;
   }
 }
 @keyframes app-loader-sx {
   from {
-    --app-loader-sx: 0.975;
+    transform: scaleX(0.975);
   }
   to {
-    --app-loader-sx: 1.025;
+    transform: scaleX(1.025);
   }
 }
 @keyframes app-loader-sy {
   from {
-    --app-loader-sy: 0.975;
+    transform: scaleY(0.975);
   }
   to {
-    --app-loader-sy: 1.025;
+    transform: scaleY(1.025);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-loader__star {
-    animation: app-loader-glow var(--glow-half-period) ease-in-out var(--glow-delay) infinite alternate;
+  .app-loader__sx,
+  .app-loader__sy {
+    animation: none;
   }
 }
 

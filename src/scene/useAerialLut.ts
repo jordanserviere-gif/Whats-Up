@@ -165,6 +165,19 @@ let columnRowsDone = 0
 const BUILD_BUDGET_MS = 28
 
 /**
+ * Budget en vigueur, ms. Le loader l'abaisse pendant qu'il couvre la scene :
+ * rien n'est alors a l'ecran que ses animations, et une image courte compte
+ * plus qu'une table vite finie. Le travail total ne change pas ; il s'etale sur
+ * davantage d'images, chacune plus breve.
+ */
+let buildBudgetMs = BUILD_BUDGET_MS
+
+/** Fixe le budget de construction par image ; sans argument, revient au defaut. */
+export const setAerialBuildBudget = (ms?: number): void => {
+  buildBudgetMs = ms ?? BUILD_BUDGET_MS
+}
+
+/**
  * Echeance de la construction pour l'image en cours.
  *
  * ⚠️ **Le budget est celui de l'image, pas celui d'un appelant.** Le ciel
@@ -178,7 +191,7 @@ let buildDeadline = 0
 
 /** Ouvre le budget de l'image. Appele une fois, en tete de la premiere boucle. */
 const beginBuildBudget = (): void => {
-  buildDeadline = performance.now() + BUILD_BUDGET_MS
+  buildDeadline = performance.now() + buildBudgetMs
 }
 
 /**

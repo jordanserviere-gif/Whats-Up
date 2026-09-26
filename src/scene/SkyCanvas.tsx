@@ -106,6 +106,7 @@ export function SkyCanvas() {
   const selectedAircraftHex = useSkyStore((s) => s.selectedAircraftHex)
   const selection = useSkyStore((s) => s.selection)
   const cameraLocked = useSkyStore((s) => s.cameraLocked)
+  const sceneLoading = useSkyStore((s) => s.sceneLoading)
   const select = useSkyStore((s) => s.select)
   const selectAircraft = useSkyStore((s) => s.selectAircraft)
   const setTab = useSkyStore((s) => s.setTab)
@@ -571,7 +572,9 @@ export function SkyCanvas() {
         // reglage en different deja de 0,51 % : le bruit de la scene, pas le
         // reglage.
         gl={{ antialias: false, alpha: false, toneMapping: NoToneMapping }}
-        dpr={[1, 2]}
+        // Sous le loader, la scene n'est vue de personne : un quart de pixel
+        // suffit a faire tourner les boucles qui construisent le ciel.
+        dpr={sceneLoading ? 0.5 : [1, 2]}
       >
         <CameraRig canvas={host} onPick={onPick} />
 
@@ -724,7 +727,7 @@ export function SkyCanvas() {
             Le multisampling reste demande explicitement : le composeur rend
             hors ecran, ou l'antialiasing du contexte WebGL ne s'applique pas.
             Sans lui, les traits fins scintillent des que le ciel tourne. */}
-        <EffectComposer multisampling={4} frameBufferType={HalfFloatType}>
+        <EffectComposer multisampling={sceneLoading ? 0 : 4} frameBufferType={HalfFloatType}>
           {layers.bloom ? (
             <Bloom
               mipmapBlur

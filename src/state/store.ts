@@ -105,6 +105,12 @@ interface SkyState {
    * on peut les retirer comme les autres.
    */
   favorites: GeoLocation[]
+  /**
+   * Le loader couvre-t-il la scene ? Elle se rend alors au rabais — basse
+   * resolution, sans multi-echantillonnage — puisque personne ne la voit.
+   */
+  sceneLoading: boolean
+  setSceneLoading: (loading: boolean) => void
   /** Ajoute le lieu aux favoris, ou l'en retire s'il y est deja. */
   toggleFavorite: (l: GeoLocation) => void
   /**
@@ -300,6 +306,8 @@ export const useSkyStore = create<SkyState>()(
         // de lieu ferait croire au loader que le nouveau relief est deja la.
         set(moved ? { location, terrainProgress: null } : { location })
       },
+      sceneLoading: true,
+      setSceneLoading: (sceneLoading) => set({ sceneLoading }),
       favorites: [...PRESET_LOCATIONS],
       toggleFavorite: (l) =>
         set((s) => ({
