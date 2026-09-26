@@ -38,6 +38,7 @@ import { SolarSystemBodies } from './Bodies'
 import { useBodyTextures } from './useBodyTextures'
 import { SatelliteLayer } from './Satellites'
 import { AircraftLayer, MODEL_SHOW_PX } from './Aircraft'
+import { CloudLayer } from './CloudLayer'
 import { aircraftLayout } from '@/astro/aircraftTypes'
 import { LabelLayer, type SceneLabel } from './LabelLayer'
 import { constellationLabels } from '@/astro/catalog'
@@ -736,6 +737,15 @@ export function SkyCanvas() {
             sunAzimuthDeg={sky.sunAzimuth}
             skyExposure={skyExposure}
             nightTint={colors.nightTint}
+          />
+        )}
+
+        {layers.atmosphere && (
+          <CloudLayer
+            observerElevationM={location.elevation}
+            extraHeightM={elevationOffsetM}
+            sunDirection={sunDirection}
+            skyExposure={skyExposure}
           />
         )}
 
