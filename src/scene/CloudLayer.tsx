@@ -18,7 +18,7 @@ import {
 } from 'three'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { CLOUD_PHASE_GLSL, dropletPhaseParameters } from '@/atmosphere/cloud/phase'
-import { CLOUD_LAYER_GLSL, ICE_ASYMMETRY, WATER_ASYMMETRY } from '@/atmosphere/cloud/cloudLayer'
+import { CLOUD_LAYER_GLSL, ICE_ASYMMETRY, WATER_ASYMMETRY, structureSigma } from '@/atmosphere/cloud/cloudLayer'
 import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
 import { SEA_LEVEL_PRESSURE_PA, standardPressure } from '@/atmosphere/thermodynamics/standardAtmosphere'
 import { loadScenario, type WeatherScenario } from '@/data-sources/weatherScenario'
@@ -69,6 +69,14 @@ import { GROUND_RADIUS } from './sceneMath'
 
 /** Echelle de la plus grande structure de chaque etage, km. */
 const STRUCTURE_SCALE_KM: [number, number, number] = [4, 3, 8]
+/**
+ * Portee du volume : l'etage bas est marche en volume jusqu'a 18 km, raccorde
+ * a la nappe jusqu'a 26 km. Au-dela, un cumulus d'un kilometre sous-tend
+ * moins de deux degres : sa forme ne se lit plus, sa couverture si.
+ */
+const VOLUME_BLEND_M: [number, number] = [18_000, 26_000]
+/** Longueur marchee au plus, m : un rayon rasant ne traverse pas cent kilometres de volume. */
+const VOLUME_MAX_PATH_M = 20_000
 /** Albedo du sol sous les nuages, pour les rebonds sol-nuage. */
 const GROUND_ALBEDO = 0.15
 /** Diametre des gouttes pour la phase : 2 × 8 µm de rayon effectif. */
@@ -132,6 +140,7 @@ function cloudMaterial(): ShaderMaterial {
       uDrift2: { value: new Vector2() },
       uScale: { value: new Vector3(...STRUCTURE_SCALE_KM) },
       uDroplet: { value: new Vector4(DROPLET.gHG, DROPLET.gD, DROPLET.alpha, DROPLET.wD) },
+      uPixelAngle: { value: 1e-3 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -162,6 +171,8 @@ function cloudMaterial(): ShaderMaterial {
       uniform vec2 uDrift2;
       uniform vec3 uScale;
       uniform vec4 uDroplet;
+      /** Angle sous-tendu par un pixel, rad. */
+      uniform float uPixelAngle;
       uniform mat4 projectionMatrix;
 
       const float PI = 3.14159265;
@@ -236,6 +247,128 @@ function cloudMaterial(): ShaderMaterial {
       vec2 drift(float k) { return k < 0.5 ? uDrift0 : k < 1.5 ? uDrift1 : uDrift2; }
       float scaleOf(float k) { return k < 0.5 ? uScale.x : k < 1.5 ? uScale.y : uScale.z; }
 
+      // --- Volume de l'etage bas -------------------------------------------
+
+      /** Hachage sans sinus (Hoskins) : stable en simple precision, pour le detail 3D. */
+      float volumeHash(vec3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.zyx + 31.32);
+        return fract((p.x + p.y) * p.z);
+      }
+      float volumeNoise(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = p - i;
+        vec3 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(mix(volumeHash(i), volumeHash(i + vec3(1, 0, 0)), u.x),
+              mix(volumeHash(i + vec3(0, 1, 0)), volumeHash(i + vec3(1, 1, 0)), u.x), u.y),
+          mix(mix(volumeHash(i + vec3(0, 0, 1)), volumeHash(i + vec3(1, 0, 1)), u.x),
+              mix(volumeHash(i + vec3(0, 1, 1)), volumeHash(i + vec3(1, 1, 1)), u.x), u.y),
+          u.z);
+      }
+
+      /**
+       * Seuil de profondeur dans le champ, en ecarts-types, selon la hauteur
+       * relative dans la nappe. Nul a mi-hauteur : la fraction occupee y vaut
+       * exactement la couverture du modele. Il monte vers le sommet — seul le
+       * coeur d'une cellule y parvient, d'ou les dômes — et juste au-dessus de
+       * la base, qui reste plate.
+       */
+      float volumeThreshold(float h) {
+        return 1.4 * pow(smoothstep(0.35, 1.0, h), 1.5) + 0.5 * (1.0 - smoothstep(0.0, 0.05, h));
+      }
+
+      /**
+       * Extinction de l'etage bas au point a \`t\` m sur le rayon \`dir\` parti
+       * de \`origin\` (m, relatif a l'oeil). \`detail\` : le bruit 3D ronge les bords.
+       */
+      float volumeExtinction(vec3 pos, float footprint, bool detail) {
+        vec3 up;
+        float t = length(pos);
+        vec3 dir = t > 0.0 ? pos / t : vec3(0.0, 1.0, 0.0);
+        vec2 en = groundPoint(dir, t, up);
+        // Hauteur au-dessus de l'oeil, forme stable (pas de difference de rayons).
+        float muP = dir.y;
+        float hEye = t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
+        vec4 f = fieldAt(en, 0.0);
+        float thickness = max(1.0, f.z - f.y);
+        float h = (uEyeAltitude + hEye - f.y) / thickness;
+        if (h < 0.0 || h > 1.0 || f.x <= 0.001 || f.w < 0.0) return 0.0;
+        vec2 p = (en - drift(0.0)) / scaleOf(0.0);
+        // Profondeur dans la cellule, en ecarts-types : > 0 dans le nuage.
+        vec2 st = cloudStructure(p, footprint);
+        float sigmaFull = ${structureSigma().toFixed(5)};
+        float inside = (sigmaFull * cloudNormalQuantile(f.x) - st.x) / sigmaFull;
+        float thr = volumeThreshold(h);
+        float edge = 0.0;
+        if (detail) {
+          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / 0.35;
+          float n = 0.6 * volumeNoise(q) + 0.4 * volumeNoise(q * 2.9 + 11.0);
+          // Bourgeonnement : les creux du bruit mordent davantage vers le haut.
+          edge = (n - 0.5) * (0.7 + 0.8 * h);
+        }
+        float occupancy = smoothstep(thr - 0.12, thr + 0.12, inside + edge);
+        return occupancy * f.w / thickness;
+      }
+
+      /**
+       * Marche du rayon dans l'etage bas, de \`t0\` a \`t1\` m.
+       *
+       * Diffusion : l'ombre vers le Soleil est marchee (quatre pas), puis la
+       * diffusion multiple est approchee par trois ordres a extinction, phase
+       * et poids reduits de moitie a chaque ordre (Wrenninge, Kulla & Lundqvist
+       * 2015) — l'approximation des rendus de production, qui rend le
+       * blanchiment des nuages epais qu'une diffusion simple assombrirait.
+       * Lumiere du ciel et du sol : demi-spheres isotropes, attenuees par la
+       * profondeur de nuage au-dessus et au-dessous, en diffusion (1 − g).
+       *
+       * x : transmittance ; yzw : radiance diffusee, avant exposition et air.
+       */
+      vec4 volumeMarch(vec3 d, float t0, float t1, vec3 sunDir, vec3 sun, vec3 sky, vec3 atGround, float footprint, float g) {
+        const int STEPS = 36;
+        float dt = (t1 - t0) / float(STEPS);
+        float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        float T = 1.0;
+        vec3 L = vec3(0.0);
+        float cosTheta = dot(d, sunDir);
+        float phase0 = cloudDropletPhase(uDroplet, cosTheta);
+        float phase1 = cloudHenyeyGreenstein(0.5 * g, cosTheta);
+        float phase2 = cloudHenyeyGreenstein(0.25 * g, cosTheta);
+        for (int s = 0; s < STEPS; s++) {
+          float t = t0 + (float(s) + jitter) * dt;
+          vec3 pos = d * t;
+          float sigma = volumeExtinction(pos, footprint, true);
+          if (sigma <= 0.0) continue;
+          // Ombre : quatre pas vers le Soleil, detail omis (il ne se voit pas dans l'ombre).
+          float shadowTau = 0.0;
+          float ds = 350.0;
+          for (int k = 1; k <= 4; k++) {
+            shadowTau += volumeExtinction(pos + sunDir * (float(k) - 0.5) * ds, footprint, false) * ds;
+          }
+          // Profondeur jusqu'au sommet et a la base, estimee sur la verticale locale.
+          vec3 up;
+          vec2 en = groundPoint(normalize(pos), length(pos), up);
+          vec4 f = fieldAt(en, 0.0);
+          float muP = d.y;
+          float z = uEyeAltitude + t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
+          float tauUp = sigma * max(0.0, f.z - z);
+          float tauDown = sigma * max(0.0, z - f.y);
+          vec3 direct = sun * (
+            phase0 * exp(-shadowTau)
+            + 0.5 * phase1 * exp(-0.5 * shadowTau)
+            + 0.25 * phase2 * exp(-0.25 * shadowTau));
+          vec3 ambient = 0.5 * (sky / PI) * exp(-(1.0 - g) * tauUp)
+            + 0.5 * (${GROUND_ALBEDO} * atGround / PI) * exp(-(1.0 - g) * tauDown);
+          vec3 S = sigma * (direct + ambient);
+          float stepT = exp(-sigma * dt);
+          L += T * (S - S * stepT) / sigma;
+          T *= stepT;
+          if (T < 0.01) break;
+        }
+        return vec4(T, L);
+      }
+
+
       void main() {
         vec3 d = normalize(vDir);
         float mu = d.y;
@@ -277,9 +410,14 @@ function cloudMaterial(): ShaderMaterial {
           float scale = scaleOf(k);
           vec2 p = (en - drift(k)) / scale;
           float pathKm = (seg.y - seg.x) * length(d.xz) * 1e-3;
-          float footprint = max(length(fwidth(p)), pathKm / scale);
+          // Empreinte du pixel au point traverse, en unites de bruit : analytique,
+          // car \`fwidth\` n'est pas defini dans des branches divergentes.
+          float pixelKm = uPixelAngle * tMid * 1e-3 / max(abs(dot(d, up)), 0.08);
+          float footprint = max(pixelKm / scale, pathKm / scale);
           float m = cloudExpectedCover(f.x, cloudStructure(p, footprint));
-          if (m < 1e-3) continue;
+          // Pres de l'observateur, le volume deborde du point milieu : on ne le saute pas.
+          float w = i == 0 && !ice ? 1.0 - smoothstep(${VOLUME_BLEND_M[0]}.0, ${VOLUME_BLEND_M[1]}.0, seg.x) : 0.0;
+          if (m < 1e-3 && w <= 0.0) continue;
 
           float tauSlant = tau * (seg.y - seg.x) / thickness;
           float tc = 1.0 - m * (1.0 - exp(-tauSlant));
@@ -337,6 +475,17 @@ function cloudMaterial(): ShaderMaterial {
           cover[i] = m * (1.0 - exp(-tauSlant));
           // Ce que la nappe met a la place de ce qui est derriere elle.
           light[i] = (1.0 - tc) * haze + airT * m * (diffuse + firstOrder) * uAerialExposure;
+
+          // --- Pres de l'observateur, l'etage bas prend du volume.
+          if (w > 0.0) {
+            float t1 = min(seg.y, seg.x + ${VOLUME_MAX_PATH_M}.0);
+            vec4 v = volumeMarch(d, seg.x, t1, sunDir, sun, sky, atGround, uPixelAngle * seg.x * 1e-3 / scaleOf(0.0), g);
+            float tcV = v.x;
+            vec3 lightV = (1.0 - tcV) * haze + airT * v.yzw * uAerialExposure;
+            trans[i] = mix(tc, tcV, w);
+            light[i] = mix(light[i], lightV, w);
+            cover[i] = mix(cover[i], 1.0 - tcV, w);
+          }
         }
 
         // Composition d'arriere en avant.
@@ -402,9 +551,11 @@ export function CloudLayer({
   const tableKey = useRef('')
   const table = useRef<DataTexture | null>(null)
 
-  useFrame(() => {
+  useFrame(({ camera, gl }) => {
     if (!scenario) return
     const u = material.uniforms
+    const fov = (camera as { fov?: number }).fov ?? 60
+    u.uPixelAngle.value = ((fov * Math.PI) / 180) / Math.max(1, gl.domElement.height)
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     const time = useSkyStore.getState().time
 
