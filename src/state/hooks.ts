@@ -15,6 +15,7 @@ import {
 import { bortleFromSkyBrightness, lightPollutionLux } from '@/astro/photometry'
 import { fetchSurfaceAerosol } from '@/data-sources/airQuality'
 import { airAt, fetchUpperAir, profileAt, shearAt } from '@/data-sources/upperAir'
+import { loadScenario, scenarioUpperAir } from '@/data-sources/weatherScenario'
 import { DEFAULT_ENVIRONMENT } from '@/atmosphere/cloud/contrail'
 import { contrailConditions } from '@/atmosphere/cloud/contrailFormation'
 import { fetchSkyBrightness } from '@/data-sources/lightPollution'
@@ -199,10 +200,23 @@ export function useUpperAirSync() {
   const location = useSkyStore((s) => s.location)
   const lat = Math.round(location.latitude * 10) / 10
   const lon = Math.round(location.longitude * 10) / 10
+  const scenarioId = useSkyStore((s) => s.weatherScenario?.id ?? null)
 
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
+    if (scenarioId) {
+      // Journee figee : un seul chargement, rien a rafraichir.
+      useSkyStore.setState({ upperAir: null })
+      loadScenario(scenarioId)
+        .then((s) => {
+          if (!cancelled) useSkyStore.setState({ upperAir: scenarioUpperAir(s) })
+        })
+        .catch(() => {})
+      return () => {
+        cancelled = true
+      }
+    }
     const refresh = async () => {
       const result = await fetchUpperAir(lat, lon)
       if (!cancelled && result) useSkyStore.setState({ upperAir: result.value })
@@ -215,7 +229,7 @@ export function useUpperAirSync() {
       cancelled = true
       clearInterval(interval)
     }
-  }, [enabled, lat, lon])
+  }, [enabled, lat, lon, scenarioId])
 }
 
 /**

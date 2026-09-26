@@ -100,9 +100,12 @@ async function fetchPoints(points) {
       return Array.isArray(body) ? body : [body]
     }
     const text = await res.text()
-    if ((res.status === 429 || /limit/i.test(text)) && attempt < 6) {
-      process.stdout.write(' (quota, pause 65 s)')
-      await sleep(65_000)
+    // Quota a la minute : une pause suffit. Quota a l'heure : on attend par
+    // tranches de cinq minutes, au plus un peu plus d'une heure.
+    const hourly = /hourly/i.test(text)
+    if ((res.status === 429 || /limit/i.test(text)) && attempt < (hourly ? 15 : 6)) {
+      process.stdout.write(hourly ? ' (quota horaire, pause 5 min)' : ' (quota, pause 65 s)')
+      await sleep(hourly ? 300_000 : 65_000)
       continue
     }
     throw new Error(`${res.status} ${text}`)

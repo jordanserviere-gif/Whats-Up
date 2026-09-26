@@ -8,11 +8,11 @@
  * du passage des satellites a orbite polaire, pour avoir une image de
  * reference du meme instant).
  *
- * Usage : node scripts/find-cloud-days.mjs [annee]
+ * Usage : node scripts/find-cloud-days.mjs [annee] [heure UTC]
  */
 
 const YEAR = Number(process.argv[2] ?? 2025)
-const HOUR_UTC = 12
+const HOUR_UTC = Number(process.argv[3] ?? 12)
 
 const PLACES = [
   { id: 'lyon', lat: 45.76, lon: 4.84 },

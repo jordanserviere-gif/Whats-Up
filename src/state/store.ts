@@ -6,6 +6,7 @@ import { ALL_CELESTRAK_GROUPS, isCelestrakGroup, type CelestrakGroup } from '@/d
 import { defaultElements } from '@/astro/kepler'
 import { DEFAULT_STATUS, type SourceStatus } from '@/data-sources/types'
 import type { UpperAirForecast } from '@/data-sources/upperAir'
+import type { WeatherScenarioEntry } from '@/data-sources/weatherScenario'
 
 export type ViewTab = 'ciel' | 'objets' | 'satellites' | 'reglages'
 
@@ -117,6 +118,13 @@ interface SkyState {
    */
   aircraftSimulated: boolean
   setAircraftSimulated: (simulated: boolean) => void
+  /**
+   * Journee meteo reelle rejouee plutot que la meteo du moment — voir
+   * `weatherScenario.ts`. `null` : l'API en direct. Quitter le lieu du
+   * scenario en sort : ses donnees ne decrivent que l'air au-dessus de lui.
+   */
+  weatherScenario: WeatherScenarioEntry | null
+  setWeatherScenario: (scenario: WeatherScenarioEntry | null) => void
   setSceneLoading: (loading: boolean) => void
   /** Ajoute le lieu aux favoris, ou l'en retire s'il y est deja. */
   toggleFavorite: (l: GeoLocation) => void
@@ -318,11 +326,17 @@ export const useSkyStore = create<SkyState>()(
         const moved = previous.latitude !== location.latitude || previous.longitude !== location.longitude
         // L'avancement du relief est celui d'un lieu : le garder au changement
         // de lieu ferait croire au loader que le nouveau relief est deja la.
-        set(moved ? { location, terrainProgress: null } : { location })
+        const scenario = get().weatherScenario
+        const offScenario =
+          scenario != null &&
+          (Math.abs(scenario.latitude - location.latitude) > 0.05 || Math.abs(scenario.longitude - location.longitude) > 0.05)
+        set({ location, ...(moved ? { terrainProgress: null } : {}), ...(offScenario ? { weatherScenario: null } : {}) })
       },
       sceneLoading: true,
       aircraftSimulated: false,
       setAircraftSimulated: (aircraftSimulated) => set({ aircraftSimulated }),
+      weatherScenario: null,
+      setWeatherScenario: (weatherScenario) => set({ weatherScenario }),
       setSceneLoading: (sceneLoading) => set({ sceneLoading }),
       favorites: [...PRESET_LOCATIONS],
       toggleFavorite: (l) =>
@@ -417,6 +431,7 @@ export const useSkyStore = create<SkyState>()(
         location: s.location,
         favorites: s.favorites,
         aircraftSimulated: s.aircraftSimulated,
+        weatherScenario: s.weatherScenario,
         elevationOffsetM: s.elevationOffsetM,
         layers: s.layers,
         magnitudeLimit: s.magnitudeLimit,

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Button,
   DataRow,
@@ -8,6 +8,7 @@ import {
   ListItem,
   SegmentedButton,
   Section,
+  Select,
   Slider,
   Switch,
   TextField,
@@ -23,6 +24,12 @@ import { DEEP_SKY_COUNT } from '@/astro/deepsky'
 import './SettingsPanel.css'
 import { STAR_COUNT, STAR_MAG_LIMIT } from '@/astro/catalog'
 import { LocationMap } from './LocationMap'
+import {
+  centerIndex,
+  fetchScenarioIndex,
+  loadScenario,
+  type WeatherScenarioEntry,
+} from '@/data-sources/weatherScenario'
 
 const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string }> = [
   { key: 'stars', label: 'Étoiles' },
@@ -75,6 +82,31 @@ export function SettingsPanel() {
   const aircraftSimulated = useSkyStore((s) => s.aircraftSimulated)
   const setAircraftSimulated = useSkyStore((s) => s.setAircraftSimulated)
   const toggleFavorite = useSkyStore((s) => s.toggleFavorite)
+  const weatherScenario = useSkyStore((s) => s.weatherScenario)
+  const [scenarios, setScenarios] = useState<WeatherScenarioEntry[]>([])
+  useEffect(() => {
+    void fetchScenarioIndex().then(setScenarios)
+  }, [])
+
+  /** Rejoue une journee archivee : son lieu, sa date a midi UTC, son air. */
+  const pickScenario = async (id: string) => {
+    const store = useSkyStore.getState()
+    const entry = scenarios.find((s) => s.id === id)
+    if (!entry) {
+      store.setWeatherScenario(null)
+      return
+    }
+    const scenario = await loadScenario(entry.id)
+    const near = scenario.grids.near
+    store.setWeatherScenario(entry)
+    store.setLocation({
+      latitude: entry.latitude,
+      longitude: entry.longitude,
+      elevation: near.points[centerIndex(near)][2],
+      name: entry.title,
+    })
+    store.setTime(Date.parse(`${entry.date}T12:00:00Z`))
+  }
 
   /**
    * Lieu propose, pas encore applique.
@@ -216,6 +248,17 @@ export function SettingsPanel() {
           />
         ))}
         <Switch label="Avions simulés" checked={aircraftSimulated} onChange={setAircraftSimulated} />
+        {scenarios.length > 0 && (
+          <Select
+            label="Météo"
+            value={weatherScenario?.id ?? ''}
+            options={[
+              { value: '', label: 'En direct' },
+              ...scenarios.map((s) => ({ value: s.id, label: `${s.title} — ${s.date}`, group: 'Journées archivées' })),
+            ]}
+            onChange={(id) => void pickScenario(id)}
+          />
+        )}
         <Divider />
         <Slider
           label="Magnitude limite des étoiles"

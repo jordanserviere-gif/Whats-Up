@@ -15,9 +15,16 @@
   },
   {
     "id": "toulouse-cumulus",
-    "title": "Cumulus d'ete sur Toulouse",
+    "title": "Cumulus d'été sur Toulouse",
     "date": "2025-06-23",
     "latitude": 43.6,
     "longitude": 1.44
+  },
+  {
+    "id": "lyon-clair",
+    "title": "Ciel clair sur Lyon",
+    "date": "2025-04-06",
+    "latitude": 45.76,
+    "longitude": 4.84
   }
 ]
