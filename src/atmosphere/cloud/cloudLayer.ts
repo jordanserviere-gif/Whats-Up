@@ -190,7 +190,7 @@ export function eddingtonSlab(opticalDepth: number, asymmetry: number, mu0: numb
 // --- Bruit de structure ------------------------------------------------------
 
 /** Nombre d'octaves du champ de structure. */
-export const STRUCTURE_OCTAVES = 5
+export const STRUCTURE_OCTAVES = 4
 /** Poids des octaves : spectre en 1/f, comme les champs nuageux mesures a ces echelles. */
 export const octaveWeight = (k: number): number => Math.pow(0.5, k)
 
@@ -215,18 +215,20 @@ export function valueNoise(x: number, y: number): number {
   return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy
 }
 
+/**
+ * Decalage de l'octave `k`, en mailles de son reseau. Sans rotation : le rendu
+ * precalcule chaque octave dans une texture periodique, et une rotation
+ * romprait la periode. Le decalage suffit a decorreler les reseaux.
+ */
+export const octaveOffset = (k: number): [number, number] => [17.3 * k + 0.37, -9.1 * k + 0.71]
+
 /** Champ de structure centre, somme des octaves (sans filtrage). */
 export function structureField(x: number, y: number): number {
   let sum = 0
-  let fx = x
-  let fy = y
   for (let k = 0; k < STRUCTURE_OCTAVES; k++) {
-    sum += octaveWeight(k) * (valueNoise(fx, fy) - 0.5)
-    // Rotation d'environ 37° et facteur 2 : pas d'alignement entre octaves.
-    const nx = 1.6 * fx - 1.2 * fy + 17.3
-    const ny = 1.2 * fx + 1.6 * fy - 9.1
-    fx = nx
-    fy = ny
+    const f = 2 ** k
+    const [ox, oy] = octaveOffset(k)
+    sum += octaveWeight(k) * (valueNoise(x * f + ox, y * f + oy) - 0.5)
   }
   return sum
 }
@@ -312,9 +314,9 @@ export const CLOUD_LAYER_GLSL = /* glsl */ `
       float w = pow(0.5, float(k));
       // Periode de l'octave en pixels : 1 / (footprint · scale).
       float keep = clamp(2.0 - 2.0 * footprint * scale, 0.0, 1.0);
-      sum += keep * w * (cloudValueNoise(p) - 0.5);
+      vec2 o = vec2(17.3 * float(k) + 0.37, -9.1 * float(k) + 0.71);
+      sum += keep * w * (cloudValueNoise(p * scale + o) - 0.5);
       residual += (1.0 - keep * keep) * w * w;
-      p = vec2(1.6 * p.x - 1.2 * p.y + 17.3, 1.2 * p.x + 1.6 * p.y - 9.1);
       scale *= 2.0;
     }
     return vec2(sum, sqrt(residual * ${VALUE_NOISE_VARIANCE.toFixed(5)}));

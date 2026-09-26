@@ -26,7 +26,7 @@ import {
 } from 'three'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { CLOUD_PHASE_GLSL, dropletPhaseParameters } from '@/atmosphere/cloud/phase'
-import { CLOUD_LAYER_GLSL, ICE_ASYMMETRY, WATER_ASYMMETRY, structureSigma } from '@/atmosphere/cloud/cloudLayer'
+import { CLOUD_LAYER_GLSL, ICE_ASYMMETRY, VALUE_NOISE_VARIANCE, WATER_ASYMMETRY, structureSigma } from '@/atmosphere/cloud/cloudLayer'
 import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
 import { SEA_LEVEL_PRESSURE_PA, standardPressure } from '@/atmosphere/thermodynamics/standardAtmosphere'
 import { loadScenario, type WeatherScenario } from '@/data-sources/weatherScenario'
@@ -36,6 +36,7 @@ import { sunIrradianceAtAltitude } from './contrailLighting'
 import { buildCloudField, type CloudFieldFrame } from './cloudField'
 import { eyeAltitudeM } from './terrain/elevationField'
 import { GROUND_RADIUS } from './sceneMath'
+import { DETAIL_PERIOD, STRUCTURE_PERIOD, cloudNoiseTextures } from './cloudNoise'
 
 /**
  * Nappes nuageuses d'un scenario meteo, jusqu'a l'horizon.
@@ -139,6 +140,8 @@ function cloudUniforms() {
       uScale: { value: new Vector3(...STRUCTURE_SCALE_KM) },
       uDroplet: { value: new Vector4(DROPLET.gHG, DROPLET.gD, DROPLET.alpha, DROPLET.wD) },
       uPixelAngle: { value: 1e-3 },
+      uStructure: { value: null as Texture | null },
+      uDetail: { value: null as Texture | null },
   }
 }
 
@@ -165,6 +168,30 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       uniform vec4 uDroplet;
       /** Angle sous-tendu par un pixel, rad. */
       uniform float uPixelAngle;
+      uniform sampler2D uStructure;
+      uniform highp sampler3D uDetail;
+
+      /**
+       * Le champ de structure, lu dans sa texture precalculee — une lecture au
+       * lieu de seize hachages. Meme filtrage au pixel que \`cloudStructure\` :
+       * chaque octave est un canal, retire quand sa periode passe sous deux
+       * pixels, et sa variance rendue en flou.
+       */
+      vec2 bakedStructure(vec2 p, float footprint) {
+        vec4 o = texture2D(uStructure, p / ${STRUCTURE_PERIOD}.0);
+        float sum = 0.0;
+        float residual = 0.0;
+        float scale = 1.0;
+        for (int k = 0; k < 4; k++) {
+          float w = pow(0.5, float(k));
+          float keep = clamp(2.0 - 2.0 * footprint * scale, 0.0, 1.0);
+          float v = k == 0 ? o.r : k == 1 ? o.g : k == 2 ? o.b : o.a;
+          sum += keep * w * (v - 0.5);
+          residual += (1.0 - keep * keep) * w * w;
+          scale *= 2.0;
+        }
+        return vec2(sum, sqrt(residual * ${VALUE_NOISE_VARIANCE.toFixed(5)}));
+      }
       uniform mat4 projectionMatrix;
 
       const float PI = 3.14159265;
@@ -241,24 +268,6 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
 
       // --- Volume de l'etage bas -------------------------------------------
 
-      /** Hachage sans sinus (Hoskins) : stable en simple precision, pour le detail 3D. */
-      float volumeHash(vec3 p) {
-        p = fract(p * 0.1031);
-        p += dot(p, p.zyx + 31.32);
-        return fract((p.x + p.y) * p.z);
-      }
-      float volumeNoise(vec3 p) {
-        vec3 i = floor(p);
-        vec3 f = p - i;
-        vec3 u = f * f * (3.0 - 2.0 * f);
-        return mix(
-          mix(mix(volumeHash(i), volumeHash(i + vec3(1, 0, 0)), u.x),
-              mix(volumeHash(i + vec3(0, 1, 0)), volumeHash(i + vec3(1, 1, 0)), u.x), u.y),
-          mix(mix(volumeHash(i + vec3(0, 0, 1)), volumeHash(i + vec3(1, 0, 1)), u.x),
-              mix(volumeHash(i + vec3(0, 1, 1)), volumeHash(i + vec3(1, 1, 1)), u.x), u.y),
-          u.z);
-      }
-
       /**
        * Seuil de profondeur dans le champ, en ecarts-types, selon la hauteur
        * relative dans la nappe. Nul a mi-hauteur : la fraction occupee y vaut
@@ -288,23 +297,34 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         if (h < 0.0 || h > 1.0 || f.x <= 0.001 || f.w < 0.0) return 0.0;
         vec2 p = (en - drift(0.0)) / scaleOf(0.0);
         // Profondeur dans la cellule, en ecarts-types : > 0 dans le nuage.
-        vec2 st = cloudStructure(p, footprint);
+        vec2 st = bakedStructure(p, footprint);
         float sigmaFull = ${structureSigma().toFixed(5)};
         float inside = (sigmaFull * cloudNormalQuantile(f.x) - st.x) / sigmaFull;
         float thr = volumeThreshold(h);
         float edge = 0.0;
+        float fine = 0.5;
         if (detail) {
-          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / 0.5;
-          // Bourgeons : bruit replie, dont les crêtes arrondies font les choux-fleurs.
-          float b1 = 1.0 - abs(2.0 * volumeNoise(q) - 1.0);
-          float b2 = 1.0 - abs(2.0 * volumeNoise(q * 2.7 + 11.0) - 1.0);
-          float b3 = volumeNoise(q * 7.3 - 5.0);
-          float n = 0.5 * b1 + 0.33 * b2 + 0.17 * b3;
+          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / 0.6;
+          // Bourgeons : octaves repliees, dont les crêtes arrondies font les
+          // choux-fleurs ; puis quatre octaves fines, quatre fois plus serrees,
+          // qui effilochent les bords.
+          vec4 b = texture(uDetail, q / ${DETAIL_PERIOD}.0);
+          vec4 e = texture(uDetail, q * 4.1 / ${DETAIL_PERIOD}.0 + 0.37);
+          float n = 0.42 * (1.0 - abs(2.0 * b.r - 1.0))
+            + 0.26 * (1.0 - abs(2.0 * b.g - 1.0))
+            + 0.14 * b.b + 0.08 * b.a
+            + 0.10 * (0.5 * e.r + 0.3 * e.g + 0.2 * e.b);
+          fine = 0.5 * e.r + 0.3 * e.g + 0.2 * e.b;
           // Les creux mordent davantage vers le haut, ou la convection bourgeonne.
-          edge = (n - 0.55) * (0.8 + 1.0 * h);
+          edge = (n - 0.55) * (1.1 + 1.3 * h);
         }
-        float occupancy = smoothstep(thr - 0.06, thr + 0.06, inside + edge);
-        return occupancy * f.w / thickness;
+        float occupancy = smoothstep(thr - 0.03, thr + 0.03, inside + edge);
+        // Densite variable dans le nuage — de moyenne ~1, pour garder l'epaisseur
+        // optique du modele : c'est elle qui donne du relief a l'eclairage.
+        // Les bords, a faible occupation, sont effiloches par les octaves fines.
+        float texture_ = detail ? clamp(0.55 + 0.9 * fine, 0.3, 1.5) : 1.0;
+        float wisps = detail ? smoothstep(0.25, 0.65, fine + 0.5 * occupancy) : 1.0;
+        return occupancy * wisps * texture_ * f.w / thickness;
       }
 
       /**
@@ -417,7 +437,7 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
           // car \`fwidth\` n'est pas defini dans des branches divergentes.
           float pixelKm = uPixelAngle * tMid * 1e-3 / max(abs(dot(d, up)), 0.08);
           float footprint = max(pixelKm / scale, pathKm / scale);
-          float m = cloudExpectedCover(f.x, cloudStructure(p, footprint));
+          float m = cloudExpectedCover(f.x, bakedStructure(p, footprint));
           // Pres de l'observateur, le volume deborde du point milieu : on ne le saute pas.
           float w = i == 0 && !ice ? 1.0 - smoothstep(${VOLUME_BLEND_M[0]}.0, ${VOLUME_BLEND_M[1]}.0, seg.x) : 0.0;
           if (m < 1e-3 && w <= 0.0) continue;
@@ -425,7 +445,7 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
           // Les coeurs de cellule sont plus epais que leurs bords : l'epaisseur
           // optique suit la profondeur dans le champ, de moyenne inchangee.
           {
-            vec2 st = cloudStructure(p, footprint);
+            vec2 st = bakedStructure(p, footprint);
             float inside = (${structureSigma().toFixed(5)} * cloudNormalQuantile(f.x) - st.x) / ${structureSigma().toFixed(5)};
             tau *= f.x > 0.98 ? 1.0 : clamp(0.35 + 0.45 * inside, 0.2, 2.2);
           }
@@ -557,8 +577,11 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
 const CACHE_WIDTH = 4096
 const CACHE_HEIGHT = 1152
 const CACHE_MIN_ELEVATION_DEG = -12
-/** Lignes recalculees par image : la carte entiere en 24 images, 0,4 s a 60 i/s. */
-const CACHE_ROWS_PER_FRAME = 48
+/**
+ * Lignes recalculees par image, au plus : la carte entiere en 18 images. La
+ * cadence reelle s'ajuste a la fluidite mesuree, de 4 a 64 lignes.
+ */
+const CACHE_ROWS_PER_FRAME = 64
 /** Couleur de fond du rendu, sauvee le temps d'effacer la carte. */
 const clearColor = new Color()
 
@@ -698,15 +721,24 @@ export function CloudLayer({
     [cache, fill, screen],
   )
   const nextRow = useRef(0)
+  const rowsPerFrame = useRef(16)
   const cachedScenario = useRef<string | null>(null)
   const field = useRef<CloudFieldFrame | null>(null)
   const fieldKey = useRef('')
   const tableKey = useRef('')
   const table = useRef<DataTexture | null>(null)
 
-  useFrame(({ gl }) => {
+  useFrame(({ gl }, delta) => {
     if (!scenario) return
     const u = fill.uniforms
+    if (!u.uStructure.value) {
+      const noise = cloudNoiseTextures(gl)
+      u.uStructure.value = noise.structure
+      u.uDetail.value = noise.detail
+    }
+    // Cadence adaptative : moins de lignes par image quand l'image rame.
+    if (delta > 1 / 45) rowsPerFrame.current = Math.max(4, Math.floor(rowsPerFrame.current * 0.8))
+    else if (delta < 1 / 58) rowsPerFrame.current = Math.min(CACHE_ROWS_PER_FRAME, rowsPerFrame.current + 1)
     // Le texel de la carte, pas le pixel de l'ecran : c'est lui que la structure doit resoudre.
     u.uPixelAngle.value = Math.max((2 * Math.PI) / CACHE_WIDTH, ((90 - CACHE_MIN_ELEVATION_DEG) * Math.PI) / 180 / CACHE_HEIGHT)
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
@@ -750,7 +782,7 @@ export function CloudLayer({
     u.uGroundAltitude.value = observerElevationM - 50
 
     // Une bande de la carte par image, en boucle : le calcul lourd est etale.
-    const rows = Math.min(CACHE_ROWS_PER_FRAME, CACHE_HEIGHT - nextRow.current)
+    const rows = Math.min(rowsPerFrame.current, CACHE_HEIGHT - nextRow.current)
     const previousTarget = gl.getRenderTarget()
     const previousAutoClear = gl.autoClear
     // Nouveau scenario : la carte de l'ancien ne doit pas rester visible le temps d'un tour.
