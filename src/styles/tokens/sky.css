@@ -69,3 +69,33 @@
   --app-selection-ring: var(--md-sys-color-primary);
   --app-selection-glow: color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
 }
+
+/* --- Theme night ---
+ * Les couleurs physiques — celles des corps, de la frise d'eclairement, du
+ * cadran lunaire, des etiquettes qui nomment les astres — decrivent la
+ * lumiere, pas l'interface : on ne change pas leurs tokens, on les convertit
+ * en sortie. Une meme loi pour le sol (shader du terrain) et pour le DOM
+ * (filtre SVG `NightFilter`) : la luminance devient de l'ambre, le noir reste
+ * noir. */
+:root {
+  /* Traits de la scene — figures, grilles, cardinaux. Hors night, ils prennent
+   * les accents MD3 ; en night, le niveau contour : ce sont des reperes, pas
+   * des elements actifs, et rien dans le ciel ne doit briller plus qu'une
+   * etoile. */
+  --app-scene-accent: var(--md-sys-color-primary);
+  --app-scene-accent-alt: var(--md-sys-color-tertiary);
+  --app-scene-accent-muted: var(--md-sys-color-secondary);
+
+  /* Ce que devient le blanc du sol : un ambre franc. */
+  --app-night-tint: var(--md-ref-palette-amber-70);
+  /* Ce que devient le blanc dans l'interface : le niveau du texte courant,
+   * pour qu'aucune pastille ne brille plus que ce qu'on lit. */
+  --app-night-ui-tint: var(--md-ref-palette-amber-60);
+  --app-physical-filter: none;
+}
+:root[data-theme='night'] {
+  --app-physical-filter: url(#app-night-filter);
+  --app-scene-accent: var(--md-sys-color-outline);
+  --app-scene-accent-alt: var(--md-sys-color-outline);
+  --app-scene-accent-muted: var(--md-sys-color-outline);
+}

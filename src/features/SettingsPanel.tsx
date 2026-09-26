@@ -46,6 +46,8 @@ const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string; hint?: st
 ]
 
 /** Reglages : lieu d'observation, calques, apparence. */
+const THEME_SUMMARY = { light: 'clair', dark: 'sombre', night: 'night' } as const
+
 export function SettingsPanel() {
   const location = useSkyStore((s) => s.location)
   const setLocation = useSkyStore((s) => s.setLocation)
@@ -314,13 +316,14 @@ export function SettingsPanel() {
         </p>
       </Section>
 
-      <Section title="Apparence" icon="palette" defaultOpen={false} summary={mode === 'dark' ? 'sombre' : 'clair'}>
+      <Section title="Apparence" icon="palette" defaultOpen={false} summary={THEME_SUMMARY[mode]}>
         <SegmentedButton
           ariaLabel="Thème de l’interface"
           fullWidth
           segments={[
-            { value: 'dark', label: 'Sombre', icon: 'dark_mode' },
             { value: 'light', label: 'Clair', icon: 'light_mode' },
+            { value: 'dark', label: 'Sombre', icon: 'dark_mode' },
+            { value: 'night', label: 'Night', icon: 'nightlight' },
           ]}
           value={mode}
           onChange={setMode}

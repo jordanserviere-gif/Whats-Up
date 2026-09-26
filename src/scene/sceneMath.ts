@@ -300,6 +300,13 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
+/** Couleur hexadecimale sRGB → RGB lineaire, fonction de transfert sRGB exacte. */
+export function hexToLinearRgb(hex: string): [number, number, number] {
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+  const [r, g, b] = hexToRgb(hex)
+  return [lin(r), lin(g), lin(b)]
+}
+
 /** Lit une couleur de token CSS resolue sur `document.documentElement`. */
 export function readToken(token: string, fallback = '#ffffff'): string {
   if (typeof window === 'undefined') return fallback

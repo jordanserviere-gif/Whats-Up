@@ -596,6 +596,10 @@ function terrainMaterial(): ShaderMaterial {
       uSkyIrradiance: { value: new Vector3() },
       /** Altitude a laquelle la neige tient, metres. */
       uSnowLine: { value: SNOW_LINE_M },
+      /** Theme night : 1 convertit le sol en ambre, 0 le laisse tel quel. */
+      uNight: { value: 0 },
+      /** Ce que devient le blanc en night, RGB lineaire — `--app-night-tint`. */
+      uNightTint: { value: new Vector3(1, 1, 1) },
       /** Carte d'ombre : altitude a laquelle le Soleil se leve, en chaque point. */
       uShadowMap: { value: null as DataTexture | null },
       /** Demi-etendue de la carte, metres. */
@@ -662,6 +666,8 @@ function terrainMaterial(): ShaderMaterial {
       uniform vec3 uSunIrradiance;
       uniform vec3 uSkyIrradiance;
       uniform float uSnowLine;
+      uniform float uNight;
+      uniform vec3 uNightTint;
       uniform sampler2D uShadowMap;
       uniform float uShadowHalfSpan;
       uniform float uObserverAltitude;
@@ -848,7 +854,14 @@ function terrainMaterial(): ShaderMaterial {
           previousT = stepT;
         }
 
-        gl_FragColor = vec4(outgoing * transmittance * uAerialExposure + haze, 1.0);
+        vec3 radiance = outgoing * transmittance * uAerialExposure + haze;
+        // Theme night : la radiance est reduite a sa luminance puis portee par
+        // l'ambre. Le blanc devient ambre, le noir reste noir, et l'ecart de
+        // luminance entre une ville et la campagne survit intact. Seul le sol
+        // est converti : c'est lui qui, eclaire par l'orthophoto et les
+        // lumieres des villes, porte des couleurs vives sous un ciel noir.
+        float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+        gl_FragColor = vec4(mix(radiance, luma * uNightTint, uNight), 1.0);
       }
     `,
   })
@@ -864,6 +877,7 @@ export function Terrain({
   sunAltitudeDeg,
   sunAzimuthDeg,
   skyExposure,
+  nightTint = null,
 }: {
   observerElevationM: number
   /** Hauteur de l'observateur au-dessus du sol, m. */
@@ -878,6 +892,8 @@ export function Terrain({
   /** Azimut du Soleil, degres — il en fixe la direction. */
   sunAzimuthDeg: number
   skyExposure: number
+  /** Teinte du theme night, RGB lineaire, ou `null` hors night. */
+  nightTint?: readonly [number, number, number] | null
 }) {
   // L'altitude de l'observateur est quantifiee : elle ne bouge qu'au changement
   // de site, et reconstruire cent mille sommets pour un metre n'aurait pas de
@@ -1114,6 +1130,8 @@ export function Terrain({
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     ;(u.uSunIrradiance.value as Vector3).set(sunIrradiance[0], sunIrradiance[1], sunIrradiance[2])
     u.uShadowMap.value = shadowTexture
+    u.uNight.value = nightTint ? 1 : 0
+    if (nightTint) (u.uNightTint.value as Vector3).set(nightTint[0], nightTint[1], nightTint[2])
     u.uOrtho.value = ortho
     u.uOrthoStrength.value = ortho && orthoReady() ? 1 : 0
     u.uOrthoHalfSpan.value = Math.max(1, orthoSpanM())

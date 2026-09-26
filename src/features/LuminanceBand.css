@@ -3,5 +3,7 @@
   inset: 0;
   border-radius: var(--md-sys-shape-corner-full);
   pointer-events: none;
-  /* Aucun filtre : la bande doit rendre fidelement l'echelle de luminance. */
+  /* Aucun filtre hors night : la bande doit rendre fidelement l'echelle de
+   * luminance. En night, elle passe par la meme conversion que la scene. */
+  filter: var(--app-physical-filter);
 }

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useTheme } from '@/ui/ThemeProvider'
-import { readToken } from './sceneMath'
+import { hexToLinearRgb, readToken } from './sceneMath'
 
 /**
  * Resout en une passe tous les tokens de couleur utilises par la scene 3D.
@@ -21,12 +21,12 @@ export function useSceneColors() {
       ground: readToken('--app-sky-ground', '#07090e'),
       groundGlow: readToken('--app-sky-horizon', '#0d1220'),
       horizonLine: readToken('--md-sys-color-outline', '#8e909f'),
-      horizonGrid: readToken('--md-sys-color-primary', '#b8c3ff'),
-      equatorialGrid: readToken('--md-sys-color-tertiary', '#d5bcf4'),
+      horizonGrid: readToken('--app-scene-accent', '#b8c3ff'),
+      equatorialGrid: readToken('--app-scene-accent-alt', '#d5bcf4'),
       ecliptic: readToken('--app-body-sun', '#ffd24a'),
-      constellation: readToken('--md-sys-color-primary', '#b8c3ff'),
+      constellation: readToken('--app-scene-accent', '#b8c3ff'),
       constellationLabel: readToken('--md-sys-color-on-surface-variant', '#c4c5d6'),
-      cardinal: readToken('--md-sys-color-secondary', '#c8c2ea'),
+      cardinal: readToken('--app-scene-accent-muted', '#c8c2ea'),
       moonGlow: readToken('--app-moon-glow', '#7d8fc4'),
       lightPollution: readToken('--app-sky-light-pollution', '#ffb066'),
       sunGlow: readToken('--app-body-sun-glow', '#ffe9c4'),
@@ -39,6 +39,8 @@ export function useSceneColors() {
         eclipsed: readToken('--md-sys-color-outline', '#8e909f'),
         below: readToken('--md-sys-color-surface-container-highest', '#33343f'),
       },
+      /** Teinte du post-process night, RGB lineaire ; `null` hors night. */
+      nightTint: mode === 'night' ? hexToLinearRgb(readToken('--app-night-tint', '#f09703')) : null,
     }),
     // Les tokens changent avec le theme et le niveau de contraste.
     [mode, contrast],

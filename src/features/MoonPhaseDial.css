@@ -24,3 +24,8 @@
   stroke: color-mix(in srgb, var(--app-body-moon) 35%, transparent);
   stroke-width: 2;
 }
+
+/* Couleur propre de la Lune : en night, convertie comme la scene, halo compris. */
+:root[data-theme='night'] .moon-dial {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--app-body-moon) 30%, transparent)) var(--app-physical-filter);
+}

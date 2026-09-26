@@ -6,6 +6,8 @@
 }
 
 .location-map canvas {
+  /* Tuiles de relief en couleurs reelles : converties en night comme le sol. */
+  filter: var(--app-physical-filter);
   width: 100%;
   height: auto;
   display: block;

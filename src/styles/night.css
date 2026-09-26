@@ -1,0 +1,62 @@
+/* Theme night — ce que les tokens seuls ne peuvent pas dire.
+ *
+ * MD3 signale la selection et l'action principale par un aplat : conteneur
+ * secondaire, bouton rempli, bulle inversee. En night, tout fond est noir
+ * (voir scripts/gen-color.mjs) ; ces aplats disparaitraient, ou, laisses en
+ * ambre, deviendraient les plus grandes taches lumineuses de l'ecran. La
+ * selection passe donc par le **trait** : un contour ambre au niveau actif,
+ * autour d'un contenu lui aussi au niveau actif. */
+
+:root[data-theme='night'] {
+  --app-night-selection: var(--md-sys-outline-width-thin) solid var(--md-sys-color-primary);
+}
+
+/* Le chrome ne laisse plus transparaitre la scene : seul le sol y est converti
+ * en ambre, et un ciel encore bleu au crepuscule traverserait chaque panneau. */
+:root[data-theme='night'] .md-surface--glass {
+  background: var(--md-sys-color-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: var(--md-sys-color-outline-variant);
+}
+
+/* Selection : le trait remplace l'aplat. */
+:root[data-theme='night'] .md-chip.is-selected {
+  --_outline: var(--md-sys-color-primary);
+}
+:root[data-theme='night'] .md-nav-rail__item.is-active .md-nav-rail__indicator,
+:root[data-theme='night'] .md-segmented__item.is-selected,
+:root[data-theme='night'] .md-list-item.is-selected .md-list-item__surface {
+  box-shadow: inset 0 0 0 var(--md-sys-outline-width-thin) var(--md-sys-color-primary);
+}
+
+/* Actions pleines : contour et contenu ambre, fond noir. */
+:root[data-theme='night'] .md-button--filled,
+:root[data-theme='night'] .md-button--outlined.is-selected {
+  --_container: transparent;
+  --_label: var(--md-sys-color-primary);
+  border: var(--app-night-selection);
+}
+:root[data-theme='night'] .md-icon-button--filled.is-selected,
+:root[data-theme='night'] .md-icon-button--tonal.is-selected,
+:root[data-theme='night'] .md-icon-button--outlined.is-selected {
+  --_container: transparent;
+  --_content: var(--md-sys-color-primary);
+  border: var(--app-night-selection);
+}
+:root[data-theme='night'] .md-fab {
+  box-shadow: inset 0 0 0 var(--md-sys-outline-width-thin) var(--md-sys-color-outline);
+}
+
+/* Bulles inversees : noires comme le reste, detachees par un contour. */
+:root[data-theme='night'] .md-tooltip,
+:root[data-theme='night'] .md-snackbar {
+  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline);
+}
+
+/* Frise d'eclairement : l'information tient dans la forme de la courbe, pas
+ * dans son eclat. En plein jour, la bande deviendrait sinon la plus grande
+ * surface lumineuse de l'ecran. */
+:root[data-theme='night'] .luminance-band {
+  opacity: 0.45;
+}
