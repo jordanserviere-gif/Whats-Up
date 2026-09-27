@@ -1,15 +1,17 @@
 import { DataTexture, DataUtils, HalfFloatType, LinearFilter, RGBAFormat, ClampToEdgeWrapping } from 'three'
 import { CLOUD_STAGES, stageSlab, type CloudSlab, type CloudStage, type ColumnLevel } from '@/atmosphere/cloud/cloudLayer'
 import { convectiveCloud, type EnvironmentLevel } from '@/atmosphere/cloud/convection'
+import { GENUS_CODE, cloudGenus } from '@/atmosphere/cloud/cloudType'
 import { centerIndex, scenarioValue, type ScenarioGrid, type WeatherScenario } from '@/data-sources/weatherScenario'
 
 /**
  * Champ de nappes d'un scenario, a un instant — ce que le nuanceur lit.
  *
- * Pour chaque grille (lointaine, proche) une texture de `n × 3n` texels : les
+ * Pour chaque grille (lointaine, proche) une texture de `n × 6n` texels : les
  * trois etages empiles, du bas au haut, chacun dans l'ordre de la grille (nord
  * en haut, ouest a gauche). Canaux : couverture, base (m), sommet (m),
  * epaisseur optique — negative pour la glace, ce qui evite un quatrieme canal.
+ * Puis trois blocs de plus, un par etage : le genre du nuage (`cloudType.ts`).
  *
  * Demi-flottants : filtrables lineairement partout, et precis a 8 m pres a
  * 13 km d'altitude, bien sous la resolution verticale des niveaux archives.
@@ -64,7 +66,38 @@ function slabsAt(s: WeatherScenario, g: ScenarioGrid, point: number, hour: numbe
   const ground = g.points[point][2]
   const cover = (stage: CloudStage) => (scenarioValue(s, g, COVER_KEY[stage], point, hour) ?? 0) / 100
   const convective = cover('bas') > 0 ? convectionAt(s, g, point, hour) : null
-  return CLOUD_STAGES.map((stage) => stageSlab(stage, cover(stage), levels, ground, stage === 'bas' ? convective : null))
+  const rain = scenarioValue(s, g, 'rr', point, hour) ?? 0
+  return CLOUD_STAGES.map((stage) => {
+    const slab = stageSlab(stage, cover(stage), levels, ground, stage === 'bas' ? convective : null)
+    // Le panache n'a servi que si la colonne n'avait pas de niveau nuageux.
+    const fromPlume = stage === 'bas' && convective != null && slab.baseM === convective.baseM && slab.topM === convective.topM
+    slab.genus = cloudGenus({
+      stage,
+      coverage: slab.coverage,
+      baseM: slab.baseM,
+      topM: slab.topM,
+      opticalDepth: slab.opticalDepth,
+      topTemperatureC: temperatureAt(levels, slab.topM),
+      precipitationMmH: rain,
+      convective: fromPlume ? (convective.free ? 'libre' : 'bride') : null,
+    })
+    return slab
+  })
+}
+
+/** Temperature de la colonne a l'altitude \`z\`, °C, par interpolation lineaire. */
+function temperatureAt(levels: ColumnLevel[], z: number): number {
+  const sorted = [...levels].sort((a, b) => a.heightM - b.heightM)
+  if (sorted.length === 0) return 0
+  if (z <= sorted[0].heightM) return sorted[0].temperatureC
+  for (let i = 1; i < sorted.length; i++) {
+    if (z <= sorted[i].heightM) {
+      const a = sorted[i - 1]
+      const b = sorted[i]
+      return a.temperatureC + ((b.temperatureC - a.temperatureC) * (z - a.heightM)) / (b.heightM - a.heightM)
+    }
+  }
+  return sorted[sorted.length - 1].temperatureC
 }
 
 const lerp = (a: number, b: number, f: number) => a + (b - a) * f
@@ -81,6 +114,7 @@ function slabsBetween(s: WeatherScenario, g: ScenarioGrid, point: number, h0: nu
       topM: lerp(x.topM, y.topM, f),
       opticalDepth: lerp(x.opticalDepth, y.opticalDepth, f),
       ice: f < 0.5 ? x.ice : y.ice,
+      genus: f < 0.5 ? x.genus : y.genus,
     }
   })
 }
@@ -88,7 +122,9 @@ function slabsBetween(s: WeatherScenario, g: ScenarioGrid, point: number, h0: nu
 /** Champ d'une grille, en demi-flottants — calcule hors du fil principal. */
 function packField(s: WeatherScenario, g: ScenarioGrid, h0: number, h1: number, f: number): Uint16Array {
   const n = g.n
-  const data = new Uint16Array(n * n * 3 * 4)
+  // Six blocs : les trois etages (couverture, base, sommet, τ), puis pour
+  // chacun son genre (code, lu au plus proche voisin).
+  const data = new Uint16Array(n * n * 6 * 4)
   for (let point = 0; point < n * n; point++) {
     const slabs = slabsBetween(s, g, point, h0, h1, f)
     const i = point % n
@@ -101,6 +137,8 @@ function packField(s: WeatherScenario, g: ScenarioGrid, h0: number, h1: number, 
       data[o + 1] = DataUtils.toHalfFloat(slab.baseM)
       data[o + 2] = DataUtils.toHalfFloat(slab.topM)
       data[o + 3] = DataUtils.toHalfFloat(slab.ice ? -slab.opticalDepth : slab.opticalDepth)
+      const e = ((row + 3 * n) * n + i) * 4
+      data[e] = DataUtils.toHalfFloat(GENUS_CODE[slab.genus ?? 'Sc'])
     })
   }
   return data
@@ -113,7 +151,7 @@ export function uploadField(texture: DataTexture | null, data: Uint16Array, n: n
     texture.needsUpdate = true
     return texture
   }
-  const t = new DataTexture(data.slice(), n, n * 3, RGBAFormat, HalfFloatType)
+  const t = new DataTexture(data.slice(), n, n * 6, RGBAFormat, HalfFloatType)
   t.magFilter = LinearFilter
   t.minFilter = LinearFilter
   t.wrapS = ClampToEdgeWrapping

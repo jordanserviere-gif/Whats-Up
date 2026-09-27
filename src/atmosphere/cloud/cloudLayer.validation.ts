@@ -24,6 +24,8 @@ import {
   structureSigma,
   valueNoise,
 } from './cloudLayer'
+import { bakeBaseNoise, coverageTable, COVERAGE_TABLE_SIZE } from './cloudNoise3d'
+import { cloudGenus } from './cloudType'
 import { convectiveCloud, saturationAdjust, saturationSpecificHumidity, type EnvironmentLevel } from './convection'
 
 export function cloudLayerSuite(): SuiteResult {
@@ -114,7 +116,52 @@ export function cloudLayerSuite(): SuiteResult {
           relativeHumidity: z < 1800 ? 0.6 : 0.2,
         })),
       )
-      t.checkTrue(`cumulus bride : sommet ${capped?.topM ?? 0} m, sous le haut de l'inversion (1800 m) + un pas`, !!capped && capped.topM <= 1820)
+      // L'inversion finit a 1800 m, entre les niveaux 1800 et 2500 : le sommet
+      // est estime au milieu de cet intervalle, pas plus haut.
+      t.checkTrue(`cumulus bride : sommet ${capped?.topM ?? 0} m, dans l'intervalle ou finit l'inversion`, !!capped && capped.topM >= 1800 && capped.topM <= 2150)
+
+      // --- 6. Forme 3D : la table de couverture rend exactement C -------------
+      const base = bakeBaseNoise()
+      const table = coverageTable(base)
+      for (const c of [0.2, 0.5, 0.8]) {
+        const k = Math.round(c * (COVERAGE_TABLE_SIZE - 1))
+        const theta = table.threshold[k]
+        const above = base.reduce((n, v) => n + (v / 255 > theta ? 1 : 0), 0) / base.length
+        t.check(`bruit 3D : fraction au-dessus du seuil, C = ${c}`, above, k / (COVERAGE_TABLE_SIZE - 1), 0.01)
+      }
+
+      // --- 7. Diffusion multiple calee sur Eddington --------------------------
+      // Source isotrope J(τ) decroissant lineairement de R·E·μ₀/π (face eclairee)
+      // a T·E·μ₀/π (face opposee) : la luminance qui ressort d'une couche epaisse
+      // doit valoir R·E·μ₀/π au-dessus, T·E·μ₀/π en dessous.
+      for (const [tau0, mu0] of [[20, 0.7], [50, 0.4]] as const) {
+        const ed = eddingtonSlab(tau0, WATER_ASYMMETRY, mu0)
+        const R = ed.reflectance
+        const T = ed.diffuseTransmittance
+        const J = (tau: number) => (mu0 / Math.PI) * (R - (R - T) * (tau / tau0))
+        const muV = 0.8
+        let up = 0
+        let down = 0
+        const n = 4000
+        for (let i = 0; i < n; i++) {
+          const tau = ((i + 0.5) / n) * tau0
+          const dtau = tau0 / n
+          up += (J(tau) * Math.exp(-tau / muV) * dtau) / muV
+          down += (J(tau) * Math.exp(-(tau0 - tau) / muV) * dtau) / muV
+        }
+        t.checkRelative(`luminance reflechie = R·μ₀/π, τ = ${tau0}, μ₀ = ${mu0}`, up, (R * mu0) / Math.PI, 0.05)
+        t.checkRelative(`luminance transmise = T·μ₀/π, τ = ${tau0}, μ₀ = ${mu0}`, down, (T * mu0) / Math.PI, 0.1)
+      }
+
+      // --- 8. Genres ----------------------------------------------------------
+      const genus = (o: Partial<Parameters<typeof cloudGenus>[0]>) =>
+        cloudGenus({ stage: 'bas', coverage: 0.4, baseM: 1200, topM: 1700, opticalDepth: 20, topTemperatureC: 10, precipitationMmH: 0, convective: null, ...o })
+      t.checkTrue('cumulus : convectif, couverture partielle', genus({ convective: 'bride' }) === 'Cu')
+      t.checkTrue('cumulonimbus : convectif, 6 km, sommet glace', genus({ convective: 'libre', topM: 8000, topTemperatureC: -35 }) === 'Cb')
+      t.checkTrue('stratus : mince et couvrant', genus({ coverage: 0.95, baseM: 300, topM: 600 }) === 'St')
+      t.checkTrue('cirrus : haut et mince (τ < 3,6, ISCCP)', genus({ stage: 'haut', opticalDepth: 1, coverage: 0.5 }) === 'Ci')
+      t.checkTrue('cirrostratus : haut, 3,6 < τ < 23', genus({ stage: 'haut', opticalDepth: 8 }) === 'Cs')
+      t.checkTrue('nimbostratus : moyen, epais, pluvieux', genus({ stage: 'moyen', baseM: 2500, topM: 6000, precipitationMmH: 2 }) === 'Ns')
 
       // --- 4. Couverture sous-maille -----------------------------------------
       t.check('Φ(Φ⁻¹(0,3)) = 0,3', normalCdf(normalQuantile(0.3)), 0.3, 1e-6)

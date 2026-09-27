@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import {
   BackSide,
+  DataUtils,
+  Data3DTexture,
+  RedFormat,
   Matrix4,
   type PerspectiveCamera,
   Color,
@@ -39,7 +42,13 @@ import { requestCloudField } from './cloudWorkerClient'
 import type { CloudSlab } from '@/atmosphere/cloud/cloudLayer'
 import { eyeAltitudeM } from './terrain/elevationField'
 import { GROUND_RADIUS } from './sceneMath'
-import { DETAIL_PERIOD, STRUCTURE_PERIOD, cloudNoiseTextures } from './cloudNoise'
+import { STRUCTURE_PERIOD, cloudNoiseTextures } from './cloudNoise'
+import { receivedCloudNoise } from './cloudWorkerClient'
+import { COVERAGE_TABLE_SIZE, BASE_NOISE_SIZE, DETAIL_NOISE_SIZE } from '@/atmosphere/cloud/cloudNoise3d'
+import { GENUS_CODE, GENUS_PROFILE_SAMPLES, GENUS_SHAPE, genusProfileTable, type CloudGenus } from '@/atmosphere/cloud/cloudType'
+
+/** Genres dans l'ordre de leur code. */
+const GENERA = (Object.keys(GENUS_CODE) as CloudGenus[]).sort((a, b) => GENUS_CODE[a] - GENUS_CODE[b])
 
 /**
  * Nappes nuageuses d'un scenario meteo, jusqu'a l'horizon.
@@ -139,6 +148,14 @@ function cloudUniforms() {
       uPass: { value: 0 },
       uStructure: { value: null as Texture | null },
       uDetail: { value: null as Texture | null },
+      uBase: { value: null as Texture | null },
+      uErode: { value: null as Texture | null },
+      uCellKm: { value: 1 },
+      uCoverThreshold: { value: new Float32Array(COVERAGE_TABLE_SIZE) },
+      uCoverMean: { value: new Float32Array(COVERAGE_TABLE_SIZE).fill(1) },
+      uGenusProfile: { value: genusProfileTable() },
+      uGenusCell: { value: Float32Array.from(GENERA.map((g) => GENUS_SHAPE[g].cellToDepth)) },
+      uGenusBillow: { value: Float32Array.from(GENERA.map((g) => GENUS_SHAPE[g].billow)) },
   }
 }
 
@@ -171,6 +188,32 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       uniform float uPass;
       uniform sampler2D uStructure;
       uniform highp sampler3D uDetail;
+      uniform highp sampler3D uBase;
+      uniform highp sampler3D uErode;
+      /** Maille de la forme des nuages proches, km. */
+      uniform float uCellKm;
+      uniform float uCoverThreshold[${COVERAGE_TABLE_SIZE}];
+      uniform float uCoverMean[${COVERAGE_TABLE_SIZE}];
+      uniform float uGenusProfile[${GENERA.length * GENUS_PROFILE_SAMPLES}];
+      uniform float uGenusCell[${GENERA.length}];
+      uniform float uGenusBillow[${GENERA.length}];
+
+      /** Seuil et densite moyenne de la table de couverture, interpoles. */
+      vec2 coverageLookup(float c) {
+        float x = clamp(c, 0.0, 1.0) * ${COVERAGE_TABLE_SIZE - 1}.0;
+        int i0 = int(floor(x));
+        int i1 = min(i0 + 1, ${COVERAGE_TABLE_SIZE - 1});
+        float f = x - float(i0);
+        return vec2(mix(uCoverThreshold[i0], uCoverThreshold[i1], f), mix(uCoverMean[i0], uCoverMean[i1], f));
+      }
+      /** Profil vertical du genre \`code\`, a la hauteur relative \`h\`. */
+      float genusProfile(float code, float h) {
+        float x = clamp(h, 0.0, 1.0) * ${GENUS_PROFILE_SAMPLES - 1}.0;
+        int base = int(code) * ${GENUS_PROFILE_SAMPLES};
+        int i0 = int(floor(x));
+        int i1 = min(i0 + 1, ${GENUS_PROFILE_SAMPLES - 1});
+        return mix(uGenusProfile[base + i0], uGenusProfile[base + i1], x - float(i0));
+      }
 
       /**
        * Le champ de structure, lu dans sa texture precalculee — une lecture au
@@ -202,7 +245,27 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         float n = uGrid.x;
         float half_ = (n - 1.0) * 0.5;
         vec2 ij = clamp(enKm / spacingKm + half_, vec2(0.0), vec2(n - 1.0));
-        return texture2D(tex, vec2((ij.x + 0.5) / n, (k * n + ij.y + 0.5) / (3.0 * n)));
+        // Interpolation faite ici, en flottants : celle du materiel quantifie ses
+        // poids au 1/256 de maille — des marches de 23 m sur la grille proche,
+        // de 400 m sur la lointaine, que le seuil des nuages rendait visibles.
+        vec2 i0 = min(floor(ij), vec2(n - 2.0));
+        vec2 w = ij - i0;
+        float rows = 6.0 * n;
+        vec4 a = texture2D(tex, vec2((i0.x + 0.5) / n, (k * n + i0.y + 0.5) / rows));
+        vec4 b = texture2D(tex, vec2((i0.x + 1.5) / n, (k * n + i0.y + 0.5) / rows));
+        vec4 c = texture2D(tex, vec2((i0.x + 0.5) / n, (k * n + i0.y + 1.5) / rows));
+        vec4 e = texture2D(tex, vec2((i0.x + 1.5) / n, (k * n + i0.y + 1.5) / rows));
+        return mix(mix(a, b, w.x), mix(c, e, w.x), w.y);
+      }
+      /** Genre de l'etage \`k\` au point : code entier, au plus proche point de grille. */
+      float genusAt(vec2 enKm, float k) {
+        float n = uGrid.x;
+        float half_ = (n - 1.0) * 0.5;
+        bool nearGrid = max(abs(enKm.x), abs(enKm.y)) < 18.0;
+        float spacing = nearGrid ? uGrid.z : uGrid.y;
+        vec2 ij = floor(clamp(enKm / spacing + half_, vec2(0.0), vec2(n - 1.0)) + 0.5);
+        vec2 uv = vec2((ij.x + 0.5) / n, ((k + 3.0) * n + ij.y + 0.5) / (6.0 * n));
+        return floor((nearGrid ? texture2D(uNear, uv).r : texture2D(uFar, uv).r) + 0.5);
       }
       /** Grille proche au centre, lointaine au-dela, raccord entre 15 et 21 km. */
       vec4 fieldAt(vec2 enKm, float k) {
@@ -270,19 +333,21 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       // --- Volume de l'etage bas -------------------------------------------
 
       /**
-       * Seuil de profondeur dans le champ, en ecarts-types, selon la hauteur
-       * relative dans la nappe. Nul a mi-hauteur : la fraction occupee y vaut
-       * exactement la couverture du modele. Il monte vers le sommet — seul le
-       * coeur d'une cellule y parvient, d'ou les dômes — et juste au-dessus de
-       * la base, qui reste plate.
-       */
-      float volumeThreshold(float h) {
-        return 1.4 * pow(smoothstep(0.35, 1.0, h), 1.5) + 0.5 * (1.0 - smoothstep(0.0, 0.05, h));
-      }
-
-      /**
-       * Extinction de l'etage bas au point a \`t\` m sur le rayon \`dir\` parti
-       * de \`origin\` (m, relatif a l'oeil). \`detail\` : le bruit 3D ronge les bords.
+       * Extinction de l'etage bas au point \`pos\` (m, relatif a l'oeil).
+       *
+       * La recette d'Horizon, bornee par la donnee :
+       * 1. **Forme de base** : un Perlin-Worley 3D, dont la maille suit le genre
+       *    — un cumulus est a peu pres aussi large que haut, un stratocumulus
+       *    six fois plus.
+       * 2. **Couverture** : le seuil est lu dans la table mesuree sur la texture
+       *    elle-meme, de sorte qu'une fraction exactement egale a la couverture
+       *    du modele depasse le seuil la ou le profil vaut 1.
+       * 3. **Profil vertical du genre** : il releve le seuil vers la base et le
+       *    sommet, ce qui arrondit les dômes et aplatit la base.
+       * 4. **Erosion** : un Worley fin ronge les bords seulement — en bourgeons
+       *    pour les nuages convectifs, en filaments pour les autres.
+       * L'epaisseur optique moyenne du modele est conservee : la densite est
+       * divisee par sa moyenne dans le nuage, lue dans la meme table.
        */
       float volumeExtinction(vec3 pos, float footprint, bool detail) {
         vec3 up;
@@ -294,31 +359,45 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         float hEye = t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
         vec4 f = fieldAt(en, 0.0);
         float thickness = max(1.0, f.z - f.y);
-        float h = (uEyeAltitude + hEye - f.y) / thickness;
+        float z = uEyeAltitude + hEye;
+        float h = (z - f.y) / thickness;
         if (h < 0.0 || h > 1.0 || f.x <= 0.001 || f.w < 0.0) return 0.0;
-        vec2 p = (en - drift(0.0)) / scaleOf(0.0);
-        // Profondeur dans la cellule, en ecarts-types : > 0 dans le nuage.
-        vec2 st = bakedStructure(p, footprint);
-        float sigmaFull = ${structureSigma().toFixed(5)};
-        float inside = (sigmaFull * cloudNormalQuantile(f.x) - st.x) / sigmaFull;
-        // Forme de base, douce sur un ecart-type : c'est l'enveloppe. Le
-        // detail ne l'erode qu'ensuite, et seulement la ou elle est deja
-        // faible — le coeur reste plein, les bords se decoupent (Schneider 2015).
-        float base = smoothstep(volumeThreshold(h) - 0.12, volumeThreshold(h) + 0.9, inside);
-        if (!detail || base <= 0.0) return base * f.w / thickness;
-        vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / uDetailKm;
-        vec4 b = texture(uDetail, q / ${DETAIL_PERIOD}.0);
-        vec4 e = texture(uDetail, q * 3.7 / ${DETAIL_PERIOD}.0 + 0.37);
-        // Bourgeons en haut (octaves repliees), filaments en bas (les memes,
-        // inversees) : la convection bourgeonne, la base s'effiloche.
-        float billow = 0.5 * (1.0 - abs(2.0 * b.r - 1.0)) + 0.3 * (1.0 - abs(2.0 * b.g - 1.0)) + 0.2 * b.b;
-        float wisp = 1.0 - billow;
-        float n = mix(wisp, billow, smoothstep(0.0, 0.25, h));
-        n = 0.7 * n + 0.3 * (0.5 * e.r + 0.3 * e.g + 0.2 * e.b);
-        // Contraste : le bruit somme se tasse autour de 0,5 ; etire, il decoupe.
-        float erosion = smoothstep(0.3, 0.7, n) * (0.55 + 0.3 * h);
-        float density = clamp((base - erosion) / max(1e-3, 1.0 - erosion), 0.0, 1.0);
-        return density * f.w / thickness;
+        float code = genusAt(en, 0.0);
+        int gi = int(code);
+        // Maille de la forme, km : **uniforme** pour la carte, tiree du genre a
+        // l'aplomb. Variable d'un point a l'autre, elle divisait une coordonnee
+        // que la derive du vent porte a des centaines de kilometres : un
+        // millieme de variation y decalait le bruit de dizaines de texels.
+        float cellKm = uCellKm;
+        // Horizontalement, quatre mailles par periode de texture ; verticalement,
+        // la hauteur relative dans le nuage, pour que le bruit change de la base
+        // au sommet — sinon un nuage plus mince que sa maille serait un prisme
+        // extrude, aux flancs verticaux.
+        vec2 qh = (en - drift(0.0)) / (4.0 * cellKm);
+        // Ramenee dans [0, 1[ : la texture est periodique, et la derive du vent
+        // porte la coordonnee a des dizaines de periodes, ou l'unite de texture
+        // perd la precision sous le texel et n'interpole plus.
+        vec3 q = fract(vec3(qh.x, 0.25 * h, qh.y));
+        // Niveau explicite : cette lecture suit des sorties anticipees, donc un
+        // flot divergent, ou les derivees implicites sont indefinies — et avec
+        // elles le filtrage, qui degenerait en plus proche voisin.
+        float n = textureLod(uBase, q, 0.0).r;
+        vec2 cover = coverageLookup(f.x);
+        float profile = genusProfile(code, h);
+        float threshold = mix(1.0, cover.x, profile);
+        float d = clamp((n - threshold) / max(1e-3, 1.0 - threshold), 0.0, 1.0);
+        if (d <= 0.0) return 0.0;
+        if (detail) {
+          // Erosion isotrope : une periode par maille, dans les trois directions.
+          float e = textureLod(uErode, fract(vec3(en.x - drift(0.0).x, z * 1e-3, en.y - drift(0.0).y) / cellKm), 0.0).r;
+          // Bourgeons (convectifs) ou filaments (stratiformes) : le meme bruit,
+          // retourne. Pas de filaments sous un cumulus : sa base est la surface
+          // de condensation, nette et plate.
+          float style = mix(1.0 - e, e, uGenusBillow[gi]);
+          float erosion = 0.35 * style;
+          d = clamp((d - erosion) / (1.0 - erosion), 0.0, 1.0);
+        }
+        return d / cover.y * f.w / thickness;
       }
 
       /**
@@ -339,29 +418,38 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         // tant qu'on est hors du nuage ; des qu'elle est touchee, un pas en
         // arriere et des pas fins, a l'echelle du detail, avec le detail. Apres
         // huit echantillons vides, on repart a grands pas.
-        float coarse = max(80.0, (t1 - t0) / 48.0);
-        float fine = max(15.0, 200.0 * uDetailKm);
-        // Decalage de depart : bruit a gradient entrelace, tourne du nombre d'or
-        // a chaque passe — les passes accumulees couvrent tout le pas.
-        float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + 0.618034 * uPass);
+        // Base orthonormee autour du Soleil, pour le cone d'echantillons d'ombre.
+        vec3 sa = normalize(cross(sunDir, abs(sunDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 sb = cross(sunDir, sa);
+        vec3 upStart;
+        // Pas fin : un cinquieme de la plus petite structure d'erosion (la maille
+        // divisee par huit), pour ne pas la sous-echantillonner.
+        float fine = clamp(uCellKm * 1000.0 / 40.0, 8.0, 60.0);
+        // Grand pas : jamais plus de deux pas fins, sans quoi il saute les
+        // morceaux de nuage plus minces que lui — au hasard d'un texel a l'autre.
+        float coarse = clamp((t1 - t0) / 64.0, fine, 2.0 * fine);
+        // Decalage de depart : bruit blanc par texel (Hoskins), puis tourne du
+        // nombre d'or a chaque passe — les passes couvrent le pas de facon
+        // stratifiee. Pas de motif structure (bruit a gradient entrelace) : sa
+        // correlation le long d'un axe dessinait des stries sur les bords rasants.
+        vec3 h3 = fract(vec3(gl_FragCoord.xyx) * 0.1031);
+        h3 += dot(h3, h3.yzx + 33.33);
+        float jitter = fract(fract((h3.x + h3.y) * h3.z) + 0.618034 * uPass);
         float T = 1.0;
         vec3 L = vec3(0.0);
         float cosTheta = dot(d, sunDir);
         float phase0 = cloudDropletPhase(uDroplet, cosTheta);
-        float phase1 = cloudHenyeyGreenstein(0.5 * g, cosTheta);
-        float phase2 = cloudHenyeyGreenstein(0.25 * g, cosTheta);
-        // Base orthonormee autour du Soleil, pour le cone d'echantillons d'ombre.
-        vec3 sa = normalize(cross(sunDir, abs(sunDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-        vec3 sb = cross(sunDir, sa);
         float t = t0 + jitter * coarse;
         bool inCloud = false;
+        bool lastEmpty = true;
         int empty = 0;
-        for (int s = 0; s < 256; s++) {
+        for (int s = 0; s < 512; s++) {
           if (t > t1 || T < 0.01) break;
           vec3 pos = d * t;
           if (!inCloud) {
             if (volumeExtinction(pos, footprint, false) > 0.0) {
               inCloud = true;
+              lastEmpty = true;
               empty = 0;
               t = max(t0, t - coarse) + jitter * fine;
             } else {
@@ -372,9 +460,27 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
           float sigma = volumeExtinction(pos, footprint, true);
           if (sigma <= 0.0) {
             if (++empty > 8) inCloud = false;
+            lastEmpty = true;
             t += fine;
             continue;
           }
+          // Surface du nuage : un libre parcours y fait une dizaine de metres,
+          // moins qu'un pas. On la situe par dichotomie entre le dernier
+          // echantillon vide et celui-ci — sinon sa position tomberait au hasard
+          // dans le pas, d'un texel a l'autre, et les bords se strieraient.
+          if (lastEmpty && t - fine >= t0) {
+            float lo = t - fine;
+            float hi = t;
+            for (int b = 0; b < 5; b++) {
+              float mid = 0.5 * (lo + hi);
+              if (volumeExtinction(d * mid, footprint, true) > 0.0) hi = mid;
+              else lo = mid;
+            }
+            t = hi;
+            pos = d * t;
+            sigma = max(sigma, volumeExtinction(pos, footprint, true));
+          }
+          lastEmpty = false;
           empty = 0;
           // Ombre : cinq echantillons dans un cone vers le Soleil, de 30 a 480 m,
           // avec le detail pres du point ; puis un lointain, a 1,5 km, sur la
@@ -398,14 +504,22 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
           float z = uEyeAltitude + t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
           float tauUp = sigma * max(0.0, f.z - z);
           float tauDown = sigma * max(0.0, z - f.y);
-          // Effet « powder » : pres de la surface eclairee, il y a peu de nuage
-          // autour du point pour y renvoyer de la lumiere diffusee plusieurs
-          // fois. Les ordres multiples y sont reduits ; la diffusion simple
-          // non. D'ou les bords sombres d'un cumulus vu dos au Soleil.
-          float powder = 1.0 - exp(-2.0 * shadowTau);
-          vec3 direct = sun * (
-            phase0 * exp(-shadowTau)
-            + powder * (0.5 * phase1 * exp(-0.5 * shadowTau) + 0.25 * phase2 * exp(-0.25 * shadowTau)));
+          // Diffusion multiple, calee sur Eddington (\`cloudLayer.ts\`) : dans
+          // une couche non absorbante, la lumiere diffusee plusieurs fois est
+          // presque isotrope, et sa luminance moyenne decroît lineairement de la
+          // face eclairee — ou elle vaut R·E·μ₀/π, ce que la couche renvoie —
+          // a la face opposee — ou elle vaut T·E·μ₀/π, ce qu'elle transmet. La
+          // profondeur est celle du trajet vers le Soleil, ramenee a la
+          // verticale : la face eclairee d'un cumulus est celle qui voit le
+          // Soleil, quelle que soit son orientation. Un nuage epais eclaire de
+          // face renvoie ainsi 70 a 90 % de la lumiere, et paraît blanc.
+          float tau0 = max(0.05, abs(f.w));
+          float mu0 = dot(sunDir, up);
+          float muS = max(abs(mu0), 0.05);
+          vec3 ed = cloudEddington(tau0, g, muS);
+          float depth = clamp(shadowTau * muS / tau0, 0.0, 1.0);
+          vec3 multiple = sun * (muS / PI) * mix(ed.x, ed.y, depth);
+          vec3 direct = sun * phase0 * exp(-shadowTau) + multiple;
           vec3 ambient = 0.5 * (sky / PI) * exp(-(1.0 - g) * tauUp)
             + 0.5 * (${GROUND_ALBEDO} * atGround / PI) * exp(-(1.0 - g) * tauDown);
           vec3 S = sigma * (direct + ambient);
@@ -425,7 +539,6 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       vec4 cloudShade(vec3 d) {
         float mu = d.y;
         vec3 sunDir = normalize(uAerialSunDir);
-
         // Le sol arrete le rayon : rien au-dela.
         float tGround = mu < 0.0 ? shellHit(mu, uGroundAltitude - uEyeAltitude, true) : -1.0;
 
@@ -623,7 +736,7 @@ const CACHE_WIDTH = 4096
 const CACHE_HEIGHT = 1152
 const CACHE_MIN_ELEVATION_DEG = -12
 /** Passes accumulees par carte. La premiere seule suffit a l'afficher. */
-const CACHE_PASSES = 4
+const CACHE_PASSES = 6
 /** Lignes par image : bornes de la cadence adaptative, et cadence sous le loader. */
 const ROWS_MIN = 4
 const ROWS_MAX = 64
@@ -944,6 +1057,36 @@ export function CloudLayer({
       u.uStructure.value = noise.structure
       u.uDetail.value = noise.detail
     }
+    // Bruits 3D des nuages proches, generes par le worker avec le premier champ.
+    const noise3d = receivedCloudNoise()
+    if (noise3d && !u.uBase.value) {
+      // Demi-flottants et non octets : le nuage est une isosurface prise a un
+      // seuil raide, et l'interpolation d'une texture 8 bits, quantifiee,
+      // l'alignait sur la grille des texels — des escaliers.
+      const volume = (bytes: Uint8Array, size: number) => {
+        const data = new Uint16Array(bytes.length)
+        for (let i = 0; i < bytes.length; i++) data[i] = DataUtils.toHalfFloat(bytes[i] / 255)
+        const t = new Data3DTexture(data as Uint16Array<ArrayBuffer>, size, size, size)
+        t.format = RedFormat
+        t.type = HalfFloatType
+        t.magFilter = LinearFilter
+        t.minFilter = LinearFilter
+        t.wrapS = t.wrapT = t.wrapR = RepeatWrapping
+        t.unpackAlignment = 1
+        t.needsUpdate = true
+        return t
+      }
+      const base = volume(noise3d.base, BASE_NOISE_SIZE)
+      const erode = volume(noise3d.detail, DETAIL_NOISE_SIZE)
+      for (const m of [fill, viewFill]) {
+        m.uniforms.uBase.value = base
+        m.uniforms.uErode.value = erode
+        ;(m.uniforms.uCoverThreshold.value as Float32Array).set(noise3d.threshold)
+        ;(m.uniforms.uCoverMean.value as Float32Array).set(noise3d.meanDensity)
+      }
+    }
+    // Sans eux, rien a construire : la carte attendrait des nuages vides.
+    const noiseReady = u.uBase.value != null
 
     // Nouveau scenario : les deux cartes repartent de zero.
     if (st.scenarioId !== scenario.id) {
@@ -995,7 +1138,7 @@ export function CloudLayer({
       }
 
       // --- Une bande de la carte en construction.
-      if (st.build) {
+      if (st.build && noiseReady) {
         const b = buffers[st.build.buffer]
         if (delta > 1 / 45) st.rows = Math.max(ROWS_MIN, Math.floor(st.rows * 0.8))
         else if (delta < 1 / 58) st.rows = Math.min(ROWS_MAX, st.rows + 1)
@@ -1138,6 +1281,8 @@ export function CloudLayer({
         build: st.build && { ...st.build },
         view: { passes: view.passes, row: view.row, building: view.building, zoomed, weight: viewWeight },
         rows: st.rows,
+        thresholds: Array.from((u.uCoverThreshold.value as Float32Array).filter((_, i) => i % 4 === 0)).map((v) => +v.toFixed(3)),
+        base: u.uBase.value && { min: (u.uBase.value as Texture).minFilter, mag: (u.uBase.value as Texture).magFilter, fmt: (u.uBase.value as Texture).format, img: [(u.uBase.value as Data3DTexture).image.width, (u.uBase.value as Data3DTexture).image.depth] },
       }
   })
 
@@ -1177,6 +1322,7 @@ function applyBufferUniforms(
     // espacement vaut quelques fois leur taille. Une cellule de 4 km sur un
     // nuage de 300 m ferait une galette.
     const depthKm = Math.max(0.1, (b.overhead[0].topM - b.overhead[0].baseM) / 1000)
+    u.uCellKm.value = Math.min(12, Math.max(0.5, GENUS_SHAPE[b.overhead[0].genus ?? 'Cu'].cellToDepth * depthKm))
     u.uScale.value.x = Math.min(STRUCTURE_SCALE_KM[0], Math.max(0.8, CELL_TO_DEPTH * depthKm))
     u.uDetailKm.value = Math.min(0.6, Math.max(0.12, 0.45 * depthKm))
   }

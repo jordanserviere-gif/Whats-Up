@@ -64,6 +64,7 @@
  */
 import { extinctionCoefficient } from './microphysics'
 import type { ConvectiveCloud } from './convection'
+import type { CloudGenus } from './cloudType'
 
 export type CloudStage = 'bas' | 'moyen' | 'haut'
 export const CLOUD_STAGES: readonly CloudStage[] = ['bas', 'moyen', 'haut']
@@ -121,6 +122,8 @@ export interface CloudSlab {
   opticalDepth: number
   /** Glace plutot qu'eau : pilote la phase et l'asymetrie. */
   ice: boolean
+  /** Genre, s'il a ete determine — voir \`cloudType.ts\`. */
+  genus?: CloudGenus
 }
 
 /**

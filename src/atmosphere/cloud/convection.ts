@@ -92,6 +92,8 @@ export interface ConvectiveCloud {
   topM: number
   /** Eau liquide moyenne dans le nuage, kg/m³. */
   liquidKgM3: number
+  /** La parcelle monte-t-elle librement, ou est-elle bridee sous une inversion ? */
+  free: boolean
 }
 
 function environmentAt(levels: readonly EnvironmentLevel[], z: number) {
@@ -122,8 +124,8 @@ const FREE_WITHIN_M = 300
  *   ou jusqu'a ce que son eau soit evaporee.
  * - **Cumulus bride** : sinon, les thermiques la poussent dans l'inversion
  *   sans qu'elle flotte jamais ; le nuage occupe la couche d'inversion, dont
- *   le sommet est le premier niveau ou le gradient redevient superieur a
- *   4,5 K/km. C'est le cumulus humilis des apres-midi sous une subsidence.
+ *   le sommet est au milieu de l'intervalle de niveaux ou le gradient
+ *   redevient superieur a 4,5 K/km. C'est le cumulus humilis des apres-midi sous une subsidence.
  */
 export function convectiveCloud(
   surface: Surface,
@@ -177,7 +179,7 @@ export function convectiveCloud(
     z += STEP_M
   }
   if (free != null && free - base >= 60) {
-    return { baseM: base, topM: free, liquidKgM3: steps > 0 ? liquidSum / steps : 0 }
+    return { baseM: base, topM: free, liquidKgM3: steps > 0 ? liquidSum / steps : 0, free: true }
   }
 
   // --- Bride : le nuage remplit l'inversion ; eau adiabatique, sans melange.
@@ -188,7 +190,9 @@ export function convectiveCloud(
     if (b.heightM <= base) continue
     const lapse = (a.temperatureK - b.temperatureK) / (b.heightM - a.heightM)
     if (lapse > CAP_END_LAPSE) {
-      top = Math.max(top, a.heightM)
+      // L'inversion finit quelque part entre ces deux niveaux archives : le
+      // milieu de l'intervalle est l'estimation sans biais.
+      top = Math.max(top, (a.heightM + b.heightM) / 2)
       break
     }
     top = Math.max(top, b.heightM)
@@ -197,5 +201,5 @@ export function convectiveCloud(
   const mid = (base + top) / 2
   const env = environmentAt(levels, mid)
   const liquid = saturationAdjust(sl0, qt0, mid, env.p).liquid
-  return { baseM: base, topM: top, liquidKgM3: liquid * (env.p / (RD * env.t)) }
+  return { baseM: base, topM: top, liquidKgM3: liquid * (env.p / (RD * env.t)), free: false }
 }

@@ -1,4 +1,4 @@
-import type { CloudWorkRequest, CloudWorkResult } from './cloudWorker'
+import type { CloudNoise, CloudWorkRequest, CloudWorkResult } from './cloudWorker'
 
 /**
  * Acces au worker des nuages. Une seule demande compte a la fois : la plus
@@ -9,11 +9,16 @@ let worker: Worker | null = null
 let nextId = 1
 let latest = 0
 const pending = new Map<number, (r: CloudWorkResult) => void>()
+let noise: CloudNoise | null = null
+
+/** Bruits 3D recus du worker — gardes meme si la reponse qui les portait etait perimee. */
+export const receivedCloudNoise = (): CloudNoise | null => noise
 
 function ensureWorker(): Worker {
   if (worker) return worker
   worker = new Worker(new URL('./cloudWorker.ts', import.meta.url), { type: 'module' })
   worker.onmessage = (event: MessageEvent<CloudWorkResult>) => {
+    if (event.data.noise) noise = event.data.noise
     const resolve = pending.get(event.data.requestId)
     pending.delete(event.data.requestId)
     if (resolve && event.data.requestId === latest) resolve(event.data)
