@@ -29,6 +29,23 @@ const PHRASE_MS = 2200
 const LOADING_BUILD_BUDGET_MS = 10
 
 /**
+ * Sortie en rideaux : des bandes obliques traversent l'ecran de gauche a
+ * droite, decalees d'un temps. Elles s'empilent jusqu'a couvrir tout l'ecran,
+ * le loader disparait dessous, et la derniere, en repartant, decouvre la vue.
+ */
+const WIPE_BANDS = 4
+/** Duree de la traversee d'une bande, ms. */
+const WIPE_BAND_MS = 900
+/** Decalage entre deux bandes, ms. */
+const WIPE_STAGGER_MS = 110
+/**
+ * Instant ou la derniere bande couvre l'ecran : sa traversee y est a mi-course
+ * (voir `@keyframes app-wipe`). Le loader est retire la, sous elle.
+ */
+const WIPE_COVER_MS = (WIPE_BANDS - 1) * WIPE_STAGGER_MS + WIPE_BAND_MS * 0.5
+const WIPE_TOTAL_MS = (WIPE_BANDS - 1) * WIPE_STAGGER_MS + WIPE_BAND_MS
+
+/**
  * Periodes des animations, s. La lueur ondule en trois secondes ; l'echelle
  * tremble a 1,5 Hz, chaque axe pour son compte.
  */
@@ -80,6 +97,9 @@ export function AppLoader() {
   const site = `${location.latitude},${location.longitude}`
 
   const [active, setActive] = useState(true)
+  /** Rideaux en cours ; la cle les rejoue a chaque fermeture. */
+  const [wipe, setWipe] = useState<number | null>(null)
+  const closing = useRef(false)
   const [steps, setSteps] = useState<Step[]>([])
   const startedAt = useRef(performance.now())
   const firstSite = useRef(site)
@@ -125,7 +145,21 @@ export function AppLoader() {
           : next,
       )
       const elapsed = performance.now() - startedAt.current
-      if ((elapsed >= MIN_VISIBLE_MS && next.every((s) => s.done)) || elapsed >= MAX_VISIBLE_MS) setActive(false)
+      if (((elapsed >= MIN_VISIBLE_MS && next.every((s) => s.done)) || elapsed >= MAX_VISIBLE_MS) && !closing.current) {
+        closing.current = true
+        // Mouvement reduit : un simple fondu, sans rideaux.
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          setActive(false)
+          closing.current = false
+          return
+        }
+        setWipe(performance.now())
+        window.setTimeout(() => {
+          setActive(false)
+          closing.current = false
+        }, WIPE_COVER_MS)
+        window.setTimeout(() => setWipe(null), WIPE_TOTAL_MS + 50)
+      }
     }
     tick()
     const id = window.setInterval(tick, POLL_MS)
@@ -133,7 +167,15 @@ export function AppLoader() {
   }, [active, terrainOn])
 
   return (
-    <div className={cx('app-loader', active && 'is-active')} aria-hidden={!active} role="status" aria-live="polite">
+    <>
+    {wipe != null && (
+      <div key={wipe} className="app-wipe" aria-hidden="true" style={{ '--wipe-band-ms': `${WIPE_BAND_MS}ms` } as CSSProperties}>
+        {Array.from({ length: WIPE_BANDS }, (_, i) => (
+          <div key={i} className={`app-wipe__band app-wipe__band--${i}`} style={{ animationDelay: `${i * WIPE_STAGGER_MS}ms` }} />
+        ))}
+      </div>
+    )}
+    <div className={cx('app-loader', active && 'is-active', wipe != null && 'is-wiping')} aria-hidden={!active} role="status" aria-live="polite">
       <div
         className="app-loader__stars"
         style={{ aspectRatio: `${SPAN_X} / ${SPAN_Y}` }}
@@ -195,5 +237,6 @@ export function AppLoader() {
         ))}
       </ul>
     </div>
+    </>
   )
 }
