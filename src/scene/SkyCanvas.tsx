@@ -738,6 +738,8 @@ export function SkyCanvas() {
             sunIrradiance={sunIrradiance}
             skyExposure={skyExposure}
             nightTint={colors.nightTint}
+            moonDirection={moonDirection}
+            moonIrradiance={moonIrradiance}
           />
         )}
         {layers.terrain && (

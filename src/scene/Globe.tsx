@@ -1,11 +1,14 @@
 import { useMemo } from 'react'
-import { BackSide, ShaderMaterial, Vector3 } from 'three'
+import { BackSide, ShaderMaterial, Vector3, type Texture } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { horizonDipDeg } from '@/atmosphere/refraction/rayBending'
 import { defaultAtmosphereState } from '@/atmosphere/state/AtmosphereState'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
 import { aerialTextures, aerialUniforms, applyAerialUniforms } from './useAerialLut'
 import { GROUND_RADIUS } from './sceneMath'
+import { WATER_COMMON_GLSL, totalSlopeVariance } from './terrain/waterShading'
+import { waterHalfSpans, waterTextures } from './terrain/waterMask'
+import { currentSeaState } from '@/data-sources/seaState'
 import { effectiveEarthRadiusM } from './terrain/ridgeField'
 import { eyeAltitudeM } from './terrain/elevationField'
 
@@ -105,6 +108,8 @@ export function Globe({
   sunIrradiance,
   skyExposure,
   nightTint = null,
+  moonDirection = [0, -1, 0],
+  moonIrradiance = [0, 0, 0],
 }: {
   /** Altitude de l'observateur, metres — elle seule fixe ou est l'horizon. */
   observerElevationM: number
@@ -116,6 +121,9 @@ export function Globe({
   skyExposure: number
   /** Teinte du theme night, RGB lineaire, ou `null` hors night — voir `Terrain`. */
   nightTint?: readonly [number, number, number] | null
+  /** Pour le reflet de la Lune sur l'eau lointaine. */
+  moonDirection?: readonly [number, number, number]
+  moonIrradiance?: readonly [number, number, number]
 }) {
   const material = useMemo(
     () =>
@@ -140,6 +148,14 @@ export function Globe({
           uEffectiveRadius: { value: 6_371_000 },
           uNight: { value: 0 },
           uNightTint: { value: new Vector3(1, 1, 1) },
+          uWater0: { value: null as Texture | null },
+          uWater1: { value: null as Texture | null },
+          uWater2: { value: null as Texture | null },
+          uWaterHalfSpan: { value: new Vector3(1, 1, 1) },
+          uWaterOn: { value: 0 },
+          uMoonDirection: { value: new Vector3(0, -1, 0) },
+          uMoonIrradiance: { value: new Vector3() },
+          uSeaSlopeVariance: { value: 0.03 },
         },
         vertexShader: /* glsl */ `
           varying vec3 vDir;
@@ -151,6 +167,8 @@ export function Globe({
         `,
         fragmentShader: /* glsl */ `
           ${AERIAL_LUT_GLSL}
+          ${WATER_COMMON_GLSL}
+          uniform float uSeaSlopeVariance;
           varying vec3 vDir;
           uniform vec3 uSunDirection;
           uniform vec3 uSunIrradiance;
@@ -192,10 +210,27 @@ export function Globe({
             // recu divise par pi, quelle que soit la direction de sortie.
             vec3 outgoing = uAlbedo * irradiance / 3.14159265;
 
+            // --- L'eau, la ou le relief ne porte pas -----------------------
+            // Le globe comble ce que le maillage du relief laisse ouvert, au
+            // ras de l'horizon notamment. Sans eau, il y dessinait une bande de
+            // sol mat entre la mer et les montagnes. Pas de vagues ici : la
+            // seule statistique, avec la variance totale des pentes.
+            vec2 en = vec2(range * d.x, -range * d.z);
+            vec2 wm = waterAt(en);
+            vec3 skyReflection = vec3(0.0);
+            if (wm.x > 0.004) {
+              vec3 reflected;
+              vec3 waterOut = waterLight(d, N, N, uSeaSlopeVariance, wm.y > 0.5 * wm.x, uSunIrradiance, uSkyIrradiance,
+                normalize(uSunDirection), true, reflected);
+              outgoing = mix(outgoing, waterOut, wm.x);
+              skyReflection = wm.x * reflected;
+            }
+
             // --- Le trajet jusqu'a l'oeil -----------------------------------
             vec3 transmittance;
             vec3 haze = aerialPerspective(d, range, transmittance);
-            vec3 radiance = outgoing * transmittance * uAerialExposure + haze;
+            vec3 radiance = outgoing * transmittance * uAerialExposure + skyReflection * transmittance + haze;
+            radiance = min(radiance, vec3(3.0e4));
             // Theme night : meme conversion que le relief, luminance → ambre.
             float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
             gl_FragColor = vec4(mix(radiance, luma * uNightTint, uNight), 1.0);
@@ -216,6 +251,18 @@ export function Globe({
     // diffus nourrit les deux surfaces.
     const sky = aerialTextures.skyIrradiance
     ;(u.uSkyIrradiance.value as Vector3).set(sky[0], sky[1], sky[2])
+    const water = waterTextures()
+    u.uWaterOn.value = water.length === 3 ? 1 : 0
+    if (water.length === 3) {
+      u.uWater0.value = water[0]
+      u.uWater1.value = water[1]
+      u.uWater2.value = water[2]
+      const spans = waterHalfSpans()
+      ;(u.uWaterHalfSpan.value as Vector3).set(spans[0], spans[1], spans[2])
+      u.uSeaSlopeVariance.value = totalSlopeVariance(currentSeaState())
+    }
+    ;(u.uMoonDirection.value as Vector3).set(moonDirection[0], moonDirection[1], moonDirection[2])
+    ;(u.uMoonIrradiance.value as Vector3).set(moonIrradiance[0], moonIrradiance[1], moonIrradiance[2])
     // ## Le globe est au niveau de la mer, et c'est ce qu'il faut
     //
     // On pourrait le croire mal place : un observateur alpin le verrait mille

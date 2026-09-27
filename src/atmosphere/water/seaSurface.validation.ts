@@ -16,6 +16,8 @@ import {
   fresnelDielectric,
   fullyDevelopedSea,
   jonswap,
+  cascadeSpectrum,
+  OCEAN_CASCADES,
   slopeVarianceOf,
   waveTrains,
 } from './seaSurface'
@@ -46,6 +48,24 @@ export function seaSurfaceSuite(): SuiteResult {
       `pentes des trains (${slopeVarianceOf(waves).toFixed(4)}) sous Cox & Munk (${coxMunkSlopeVariance(8).toFixed(4)})`,
       slopeVarianceOf(waves) < coxMunkSlopeVariance(8),
     )
+    // Transformee de Fourier : les cascades couvrent la bande sans se recouvrir,
+    // et la variance de l'elevation qu'elles portent vaut Hs²/16 — a la part du
+    // spectre sous la plus grande longueur d'onde pres.
+    const swellish = { hs: 2, tp: 8, towardDeg: 45, spreading: 6 }
+    let heightVar = 0
+    let sampled = 0
+    OCEAN_CASCADES.forEach((c, i) => {
+      const r = cascadeSpectrum(c, [swellish], 100 + i)
+      heightVar += r.heightVariance
+      for (let k = 0; k < r.h0.length; k += 4) sampled += r.h0[k] ** 2 + r.h0[k + 1] ** 2 + r.h0[k + 2] ** 2 + r.h0[k + 3] ** 2
+    })
+    t.checkRelative('cascades : variance de l’elevation = Hs²/16', heightVar, (2 * 2) / 16, 0.05)
+    t.checkRelative('cascades : variance tiree (Σ|h0|²) = variance du spectre', sampled, heightVar, 0.08)
+    t.checkTrue(
+      'cascades jointives, sans recouvrement',
+      OCEAN_CASCADES.every((c, i) => i === 0 || Math.abs(c.kMin - OCEAN_CASCADES[i - 1].kMax) < 1e-9),
+    )
+
     const lake = fetchLimitedSea(8, 5000)
     t.checkTrue(`lac : mer limitee par le fetch (Hs ${lake.hs.toFixed(2)} m) sous la mer levee (${sea.hs.toFixed(2)} m)`, lake.hs < sea.hs && lake.tp < sea.tp)
   })

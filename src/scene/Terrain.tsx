@@ -128,8 +128,9 @@ import { loadNearField } from './terrain/nearField'
 import { zoomForResolution } from './terrain/geodesy'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
 import { loadWaterAround, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
-import { LAKE_WAVES, OCEAN_WAVES } from '@/atmosphere/water/seaSurface'
-import { WATER_GLSL, WATER_VERTEX_GLSL, packWaves, seaWaves, slopeVariance, type SeaState } from './terrain/waterShading'
+import { LAKE_CASCADES, OCEAN_CASCADES } from '@/atmosphere/water/seaSurface'
+import { OceanCascades } from './terrain/oceanFft'
+import { WATER_GLSL, WATER_VERTEX_GLSL, lakeComponents, oceanComponents, totalSlopeVariance, type SeaState } from './terrain/waterShading'
 import { currentSeaState, loadSeaState } from '@/data-sources/seaState'
 import {
   CITY_HALF_SPANS_M,
@@ -611,13 +612,18 @@ function terrainMaterial(): ShaderMaterial {
       uWater2: { value: null as Texture | null },
       uWaterHalfSpan: { value: new Vector3(1, 1, 1) },
       uWaterOn: { value: 0 },
-      uOceanWaveA: { value: new Float32Array(OCEAN_WAVES * 4) },
-      uOceanWaveB: { value: new Float32Array(OCEAN_WAVES * 2) },
-      uLakeWaveA: { value: new Float32Array(LAKE_WAVES * 4) },
-      uLakeWaveB: { value: new Float32Array(LAKE_WAVES * 2) },
-      uWaveTime: { value: 0 },
-      uOceanSlopeVar: { value: 0.03 },
-      uLakeSlopeVar: { value: 0.03 },
+      uOceanSlope0: { value: null as Texture | null },
+      uOceanSlope1: { value: null as Texture | null },
+      uOceanSlope2: { value: null as Texture | null },
+      uLakeSlope0: { value: null as Texture | null },
+      uLakeSlope1: { value: null as Texture | null },
+      uOceanHeight0: { value: null as Texture | null },
+      uOceanHeight1: { value: null as Texture | null },
+      uLakeHeight0: { value: null as Texture | null },
+      uOceanCascadeM: { value: new Vector3(...OCEAN_CASCADES.map((c) => c.sizeM)) },
+      uLakeCascadeM: { value: new Vector2(...LAKE_CASCADES.map((c) => c.sizeM)) },
+      uOceanResidual: { value: 0.03 },
+      uLakeResidual: { value: 0.03 },
       uWaterPixelAngle: { value: 1e-3 },
       uMoonDirection: { value: new Vector3(0, -1, 0) },
       uMoonIrradiance: { value: new Vector3() },
@@ -1106,6 +1112,15 @@ export function Terrain({
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
   const build = useRef<MeshBuild | null>(null)
   const appliedSea = useRef<SeaState | null>(null)
+  const oceanFft = useMemo(() => new OceanCascades(OCEAN_CASCADES), [])
+  const lakeFft = useMemo(() => new OceanCascades(LAKE_CASCADES), [])
+  useEffect(
+    () => () => {
+      oceanFft.dispose()
+      lakeFft.dispose()
+    },
+    [oceanFft, lakeFft],
+  )
   const shownKey = useRef<string | null>(null)
 
   // La geometrie precedente est liberee **apres** que React a commis la
@@ -1213,7 +1228,7 @@ export function Terrain({
 
   useEffect(() => () => shadowTexture.dispose(), [shadowTexture])
 
-  useFrame(({ camera, size }) => {
+  useFrame(({ camera, size, gl }) => {
     const u = material.uniforms
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
@@ -1235,21 +1250,31 @@ export function Terrain({
       const spans = waterHalfSpans()
       ;(u.uWaterHalfSpan.value as Vector3).set(spans[0], spans[1], spans[2])
     }
-    const sea = currentSeaState()
-    if (sea !== appliedSea.current) {
-      appliedSea.current = sea
-      const waves = seaWaves(sea)
-      const ocean = packWaves(waves.ocean, OCEAN_WAVES)
-      const lake = packWaves(waves.lake, LAKE_WAVES)
-      ;(u.uOceanWaveA.value as Float32Array).set(ocean.a)
-      ;(u.uOceanWaveB.value as Float32Array).set(ocean.b)
-      ;(u.uLakeWaveA.value as Float32Array).set(lake.a)
-      ;(u.uLakeWaveB.value as Float32Array).set(lake.b)
-      const variance = slopeVariance(sea)
-      u.uOceanSlopeVar.value = variance.ocean
-      u.uLakeSlopeVar.value = variance.lake
+    // Vagues : la transformee de Fourier ne tourne que s'il y a de l'eau.
+    if (water.length === 3 && siteHasWater()) {
+      const sea = currentSeaState()
+      if (sea !== appliedSea.current) {
+        appliedSea.current = sea
+        oceanFft.setSpectrum(oceanComponents(sea), 11)
+        lakeFft.setSpectrum(lakeComponents(sea), 31)
+        const total = totalSlopeVariance(sea)
+        // Ce que les cascades ne portent pas — les capillaires — reste en statistique.
+        u.uOceanResidual.value = Math.max(2e-4, total - oceanFft.slopeVariance)
+        u.uLakeResidual.value = Math.max(2e-4, total - lakeFft.slopeVariance)
+      }
+      // Temps ramene sur une heure : au-dela, ω·t perdrait sa precision en flottant.
+      const t = (performance.now() / 1000) % 3600
+      oceanFft.update(gl, t)
+      lakeFft.update(gl, t)
+      u.uOceanSlope0.value = oceanFft.cascades[0].slope.texture
+      u.uOceanSlope1.value = oceanFft.cascades[1].slope.texture
+      u.uOceanSlope2.value = oceanFft.cascades[2].slope.texture
+      u.uLakeSlope0.value = lakeFft.cascades[0].slope.texture
+      u.uLakeSlope1.value = lakeFft.cascades[1].slope.texture
+      u.uOceanHeight0.value = oceanFft.cascades[0].height.texture
+      u.uOceanHeight1.value = oceanFft.cascades[1].height.texture
+      u.uLakeHeight0.value = lakeFft.cascades[0].height.texture
     }
-    u.uWaveTime.value = performance.now() / 1000
     ;(u.uMoonDirection.value as Vector3).set(moonDirection[0], moonDirection[1], moonDirection[2])
     ;(u.uMoonIrradiance.value as Vector3).set(moonIrradiance[0], moonIrradiance[1], moonIrradiance[2])
     u.uWaterPixelAngle.value = (((camera as PerspectiveCamera).fov ?? 60) * DEG) / Math.max(1, size.height)

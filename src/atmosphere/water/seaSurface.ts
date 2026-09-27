@@ -176,3 +176,127 @@ export const LAKE_FETCH_M = 5_000
 /** Reflectance de teledetection de l'eau, sr⁻¹, RGB lineaire — la lumiere qui ressort de l'eau. */
 export const OCEAN_RRS: [number, number, number] = [0.0004, 0.0022, 0.0060]
 export const LAKE_RRS: [number, number, number] = [0.0020, 0.0055, 0.0040]
+
+// --- Spectre en nombre d'onde, pour la transformee de Fourier -----------------
+
+/** Taille des grilles de Fourier. */
+export const FFT_SIZE = 256
+
+/**
+ * Cascades : trois domaines emboites pour la mer (500, 50 et 5 m), deux pour
+ * un lac. Chacune ne porte que sa bande de nombres d'onde — de sa plus grande
+ * longueur d'onde a celle ou commence la suivante — pour qu'aucune vague ne
+ * soit comptee deux fois ; ensemble, elles couvrent de la houle a quatre
+ * centimetres. Plusieurs domaines de tailles premieres entre elles, c'est aussi
+ * ce qui empeche de voir la texture se repeter.
+ */
+export interface Cascade {
+  sizeM: number
+  kMin: number
+  kMax: number
+}
+function cascadesFor(sizes: number[]): Cascade[] {
+  return sizes.map((sizeM, i) => ({
+    sizeM,
+    kMin: i === 0 ? (2 * Math.PI) / sizeM : (Math.PI * FFT_SIZE) / sizes[i - 1],
+    kMax: (Math.PI * FFT_SIZE) / sizeM,
+  }))
+}
+export const OCEAN_CASCADES = cascadesFor([497, 53, 5.3])
+export const LAKE_CASCADES = cascadesFor([53, 5.3])
+
+/** Etalement directionnel de Longuet-Higgins, cos^(2s)(Δθ/2), normalise sur le cercle. */
+function spreading(dTheta: number, s: number): number {
+  const norm = spreadNorm(s)
+  return Math.abs(Math.cos(dTheta / 2)) ** (2 * s) / norm
+}
+const spreadNorms = new Map<number, number>()
+function spreadNorm(s: number): number {
+  let n = spreadNorms.get(s)
+  if (n === undefined) {
+    n = 0
+    const steps = 2000
+    for (let i = 0; i < steps; i++) n += Math.abs(Math.cos((-Math.PI + ((i + 0.5) / steps) * 2 * Math.PI) / 2)) ** (2 * s) * ((2 * Math.PI) / steps)
+    spreadNorms.set(s, n)
+  }
+  return n
+}
+
+/**
+ * Densite spectrale directionnelle en nombre d'onde, m⁴, d'une composante
+ * (mer du vent ou houle) : S(k, θ) = S(f) · df/dk / k · D(θ), avec la
+ * dispersion en eau profonde f = √(g k) / 2π.
+ */
+export function directionalSpectrumK(kx: number, ky: number, c: SeaComponent): number {
+  const k = Math.hypot(kx, ky)
+  if (k <= 0) return 0
+  const f = Math.sqrt(G * k) / (2 * Math.PI)
+  const dfdk = Math.sqrt(G / k) / (4 * Math.PI)
+  // Direction de propagation du vecteur d'onde, depuis le nord vers l'est.
+  const theta = Math.atan2(kx, ky)
+  const toward = (c.towardDeg * Math.PI) / 180
+  const d = theta - toward
+  return (jonswap(f, c.hs, c.tp, c.gamma) * dfdk * spreading(Math.atan2(Math.sin(d), Math.cos(d)), c.spreading)) / k
+}
+
+/** Tirage gaussien deterministe (Box-Muller). */
+function gaussian(rand: () => number): [number, number] {
+  const u = Math.max(1e-12, rand())
+  const v = rand()
+  const r = Math.sqrt(-2 * Math.log(u))
+  return [r * Math.cos(2 * Math.PI * v), r * Math.sin(2 * Math.PI * v)]
+}
+
+/**
+ * Amplitudes initiales de Tessendorf pour une cascade : par texel (indice
+ * d'onde ramene en [0, N)), h0(k) et conj(h0(−k)), RGBA flottants. Variance
+ * par onde : E|h0|² = S(k) Δk² / 2, de sorte que la variance de l'elevation
+ * reconstituee vaille l'integrale du spectre sur la bande.
+ *
+ * Rend aussi la variance de l'elevation et celle des pentes portees par la
+ * cascade : c'est elle qu'on retranche de Cox & Munk pour la part que les
+ * cascades ne portent pas.
+ */
+export function cascadeSpectrum(
+  cascade: Cascade,
+  components: SeaComponent[],
+  seed: number,
+): { h0: Float32Array; heightVariance: number; slopeVariance: number } {
+  const N = FFT_SIZE
+  const dk = (2 * Math.PI) / cascade.sizeM
+  const rand = random(seed)
+  const amp = new Float32Array(N * N * 2)
+  let heightVariance = 0
+  let slopeVariance = 0
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      const n = i < N / 2 ? i : i - N
+      const m = j < N / 2 ? j : j - N
+      const kx = n * dk
+      const ky = m * dk
+      const k = Math.hypot(kx, ky)
+      const [g1, g2] = gaussian(rand)
+      if (k < cascade.kMin || k >= cascade.kMax) continue
+      let s = 0
+      for (const c of components) s += directionalSpectrumK(kx, ky, c)
+      const a = Math.sqrt((s * dk * dk) / 2)
+      // (g1 + i g2)/√2 a pour variance 1 : E|h0|² = a² = S Δk² / 2.
+      amp[(j * N + i) * 2] = (g1 / Math.SQRT2) * a
+      amp[(j * N + i) * 2 + 1] = (g2 / Math.SQRT2) * a
+      heightVariance += s * dk * dk
+      slopeVariance += s * dk * dk * k * k
+    }
+  // h0(k) et conj(h0(−k)) cote a cote : le nuanceur n'a qu'une lecture a faire.
+  const h0 = new Float32Array(N * N * 4)
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      const o = (j * N + i) * 4
+      const mi = (N - i) % N
+      const mj = (N - j) % N
+      h0[o] = amp[(j * N + i) * 2]
+      h0[o + 1] = amp[(j * N + i) * 2 + 1]
+      h0[o + 2] = amp[(mj * N + mi) * 2]
+      h0[o + 3] = -amp[(mj * N + mi) * 2 + 1]
+    }
+  return { h0, heightVariance, slopeVariance }
+}

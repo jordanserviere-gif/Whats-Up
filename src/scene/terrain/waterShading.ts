@@ -1,33 +1,36 @@
 import { CLIPMAP_SIZE } from './elevationClipmap'
 import {
+  FFT_SIZE,
+  LAKE_CASCADES,
   LAKE_FETCH_M,
   LAKE_RRS,
-  LAKE_WAVES,
+  OCEAN_CASCADES,
   OCEAN_RRS,
-  OCEAN_WAVES,
   WATER_IOR,
   coxMunkSlopeVariance,
   fetchLimitedSea,
   fullyDevelopedSea,
-  waveTrains,
-  type Wave,
+  type SeaComponent,
 } from '@/atmosphere/water/seaSurface'
 
 /**
- * Eclairage de l'eau dans le nuanceur du relief — voir `seaSurface.ts` pour
- * la methode (Bruneton, Neyret & Holzschuch 2010) et ses references.
+ * Eclairage de l'eau — voir `seaSurface.ts` pour la methode (Bruneton,
+ * Neyret & Holzschuch 2010) et ses references, `oceanFft.ts` pour les vagues.
  *
  * Par fragment d'eau :
- * 1. **Normale** : les trains de vagues dont la longueur d'onde depasse
- *    quelques pixels inclinent la normale ; les autres ne restent qu'en
- *    dispersion des pentes. La variance totale est celle de Cox & Munk pour le
- *    vent du moment : ce que la normale ne porte plus, la statistique le porte.
+ * 1. **Normale** : les pentes des vagues, lues dans les textures des cascades
+ *    au niveau de mip qui correspond au pixel. Ce que le mip a lisse — la
+ *    variance `E[s²] − E[s]²` — passe dans la dispersion statistique, avec la
+ *    part des pentes que les cascades ne portent pas du tout (capillaires) :
+ *    la variance totale reste celle de Cox & Munk pour le vent du moment.
  * 2. **Ciel reflechi** : lu dans la table du ciel dans la direction miroir, et
- *    floute sur la dispersion des pentes restante, pondere par Fresnel.
- * 3. **Soleil** : distribution gaussienne des pentes (Cox & Munk), Fresnel a
- *    l'angle de la micro-facette, masquage et ombrage de Smith — c'est eux qui
- *    font la bonne clarte d'une mer vue de tres loin, en rasant.
- * 4. **Lumiere montante** : ce qui ressort de l'eau, (1 − F) · Rrs · E.
+ *    floute sur la dispersion restante, pondere par Fresnel.
+ * 3. **Soleil et Lune** : pentes gaussiennes (Cox & Munk), Fresnel a l'angle
+ *    de la micro-facette, masquage et ombrage de Smith.
+ * 4. **Lumiere montante** : (1 − F) · Rrs · E.
+ *
+ * Le globe, au-dela du relief, n'a pas de vagues : il prend la seule partie
+ * statistique (`WATER_COMMON_GLSL`), avec la variance totale.
  */
 
 export interface SeaState {
@@ -41,51 +44,32 @@ export interface SeaState {
 
 export const DEFAULT_SEA_STATE: SeaState = { windMS: 5, windFromDeg: 270 }
 
-/** Trains de vagues de l'ocean et d'un lac pour un etat de mer. */
-export function seaWaves(state: SeaState): { ocean: Wave[]; lake: Wave[] } {
-  const toward = (from: number) => (from + 180) % 360
+const toward = (from: number) => (from + 180) % 360
+
+/** Composantes spectrales de la mer : mer du vent (prevue, ou levee par le vent) et houle. */
+export function oceanComponents(state: SeaState): SeaComponent[] {
   const wind = state.windSea ?? { ...fullyDevelopedSea(state.windMS), fromDeg: state.windFromDeg }
-  const oceanWind = waveTrains({ hs: wind.hs, tp: wind.tp, towardDeg: toward(wind.fromDeg), spreading: 2 }, state.swell ? OCEAN_WAVES - 8 : OCEAN_WAVES, 11)
-  const swell = state.swell
-    ? waveTrains({ hs: state.swell.hs, tp: state.swell.tp, towardDeg: toward(state.swell.fromDeg), spreading: 12, gamma: 7 }, 8, 23)
-    : []
-  const lakeSea = fetchLimitedSea(state.windMS, LAKE_FETCH_M)
-  const lake = waveTrains({ hs: lakeSea.hs, tp: lakeSea.tp, towardDeg: toward(state.windFromDeg), spreading: 2 }, LAKE_WAVES, 31)
-  return { ocean: [...swell, ...oceanWind], lake }
+  const out: SeaComponent[] = [{ hs: wind.hs, tp: wind.tp, towardDeg: toward(wind.fromDeg), spreading: 2 }]
+  if (state.swell) out.push({ hs: state.swell.hs, tp: state.swell.tp, towardDeg: toward(state.swell.fromDeg), spreading: 12, gamma: 7 })
+  return out
 }
 
-/** Trains de vagues en uniformes : vec4 (dir est, dir nord, k, amplitude), vec2 (ω, phase). */
-export function packWaves(waves: readonly Wave[], count: number): { a: Float32Array; b: Float32Array } {
-  const a = new Float32Array(count * 4)
-  const b = new Float32Array(count * 2)
-  waves.slice(0, count).forEach((w, i) => {
-    a.set([w.dirEast, w.dirNorth, w.k, w.amplitude], i * 4)
-    b.set([w.omega, w.phase], i * 2)
-  })
-  return { a, b }
+/** Sur un lac : la mer du vent, limitee par la largeur du plan d'eau. */
+export function lakeComponents(state: SeaState): SeaComponent[] {
+  const sea = fetchLimitedSea(state.windMS, LAKE_FETCH_M)
+  return [{ hs: sea.hs, tp: sea.tp, towardDeg: toward(state.windFromDeg), spreading: 2 }]
 }
 
-export const slopeVariance = (state: SeaState) => ({
-  ocean: coxMunkSlopeVariance(state.windMS),
-  // Sur un lac, meme vent : la rugosite capillaire ne depend que de lui.
-  lake: coxMunkSlopeVariance(state.windMS),
-})
+/** Variance totale des pentes : Cox & Munk, pour le vent du moment. */
+export const totalSlopeVariance = (state: SeaState) => coxMunkSlopeVariance(state.windMS)
 
-export const WATER_GLSL = /* glsl */ `
+/** Masque, Fresnel, Smith, reflets et lumiere montante — commun au relief et au globe. */
+export const WATER_COMMON_GLSL = /* glsl */ `
   uniform sampler2D uWater0;
   uniform sampler2D uWater1;
   uniform sampler2D uWater2;
   uniform vec3 uWaterHalfSpan;
   uniform float uWaterOn;
-  uniform vec4 uOceanWaveA[${OCEAN_WAVES}];
-  uniform vec2 uOceanWaveB[${OCEAN_WAVES}];
-  uniform vec4 uLakeWaveA[${LAKE_WAVES}];
-  uniform vec2 uLakeWaveB[${LAKE_WAVES}];
-  uniform float uWaveTime;
-  uniform float uOceanSlopeVar;
-  uniform float uLakeSlopeVar;
-  /** Angle d'un pixel, rad. */
-  uniform float uWaterPixelAngle;
   uniform vec3 uMoonDirection;
   uniform vec3 uMoonIrradiance;
 
@@ -95,7 +79,7 @@ export const WATER_GLSL = /* glsl */ `
 
   vec2 waterLevel(sampler2D tex, float half_, vec2 en) {
     vec2 f = (en + half_) / (2.0 * half_) * ${CLIPMAP_SIZE - 1}.0;
-    return texture2D(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0).rg;
+    return textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0).rg;
   }
   /** Eau, ocean — meme choix de niveau et meme frange que le relief. */
   vec2 waterAt(vec2 en) {
@@ -133,40 +117,6 @@ export const WATER_GLSL = /* glsl */ `
     return 1.0 / (1.0 + lambda);
   }
 
-  /**
-   * Pente resolue (x : dh/dest, y : dh/dnord) et variance qu'elle porte (z).
-   * Un train n'est resolu que si sa longueur d'onde depasse plusieurs pixels :
-   * sinon il ne ferait que scintiller, et sa pente est laissee a la statistique.
-   */
-  vec3 oceanSlope(vec2 en, float footprint) {
-    vec3 s = vec3(0.0);
-    for (int i = 0; i < ${OCEAN_WAVES}; i++) {
-      vec4 a = uOceanWaveA[i];
-      vec2 b = uOceanWaveB[i];
-      if (a.w <= 0.0) continue;
-      float keep = smoothstep(2.0 * footprint, 6.0 * footprint, 6.2831853 / a.z);
-      if (keep <= 0.0) continue;
-      float arg = a.z * dot(a.xy, en) - b.x * uWaveTime + b.y;
-      s.xy += keep * a.w * a.z * a.xy * cos(arg);
-      s.z += keep * keep * 0.5 * a.w * a.w * a.z * a.z;
-    }
-    return s;
-  }
-  vec3 lakeSlope(vec2 en, float footprint) {
-    vec3 s = vec3(0.0);
-    for (int i = 0; i < ${LAKE_WAVES}; i++) {
-      vec4 a = uLakeWaveA[i];
-      vec2 b = uLakeWaveB[i];
-      if (a.w <= 0.0) continue;
-      float keep = smoothstep(2.0 * footprint, 6.0 * footprint, 6.2831853 / a.z);
-      if (keep <= 0.0) continue;
-      float arg = a.z * dot(a.xy, en) - b.x * uWaveTime + b.y;
-      s.xy += keep * a.w * a.z * a.xy * cos(arg);
-      s.z += keep * keep * 0.5 * a.w * a.w * a.z * a.z;
-    }
-    return s;
-  }
-
   /** Reflet d'un astre de direction \`l\` et d'eclairement \`irr\` — Cox & Munk, Fresnel, Smith. */
   vec3 waterGlint(vec3 l, vec3 irr, bool lit, vec3 v, vec3 n, float muV, float sigma2) {
     float muL = dot(l, n);
@@ -181,18 +131,13 @@ export const WATER_GLSL = /* glsl */ `
   }
 
   /**
-   * Radiance de la surface (non exposee) ; \`skyReflection\` recoit le ciel
-   * reflechi, deja expose comme la table qui le fournit.
+   * Lumiere d'une surface d'eau de normale \`n\` et de dispersion de pentes
+   * \`sigma2\`, vue dans la direction \`viewDir\` (de l'oeil vers le point).
+   * Rend la radiance non exposee ; \`skyReflection\` recoit le ciel reflechi,
+   * deja expose comme la table qui le fournit.
    */
-  vec3 waterShade(vec3 viewDir, vec3 up, vec2 en, float range, bool ocean, vec3 sunIrr, vec3 skyIrr, vec3 sunDir, bool sunLit, out vec3 skyReflection) {
+  vec3 waterLight(vec3 viewDir, vec3 up, vec3 n, float sigma2, bool ocean, vec3 sunIrr, vec3 skyIrr, vec3 sunDir, bool sunLit, out vec3 skyReflection) {
     vec3 v = -viewDir;
-    float muUp = max(dot(v, up), 0.02);
-    // Empreinte du pixel au sol, allongee en rasant.
-    float footprint = uWaterPixelAngle * range / muUp;
-    vec3 s = ocean ? oceanSlope(en, footprint) : lakeSlope(en, footprint);
-    float total = ocean ? uOceanSlopeVar : uLakeSlopeVar;
-    float sigma2 = max(total - s.z, 2e-4);
-    vec3 n = normalize(up + vec3(-s.x, 0.0, s.y));
     float muV = max(dot(v, n), 1e-3);
 
     // --- Ciel reflechi, floute sur les pentes restantes.
@@ -221,27 +166,75 @@ export const WATER_GLSL = /* glsl */ `
     float F = waterFresnel(clamp(muV + 0.7 * sqrt(sigma2) * (1.0 - muV), 0.0, 1.0));
     skyReflection = F * sky;
 
-    // --- Soleil, puis Lune : Cox & Munk, Fresnel a la micro-facette, Smith.
+    // --- Soleil, puis Lune. La carte d'ombre est celle du Soleil ; la Lune
+    // n'en a pas, elle eclaire toute l'eau qu'elle voit.
     vec3 glint = waterGlint(sunDir, sunIrr, sunLit, v, n, muV, sigma2);
-    // La Lune : meme loi, son propre eclairement. La carte d'ombre est celle du
-    // Soleil ; la Lune n'en a pas, elle eclaire toute l'eau qu'elle voit.
     if (uMoonDirection.y > 0.0) glint += waterGlint(normalize(uMoonDirection), uMoonIrradiance, true, v, n, muV, sigma2);
 
     // --- Lumiere montante.
-    vec3 down = sunIrr * max(dot(sunDir, up), 0.0) * (sunLit ? 1.0 : 0.0) + skyIrr + uMoonIrradiance * max(dot(uMoonDirection, up), 0.0);
+    vec3 down = sunIrr * max(dot(sunDir, up), 0.0) * (sunLit ? 1.0 : 0.0) + skyIrr
+      + uMoonIrradiance * max(dot(uMoonDirection, up), 0.0);
     vec3 upwelling = (1.0 - F) * (ocean ? OCEAN_RRS : LAKE_RRS) * down;
     return glint + upwelling;
   }
 `
 
+/** Cascades de vagues du relief : textures de pentes, lecture filtree LEADR. */
+export const WATER_GLSL = /* glsl */ `
+  ${WATER_COMMON_GLSL}
+  uniform sampler2D uOceanSlope0;
+  uniform sampler2D uOceanSlope1;
+  uniform sampler2D uOceanSlope2;
+  uniform sampler2D uLakeSlope0;
+  uniform sampler2D uLakeSlope1;
+  uniform vec3 uOceanCascadeM;
+  uniform vec2 uLakeCascadeM;
+  /** Variance des pentes que les cascades ne portent pas (capillaires). */
+  uniform float uOceanResidual;
+  uniform float uLakeResidual;
+  /** Angle d'un pixel, rad. */
+  uniform float uWaterPixelAngle;
+
+  /**
+   * Pente moyenne d'une cascade sur l'empreinte du pixel, et la variance que le
+   * filtrage a lissee (ajoutee a \`variance\`). Coordonnee ramenee dans [0, 1[ :
+   * la texture est periodique, et les grandes coordonnees perdraient la
+   * precision sous le texel.
+   */
+  vec2 cascadeSlope(sampler2D tex, float sizeM, vec2 en, float footprint, inout float variance) {
+    float texel = sizeM / ${FFT_SIZE}.0;
+    float lod = max(0.0, log2(max(footprint, 1e-4) / texel));
+    vec4 m = textureLod(tex, fract(en / sizeM), lod);
+    variance += max(0.0, m.z - m.x * m.x) + max(0.0, m.w - m.y * m.y);
+    return m.xy;
+  }
+
+  vec3 waterShade(vec3 viewDir, vec3 up, vec2 en, float range, bool ocean, vec3 sunIrr, vec3 skyIrr, vec3 sunDir, bool sunLit, out vec3 skyReflection) {
+    float muUp = max(dot(-viewDir, up), 0.02);
+    // Empreinte du pixel au sol, allongee en rasant.
+    float footprint = uWaterPixelAngle * range / muUp;
+    float variance = ocean ? uOceanResidual : uLakeResidual;
+    vec2 s;
+    if (ocean) {
+      s = cascadeSlope(uOceanSlope0, uOceanCascadeM.x, en, footprint, variance)
+        + cascadeSlope(uOceanSlope1, uOceanCascadeM.y, en, footprint, variance)
+        + cascadeSlope(uOceanSlope2, uOceanCascadeM.z, en, footprint, variance);
+    } else {
+      s = cascadeSlope(uLakeSlope0, uLakeCascadeM.x, en, footprint, variance)
+        + cascadeSlope(uLakeSlope1, uLakeCascadeM.y, en, footprint, variance);
+    }
+    float sigma2 = max(variance, 2e-4);
+    vec3 n = normalize(up + vec3(-s.x, 0.0, s.y));
+    return waterLight(viewDir, up, n, sigma2, ocean, sunIrr, skyIrr, sunDir, sunLit, skyReflection);
+  }
+`
+
 /**
- * La meme eau, cote sommets : les vagues assez longues pour le maillage
- * soulevent vraiment la surface — la houle ondule, l'horizon aussi quand on est
- * en mer. Seules les longueurs d'onde de plusieurs mailles deplacent la
- * geometrie ; la normale, elle, reste calculee par fragment a partir des memes
- * trains (voir \`waterShade\`), exacte pour la surface deplacee. Le deplacement
- * est **vertical** : la position au sol du fragment ne bouge pas, et la phase
- * des vagues qu'il lit reste celle du sommet.
+ * La meme eau, cote sommets : les cascades dont les vagues sont plus longues
+ * que la maille soulevent vraiment la surface. Seules les deux plus grandes
+ * servent — la plus fine (5 m) est bien en deca de toute maille. Le
+ * deplacement est **vertical** : la position au sol du fragment ne bouge pas,
+ * et les pentes qu'il lit sont celles du sommet.
  */
 export const WATER_VERTEX_GLSL = /* glsl */ `
   uniform sampler2D uWater0;
@@ -249,11 +242,11 @@ export const WATER_VERTEX_GLSL = /* glsl */ `
   uniform sampler2D uWater2;
   uniform vec3 uWaterHalfSpan;
   uniform float uWaterOn;
-  uniform vec4 uOceanWaveA[${OCEAN_WAVES}];
-  uniform vec2 uOceanWaveB[${OCEAN_WAVES}];
-  uniform vec4 uLakeWaveA[${LAKE_WAVES}];
-  uniform vec2 uLakeWaveB[${LAKE_WAVES}];
-  uniform float uWaveTime;
+  uniform sampler2D uOceanHeight0;
+  uniform sampler2D uOceanHeight1;
+  uniform sampler2D uLakeHeight0;
+  uniform vec3 uOceanCascadeM;
+  uniform vec2 uLakeCascadeM;
   uniform float uWaterPixelAngle;
 
   vec2 waterLevelV(sampler2D tex, float half_, vec2 en) {
@@ -268,24 +261,16 @@ export const WATER_VERTEX_GLSL = /* glsl */ `
     if (reach <= uWaterHalfSpan.z) return waterLevelV(uWater2, uWaterHalfSpan.z, en);
     return vec2(0.0);
   }
-  /** Elevation des vagues que le maillage resout, m. \`spacing\` : maille estimee, m. */
+  float cascadeHeight(sampler2D tex, float sizeM, vec2 en, float spacing) {
+    float lod = max(0.0, log2(max(spacing, 1e-3) / (sizeM / ${FFT_SIZE}.0)));
+    return textureLod(tex, fract(en / sizeM), lod).r;
+  }
+  /** Elevation des vagues que la maille resout, m ; spacing : maille estimee, m. */
   float waveHeight(vec2 en, float spacing, bool ocean) {
-    float h = 0.0;
-    if (ocean) {
-      for (int i = 0; i < ${OCEAN_WAVES}; i++) {
-        vec4 a = uOceanWaveA[i];
-        if (a.w <= 0.0) continue;
-        float keep = smoothstep(2.0 * spacing, 6.0 * spacing, 6.2831853 / a.z);
-        h += keep * a.w * sin(a.z * dot(a.xy, en) - uOceanWaveB[i].x * uWaveTime + uOceanWaveB[i].y);
-      }
-    } else {
-      for (int i = 0; i < ${LAKE_WAVES}; i++) {
-        vec4 a = uLakeWaveA[i];
-        if (a.w <= 0.0) continue;
-        float keep = smoothstep(2.0 * spacing, 6.0 * spacing, 6.2831853 / a.z);
-        h += keep * a.w * sin(a.z * dot(a.xy, en) - uLakeWaveB[i].x * uWaveTime + uLakeWaveB[i].y);
-      }
-    }
-    return h;
+    return ocean
+      ? cascadeHeight(uOceanHeight0, uOceanCascadeM.x, en, spacing) + cascadeHeight(uOceanHeight1, uOceanCascadeM.y, en, spacing)
+      : cascadeHeight(uLakeHeight0, uLakeCascadeM.x, en, spacing);
   }
 `
+
+export { OCEAN_CASCADES, LAKE_CASCADES }
