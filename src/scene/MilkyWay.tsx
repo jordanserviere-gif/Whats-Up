@@ -7,7 +7,6 @@ import {
   Matrix4,
   Mesh,
   NoColorSpace,
-  PerspectiveCamera,
   RepeatWrapping,
   ClampToEdgeWrapping,
   ShaderMaterial,
@@ -15,7 +14,7 @@ import {
   Texture,
   TextureLoader,
 } from 'three'
-import { useFrame, useThree } from '@react-three/fiber'
+import { useFrame } from '@react-three/fiber'
 import RAW from '@/data/milky-way.json'
 import {
   POINT_BRIGHTNESS_SCALE,
@@ -28,7 +27,6 @@ import {
   EYE_POINT_SPREAD_SR,
 } from './display/adaptation'
 import { EYE_SUMMATION_SR } from './display/extendedVision'
-import { instrumentGainMag } from './display/instrument'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
 import { applySkyGlow, SKY_GLOW_GLSL, skyGlowUniforms, type SkyGlow } from './display/skyGlowGradient'
 import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
@@ -154,7 +152,6 @@ export function MilkyWay({
   const meshRef = useRef<Mesh>(null)
   const matrix = useRef(new Matrix4())
   const [texture, setTexture] = useState<Texture | null>(cached)
-  const { camera, size } = useThree()
 
   useEffect(() => {
     let alive = true
@@ -183,7 +180,6 @@ export function MilkyWay({
           ...skyGlowUniforms(),
           uMap: { value: null as Texture | null },
           uLimitMag: { value: limitingMagnitude },
-          uInstrumentGain: { value: 0 },
           uExtinctionK: { value: extinctionCoefficient(aerosolTurbidity) },
         },
         vertexShader: /* glsl */ `
@@ -213,7 +209,6 @@ export function MilkyWay({
           #define PI 3.141592653589793
           uniform sampler2D uMap;
           uniform float uLimitMag;
-          uniform float uInstrumentGain;
           uniform float uExtinctionK;
           varying vec3 vEquatorial;
           varying float vAirmass;
@@ -247,7 +242,13 @@ export function MilkyWay({
             // La loi du ciel profond, branche etendue, sans plafond par l'objet.
             float mSeen = sb - ${SPREAD_OFFSET.toFixed(4)};
             float mDetect = sb - ${SUMMATION_OFFSET.toFixed(4)};
-            float limit = uLimitMag - vLimitShift + uInstrumentGain;
+            // ⚠️ **Pas de gain d'instrument**, contrairement au ciel profond. La
+            // brillance de surface d'une nappe etendue ne croit pas avec
+            // l'ouverture : un telescope montre plus d'etoiles, pas une Voie
+            // lactee plus claire. Le gain la faisait passer au gris des qu'on
+            // zoomait, et y revelait en noir les sillons du balayage de Gaia,
+            // ou la carte est presque vide.
+            float limit = uLimitMag - vLimitShift;
             float rel = pow(10.0, -0.4 * (mSeen - limit));
             float gate = 1.0 - smoothstep(${POINT_VISIBILITY_FADE_START.toFixed(1)}, ${POINT_VISIBILITY_FADE_END.toFixed(1)}, mDetect - limit);
             float alpha = clamp(${POINT_BRIGHTNESS_SCALE} * log(1.0 + rel) * gate, 0.0, 1.0);
@@ -299,11 +300,8 @@ export function MilkyWay({
     mesh.matrixAutoUpdate = false
     mesh.matrixWorldNeedsUpdate = true
 
-    const fov = ((camera as PerspectiveCamera).fov * Math.PI) / 180
-    const pixelsPerRadian = size.height / (2 * Math.tan(fov / 2))
     material.uniforms.uLimitMag.value = limitingMagnitude
     applySkyGlow(material.uniforms as unknown as ReturnType<typeof skyGlowUniforms>, skyGlow)
-    material.uniforms.uInstrumentGain.value = instrumentGainMag(1 / pixelsPerRadian)
     material.uniforms.uExtinctionK.value = extinction ? extinctionCoefficient(aerosolTurbidity) : 0
     applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])
   })
