@@ -1,5 +1,6 @@
 import { DataTexture, DataUtils, HalfFloatType, LinearFilter, RGBAFormat, ClampToEdgeWrapping } from 'three'
-import { CLOUD_STAGES, stageSlab, type CloudSlab, type ColumnLevel } from '@/atmosphere/cloud/cloudLayer'
+import { CLOUD_STAGES, stageSlab, type CloudSlab, type CloudStage, type ColumnLevel } from '@/atmosphere/cloud/cloudLayer'
+import { convectiveCloud, type EnvironmentLevel } from '@/atmosphere/cloud/convection'
 import { centerIndex, scenarioValue, type ScenarioGrid, type WeatherScenario } from '@/data-sources/weatherScenario'
 
 /**
@@ -40,10 +41,32 @@ function column(s: WeatherScenario, g: ScenarioGrid, point: number, hour: number
 
 const COVER_KEY = { bas: 'ccl', moyen: 'ccm', haut: 'cch' } as const
 
+/** Le cumulus que produit la surface de ce point, a cette heure — voir \`convection.ts\`. */
+function convectionAt(s: WeatherScenario, g: ScenarioGrid, point: number, hour: number) {
+  const t2 = scenarioValue(s, g, 't2', point, hour)
+  const td2 = scenarioValue(s, g, 'td2', point, hour)
+  const ps = scenarioValue(s, g, 'ps', point, hour)
+  if (t2 == null || td2 == null || ps == null) return null
+  const env: EnvironmentLevel[] = []
+  for (const p of s.levelsHPa) {
+    const z = scenarioValue(s, g, `z${p}`, point, hour)
+    const t = scenarioValue(s, g, `t${p}`, point, hour)
+    const rh = scenarioValue(s, g, `rh${p}`, point, hour)
+    if (z == null || t == null || rh == null) continue
+    env.push({ heightM: z, pressurePa: p * 100, temperatureK: t + 273.15, relativeHumidity: rh / 100 })
+  }
+  return convectiveCloud(
+    { groundM: g.points[point][2], pressurePa: ps * 100, temperatureK: t2 + 273.15, dewPointK: td2 + 273.15 },
+    env,
+  )
+}
+
 function slabsAt(s: WeatherScenario, g: ScenarioGrid, point: number, hour: number): CloudSlab[] {
   const levels = column(s, g, point, hour)
   const ground = g.points[point][2]
-  return CLOUD_STAGES.map((stage) => stageSlab(stage, (scenarioValue(s, g, COVER_KEY[stage], point, hour) ?? 0) / 100, levels, ground))
+  const cover = (stage: CloudStage) => (scenarioValue(s, g, COVER_KEY[stage], point, hour) ?? 0) / 100
+  const convective = cover('bas') > 0 ? convectionAt(s, g, point, hour) : null
+  return CLOUD_STAGES.map((stage) => stageSlab(stage, cover(stage), levels, ground, stage === 'bas' ? convective : null))
 }
 
 const lerp = (a: number, b: number, f: number) => a + (b - a) * f

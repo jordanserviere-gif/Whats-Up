@@ -24,6 +24,7 @@ import {
   structureSigma,
   valueNoise,
 } from './cloudLayer'
+import { convectiveCloud, saturationAdjust, saturationSpecificHumidity, type EnvironmentLevel } from './convection'
 
 export function cloudLayerSuite(): SuiteResult {
   return suite(
@@ -76,6 +77,44 @@ export function cloudLayerSuite(): SuiteResult {
         160,
       )
       t.checkTrue(`cirrus : τ = ${cirrus.opticalDepth.toFixed(2)}, dans [0,1, 3], glace`, cirrus.opticalDepth > 0.1 && cirrus.opticalDepth < 3 && cirrus.ice)
+
+      // --- 5. Panache convectif ----------------------------------------------
+      // Base : niveau de condensation. Formule d'Espy, 125 m par degre d'ecart
+      // au point de rosee, exacte a quelques pour cent.
+      const standard = (z: number) => ({ heightM: z, pressurePa: 101325 * Math.exp(-z / 8400), temperatureK: 300 - 0.0065 * z, relativeHumidity: 0.5 })
+      // Couche limite convective : melangee (adiabatique seche) jusqu'a la base,
+      // puis conditionnellement instable (7,5 K/km) et humide au-dessus (90 %,
+      // comme la couche nuageuse du cas de reference BOMEX).
+      const qSurface = saturationSpecificHumidity(290, 101325)
+      const env: EnvironmentLevel[] = [0, 500, 1000, 1300, 1500, 2000, 3000, 4000, 5000, 6000, 8000].map((z) => ({
+        ...standard(z),
+        temperatureK: z <= 1250 ? 300.2 - 0.0098 * z : 300.2 - 0.0098 * 1250 - 0.0075 * (z - 1250),
+        // Couche melangee : humidite specifique constante, celle de la surface.
+        relativeHumidity: z <= 1300 ? Math.min(1, qSurface / saturationSpecificHumidity(300.2 - 0.0098 * z, 101325 * Math.exp(-z / 8400))) : 0.9,
+      }))
+      const cu = convectiveCloud({ groundM: 0, pressurePa: 101325, temperatureK: 300, dewPointK: 290 }, env)
+      t.checkRelative('base du cumulus = niveau de condensation (Espy, 125 m/K)', cu?.baseM ?? 0, 1250, 0.08, ' m')
+      t.checkTrue(
+        `cumulus libre en air instable : ${((cu?.topM ?? 0) - (cu?.baseM ?? 0)).toFixed(0)} m d'epaisseur, LWC ${((cu?.liquidKgM3 ?? 0) * 1e3).toFixed(2)} g/m³`,
+        !!cu && cu.topM > cu.baseM + 500 && cu.liquidKgM3 > 1e-4 && cu.liquidKgM3 < 3e-3,
+      )
+      // Eau liquide adiabatique : ~2 g/m³ par km au-dessus de la base, pres du sol et a 15 °C.
+      const lcl = saturationAdjust(1004.7 * 290 + 9.80665 * 1000, 0.0105, 1000, 90000)
+      const above = saturationAdjust(1004.7 * 290 + 9.80665 * 1000, 0.0105, 1500, 85000)
+      t.checkTrue(
+        `eau adiabatique croissante avec l'altitude (${(lcl.liquid * 1e3).toFixed(2)} → ${(above.liquid * 1e3).toFixed(2)} g/kg)`,
+        above.liquid > lcl.liquid,
+      )
+      // Inversion : un air plus chaud au-dessus bride le nuage.
+      const capped = convectiveCloud(
+        { groundM: 0, pressurePa: 101325, temperatureK: 300, dewPointK: 290 },
+        [0, 800, 1200, 1800, 2500, 4000].map((z) => ({
+          ...standard(z),
+          temperatureK: z < 800 ? 300 - 0.0098 * z : z < 1800 ? 292.2 + 0.002 * (z - 800) : 294.2 - 0.007 * (z - 1800),
+          relativeHumidity: z < 1800 ? 0.6 : 0.2,
+        })),
+      )
+      t.checkTrue(`cumulus bride : sommet ${capped?.topM ?? 0} m, sous le haut de l'inversion (1800 m) + un pas`, !!capped && capped.topM <= 1820)
 
       // --- 4. Couverture sous-maille -----------------------------------------
       t.check('Φ(Φ⁻¹(0,3)) = 0,3', normalCdf(normalQuantile(0.3)), 0.3, 1e-6)

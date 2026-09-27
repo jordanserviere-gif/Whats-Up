@@ -76,8 +76,14 @@ import { DETAIL_PERIOD, STRUCTURE_PERIOD, cloudNoiseTextures } from './cloudNois
  * - **Les ombres des nuages** sur le sol et dans l'air.
  */
 
-/** Echelle de la plus grande structure de chaque etage, km. */
+/** Echelle de la plus grande structure de chaque etage, km — au plus, pour l'etage bas. */
 const STRUCTURE_SCALE_KM: [number, number, number] = [4, 3, 8]
+/**
+ * Periode de la plus grande structure de l'etage bas rapportee a l'epaisseur
+ * du nuage. Les champs de cumulus mesures ont des cellules de largeur voisine
+ * de leur epaisseur, espacees de deux a trois fois celle-ci.
+ */
+const CELL_TO_DEPTH = 3
 /**
  * Portee du volume : l'etage bas est marche en volume jusqu'a 18 km, raccorde
  * a la nappe jusqu'a 26 km. Au-dela, un cumulus d'un kilometre sous-tend
@@ -140,6 +146,7 @@ function cloudUniforms() {
       uScale: { value: new Vector3(...STRUCTURE_SCALE_KM) },
       uDroplet: { value: new Vector4(DROPLET.gHG, DROPLET.gD, DROPLET.alpha, DROPLET.wD) },
       uPixelAngle: { value: 1e-3 },
+      uDetailKm: { value: 0.6 },
       uStructure: { value: null as Texture | null },
       uDetail: { value: null as Texture | null },
   }
@@ -168,6 +175,8 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       uniform vec4 uDroplet;
       /** Angle sous-tendu par un pixel, rad. */
       uniform float uPixelAngle;
+      /** Echelle du detail 3D, km. */
+      uniform float uDetailKm;
       uniform sampler2D uStructure;
       uniform highp sampler3D uDetail;
 
@@ -304,7 +313,7 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         float edge = 0.0;
         float fine = 0.5;
         if (detail) {
-          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / 0.6;
+          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / uDetailKm;
           // Bourgeons : octaves repliees, dont les crêtes arrondies font les
           // choux-fleurs ; puis quatre octaves fines, quatre fois plus serrees,
           // qui effilochent les bords.
@@ -774,6 +783,14 @@ export function CloudLayer({
       const [e, n] = frame.windMS[k]
       ;(u[`uDrift${k}`].value as Vector2).set((e * seconds) / 1000, (n * seconds) / 1000)
     })
+
+    // Taille des cellules de l'etage bas et de leur detail, tiree de l'epaisseur
+    // a l'aplomb : un cumulus est a peu pres aussi large que haut, et leur
+    // espacement vaut quelques fois leur taille. Une cellule de 4 km sur un
+    // nuage de 300 m ferait une galette.
+    const depthKm = Math.max(0.1, (frame.overhead[0].topM - frame.overhead[0].baseM) / 1000)
+    u.uScale.value.x = Math.min(STRUCTURE_SCALE_KM[0], Math.max(0.8, CELL_TO_DEPTH * depthKm))
+    u.uDetailKm.value = Math.min(0.6, Math.max(0.12, 0.45 * depthKm))
 
     const eye = eyeAltitudeM(observerElevationM, extraHeightM)
     u.uObserverRadius.value = EARTH_MEAN_RADIUS_M + eye

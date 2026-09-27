@@ -63,6 +63,7 @@
  * bourrelets de trainee.
  */
 import { extinctionCoefficient } from './microphysics'
+import type { ConvectiveCloud } from './convection'
 
 export type CloudStage = 'bas' | 'moyen' | 'haut'
 export const CLOUD_STAGES: readonly CloudStage[] = ['bas', 'moyen', 'haut']
@@ -80,6 +81,8 @@ const LIQUID: Record<CloudStage, { contentKgM3: number; radiusM: number }> = {
   moyen: { contentKgM3: 0.1e-3, radiusM: 10e-6 },
   haut: { contentKgM3: 0.1e-3, radiusM: 10e-6 },
 }
+/** Rayon effectif des gouttes de cumulus continentaux, m. */
+const CUMULUS_RADIUS_M = 8e-6
 /** Rayon effectif des cristaux de cirrus, m. */
 const ICE_RADIUS_M = 30e-6
 /** En deca, la glace l'emporte : le seuil de −20 °C de Liou. */
@@ -125,7 +128,13 @@ export interface CloudSlab {
  * de l'etage, recouvrements compris) ; la colonne donne la geometrie.
  * `groundM` borne la base : un brouillard touche le sol, il ne passe pas dessous.
  */
-export function stageSlab(stage: CloudStage, coverage: number, column: readonly ColumnLevel[], groundM: number): CloudSlab {
+export function stageSlab(
+  stage: CloudStage,
+  coverage: number,
+  column: readonly ColumnLevel[],
+  groundM: number,
+  convective: ConvectiveCloud | null = null,
+): CloudSlab {
   const [lo, hi] = STAGE_ALTITUDE_M[stage]
   const levels = [...column].sort((a, b) => a.heightM - b.heightM)
   const inStage = levels.map((l, i) => ({ l, i })).filter(({ l }) => l.heightM >= lo && l.heightM < hi && l.heightM > groundM)
@@ -139,9 +148,21 @@ export function stageSlab(stage: CloudStage, coverage: number, column: readonly 
     baseM = Math.max(groundM, Number.isFinite(lo) ? lo : groundM)
     topM = baseM + 300
     temperatureC = 0
+  } else if (peak < 0.05 && stage === 'bas' && convective) {
+    // Couverture sans niveau nuageux dans l'etage bas : des cumulus que le
+    // modele parametre sans les resoudre. Leur geometrie et leur eau viennent
+    // du panache calcule depuis la surface (\`convection.ts\`).
+    const tau = extinctionCoefficient(convective.liquidKgM3, CUMULUS_RADIUS_M, 'liquide') * (convective.topM - convective.baseM)
+    return {
+      coverage: Math.min(1, Math.max(0, coverage)),
+      baseM: convective.baseM,
+      topM: convective.topM,
+      opticalDepth: tau,
+      ice: false,
+    }
   } else if (peak < 0.05) {
-    // Couverture sans niveau nuageux : nuage plus mince que l'espacement des
-    // niveaux. On le centre sur le niveau le plus humide de l'etage, 300 m d'epaisseur.
+    // Couverture sans niveau nuageux ni convection : nuage plus mince que
+    // l'espacement des niveaux, centre sur l'etage, 300 m d'epaisseur.
     const mid = inStage[Math.floor(inStage.length / 2)].l
     baseM = mid.heightM - 150
     topM = mid.heightM + 150
