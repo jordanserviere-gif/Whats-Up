@@ -3,6 +3,8 @@ import { AdditiveBlending, BufferAttribute, BufferGeometry, ShaderMaterial, Sphe
 import { useFrame } from '@react-three/fiber'
 import { extrapolatedGeodetic, geodeticToHorizontal, type AircraftState } from '@/astro/aircraft'
 import { aircraftLayout } from '@/astro/aircraftTypes'
+import { peekAircraftModel } from './aircraftModels'
+import { instrumentGainMag } from './display/instrument'
 import {
   POINT_BASE_SIZE_PX,
   extinctionMagnitudes,
@@ -84,8 +86,81 @@ const RED: [number, number, number] = [1, 0.16, 0.1]
 const GREEN: [number, number, number] = [0.25, 1, 0.5]
 const WHITE: [number, number, number] = [1, 1, 1]
 
-/** Feux par avion : position gauche et droite, queue, anticollision, deux eclats. */
-const LIGHTS_PER_AIRCRAFT = 6
+/**
+ * Demi-ecart minimal entre les feux des bouts d'aile, en pixels.
+ *
+ * ⚠️ Choix de presentation. Au grand angle, un moyen-courrier a dix kilometres
+ * tient en deux pixels : le rouge, le vert et le blanc, larges de cinq a sept
+ * chacun, s'y superposaient et leur somme sortait blanche. L'oeil, lui, les
+ * separe — son acuite est d'une minute d'arc, cinq fois le pixel d'un champ de
+ * soixante-dix degres. On ecarte donc les feux a l'ecran jusqu'a ce qu'ils ne
+ * se recouvrent plus, sans rien changer quand l'avion est assez grand.
+ */
+const MIN_HALF_SEPARATION_PX = 5
+
+/**
+ * Recul vers la camera, en demi-envergures. Le modele 3D est opaque, et les
+ * feux sont poses a l'interieur de ses ailes et de son fuselage : au zoom, le
+ * tampon de profondeur les masquait. Avances le long de leur propre visee, ils
+ * gardent exactement leur place a l'ecran et passent devant l'avion — qui
+ * tient dans une sphere d'une demi-envergure, a peu pres, autour de son centre.
+ */
+const TOWARD_CAMERA_HALF_SPANS = 1.2
+
+/** Feux par avion : position gauche et droite, queue, deux anticollision, deux eclats. */
+const LIGHTS_PER_AIRCRAFT = 7
+
+/**
+ * Position des feux en fractions d'envergure, repere du modele : +X a gauche
+ * (babord), +Y en haut, +Z vers le nez.
+ *
+ * Lue dans les noeuds `light_*`, `beacon_*` et `strobe_*` du modele 3D quand il
+ * existe. Un premier jet posait les feux d'aile au droit du centre de l'avion :
+ * sur une aile en fleche, le bout d'aile est bien en arriere — un huitieme
+ * d'envergure sur un monocouloir, un quart sur un quadrireacteur — et les feux
+ * flottaient devant le bord d'attaque. Sans modele, les proportions du
+ * monocouloir.
+ */
+interface LightLayout {
+  left: Vector3
+  right: Vector3
+  tail: Vector3
+  beacons: Vector3[]
+  strobeLeft: Vector3
+  strobeRight: Vector3
+}
+
+const FALLBACK_LAYOUT: LightLayout = {
+  left: new Vector3(0.5, 0.01, -0.125),
+  right: new Vector3(-0.5, 0.01, -0.125),
+  tail: new Vector3(0, 0.037, -0.527),
+  beacons: [new Vector3(0, 0.055, 0.069), new Vector3(0, -0.055, 0.069)],
+  strobeLeft: new Vector3(0.5, 0.01, -0.165),
+  strobeRight: new Vector3(-0.5, 0.01, -0.165),
+}
+
+const layoutCache = new WeakMap<object, LightLayout>()
+
+function lightLayout(family: Parameters<typeof peekAircraftModel>[0]): LightLayout {
+  const model = peekAircraftModel(family)
+  if (!model) return FALLBACK_LAYOUT
+  const hit = layoutCache.get(model)
+  if (hit) return hit
+  const f = (name: string, fallback: Vector3) => {
+    const v = model.lights[name]
+    return v ? v.clone().divideScalar(model.nativeSpanM) : fallback
+  }
+  const layout: LightLayout = {
+    left: f('light_left', FALLBACK_LAYOUT.left),
+    right: f('light_right', FALLBACK_LAYOUT.right),
+    tail: f('light_tail', FALLBACK_LAYOUT.tail),
+    beacons: [f('beacon_top', FALLBACK_LAYOUT.beacons[0]), f('beacon_bottom', FALLBACK_LAYOUT.beacons[1])],
+    strobeLeft: f('strobe_left', FALLBACK_LAYOUT.strobeLeft),
+    strobeRight: f('strobe_right', FALLBACK_LAYOUT.strobeRight),
+  }
+  layoutCache.set(model, layout)
+  return layout
+}
 
 const hashPhase = (hex: string): number => {
   let h = 2166136261
@@ -162,7 +237,7 @@ export function AircraftLights({
   )
   useEffect(() => () => material.dispose(), [material])
 
-  useFrame(() => {
+  useFrame(({ camera, size: viewport }) => {
     material.uniforms.uPixelRatio.value = Math.min(2, window.devicePixelRatio)
     const pos = geometry.getAttribute('position') as BufferAttribute
     const col = geometry.getAttribute('lightColor') as BufferAttribute
@@ -173,8 +248,19 @@ export function AircraftLights({
     const k = extinctionMagnitudes(90, aerosolTurbidity, location.elevation)
     let n = 0
 
+    const fovRad = (((camera as { fov?: number }).fov ?? 60) * Math.PI) / 180
+    const radPerPx = fovRad / Math.max(1, viewport.height)
+    // L'instrument que le champ implique, comme pour les astres : zoomer sur un
+    // avion lointain, c'est le regarder aux jumelles.
+    const gain = instrumentGainMag(radPerPx)
+    let pull = 0
+
     const push = (p: Vector3, colour: readonly number[], magnitude: number, limit: number) => {
       if (n >= capacity) return
+      // Camera a l'origine : reculer le long du rayon ne deplace pas le feu a
+      // l'ecran.
+      const len = p.length()
+      if (len > 0) p.multiplyScalar(Math.max(0.05, 1 - pull / len))
       const i = pointIntensity(magnitude, limit)
       if (i < 0.004) return
       pos.setXYZ(n, p.x, p.y, p.z)
@@ -188,6 +274,7 @@ export function AircraftLights({
     const right = new Vector3()
     const forward = new Vector3()
     const p = new Vector3()
+    const up = new Vector3()
 
     for (const s of states) {
       const geo = extrapolatedGeodetic(s, Date.now())
@@ -199,7 +286,7 @@ export function AircraftLights({
       const column = 1 - Math.exp(-Math.max(0, geo.altitudeKm) / SCALE_HEIGHT_KM)
       const extinction = extinctionMagnitudes(horizontal.altitude, aerosolTurbidity, location.elevation) * column
       const x = airmass(horizontal.altitude, location.elevation)
-      const limit = limitingMagnitude + k - limitShift(horizontal.altitude, x, k, skyGlow)
+      const limit = limitingMagnitude + gain + k - limitShift(horizontal.altitude, x, k, skyGlow)
 
       const depth = sceneDepth(rangeKm)
       const [cx, cy, cz] = horizontalToScene(horizontal, depth)
@@ -208,30 +295,39 @@ export function AircraftLights({
       const track = ((s.trackDeg ?? 0) * Math.PI) / 180
       forward.set(Math.sin(track), 0, -Math.cos(track))
       right.set(Math.cos(track), 0, Math.sin(track))
+      const lights = lightLayout(aircraftLayout(s.typeCode, s.category).family)
       const layout = aircraftLayout(s.typeCode, s.category)
       const halfSpan = sceneRadiusForBody(layout.spanM / 2000, rangeKm)
+      pull = halfSpan * TOWARD_CAMERA_HALF_SPANS
+      // Ecart des feux a l'ecran : jamais moins que MIN_HALF_SEPARATION_PX. Le
+      // dessin entier s'agrandit, pour garder la place de chaque feu.
+      const spread = Math.max(halfSpan, MIN_HALF_SEPARATION_PX * radPerPx * depth)
+      const span = 2 * spread
+      // Repere du modele vers la scene : +X babord (−tribord), +Y haut, +Z nez.
+      const place = (v: Vector3) =>
+        p.copy(centre).addScaledVector(right, -v.x * span).addScaledVector(forward, v.z * span).add(up.set(0, v.y * span, 0))
 
       const nav = lightMagnitude(NAV_CD, rangeKm) + extinction
       const tail = lightMagnitude(TAIL_CD, rangeKm) + extinction
       const flash = lightMagnitude(ANTI_COLLISION_CD, rangeKm) + extinction
 
       // Position : rouge a babord (gauche), vert a tribord, blanc a la queue.
-      push(p.copy(centre).addScaledVector(right, -halfSpan), RED, nav, limit)
-      push(p.copy(centre).addScaledVector(right, halfSpan), GREEN, nav, limit)
-      push(p.copy(centre).addScaledVector(forward, -halfSpan * 0.9), WHITE, tail, limit)
+      push(place(lights.left), RED, nav, limit)
+      push(place(lights.right), GREEN, nav, limit)
+      push(place(lights.tail), WHITE, tail, limit)
 
       const phase = hashPhase(s.hex)
       // Anticollision rouge, sur le fuselage.
       const beacon = (t / BEACON_PERIOD_S + phase) % 1
-      if (beacon * BEACON_PERIOD_S < BEACON_ON_S) push(p.copy(centre), RED, flash, limit)
+      if (beacon * BEACON_PERIOD_S < BEACON_ON_S) for (const b of lights.beacons) push(place(b), RED, flash, limit)
       // Double eclat blanc des bouts d'aile — pas sur les avions legers, qui
       // n'en ont souvent qu'un, ni sur les helicopteres.
       if (layout.family !== 'light' && layout.family !== 'helicopter') {
         const strobe = ((t / STROBE_PERIOD_S + phase * 0.7) % 1) * STROBE_PERIOD_S
         const on = strobe < STROBE_ON_S || (strobe > STROBE_GAP_S && strobe < STROBE_GAP_S + STROBE_ON_S)
         if (on) {
-          push(p.copy(centre).addScaledVector(right, -halfSpan), WHITE, flash, limit)
-          push(p.copy(centre).addScaledVector(right, halfSpan), WHITE, flash, limit)
+          push(place(lights.strobeLeft), WHITE, flash, limit)
+          push(place(lights.strobeRight), WHITE, flash, limit)
         }
       }
     }

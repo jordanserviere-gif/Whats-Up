@@ -78,12 +78,14 @@
 
 /* Repere d'avion : taille fixe en pixels, jamais affectee par le zoom ni par le
  * voile atmospherique du maillage 3D — c'est le seul moyen de reperer un avion
- * une fois son maillage reel passe sous la taille d'un pixel. Centre sur sa
- * position, contrairement aux etiquettes de texte qui se decalent pour ne pas
- * recouvrir le disque de l'objet. */
+ * une fois son maillage reel passe sous la taille d'un pixel.
+ *
+ * Pose en haut a droite de l'avion, comme une etiquette, et non plus centre
+ * dessus : centre, ce glyphe blanc recouvrait exactement ses feux, et la nuit
+ * on ne voyait de l'avion qu'une icone blanche. */
 .sky-label--aircraft {
   --_icon-size: 0.9375rem;
-  translate: -50% -50%;
+  translate: 0.375rem calc(-100% - 0.375rem);
   color: var(--app-body-satellite);
   text-shadow: 0 0 4px rgb(0 0 0 / 0.7);
   opacity: 0.92;

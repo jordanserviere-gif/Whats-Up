@@ -160,6 +160,9 @@ export function SkyCanvas() {
     // La position **affichee** compte autant que la mesure brute : c'est elle
     // qui doit avancer sans a-coup. Les exposer separement est ce qui permet de
     // verifier l'extrapolation au lieu de la supposer bonne.
+    // Les etats complets aussi : viser un avion a champ etroit demande la meme
+    // extrapolation que le rendu, pas un instantane.
+    ;(window as unknown as { __aircraftFull: unknown }).__aircraftFull = aircraftStates
     ;(window as unknown as { __aircraftStates: unknown }).__aircraftStates = aircraftStates.map((a) => {
       const shown = extrapolatedGeodetic(a, Date.now())
       const view = geodeticToHorizontal(shown.latitude, shown.longitude, shown.altitudeKm, location)

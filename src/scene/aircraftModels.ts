@@ -47,6 +47,14 @@ export interface AircraftModel {
 }
 
 const cache = new Map<AircraftFamily, Promise<AircraftModel | null>>()
+/** Modeles deja charges, pour une lecture synchrone depuis une boucle d'image. */
+const resolved = new Map<AircraftFamily, AircraftModel | null>()
+
+/** Le modele d'une famille s'il est deja la ; lance son chargement sinon. */
+export function peekAircraftModel(family: AircraftFamily): AircraftModel | null {
+  if (!cache.has(family)) void load(family)
+  return resolved.get(family) ?? null
+}
 
 function load(family: AircraftFamily): Promise<AircraftModel | null> {
   const hit = cache.get(family)
@@ -81,6 +89,7 @@ function load(family: AircraftFamily): Promise<AircraftModel | null> {
         .catch(() => null)
     : Promise.resolve(null)
   cache.set(family, promise)
+  void promise.then((m) => resolved.set(family, m))
   return promise
 }
 
