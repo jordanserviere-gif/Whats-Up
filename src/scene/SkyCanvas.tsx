@@ -740,7 +740,7 @@ export function SkyCanvas() {
           />
         )}
 
-        {layers.atmosphere && (
+        {layers.atmosphere && layers.clouds && (
           <CloudLayer
             observerElevationM={location.elevation}
             extraHeightM={elevationOffsetM}

@@ -12,6 +12,7 @@
  * `[champ][point][heure]` ; `quantization` donne le pas de chaque cle.
  */
 import type { UpperAirForecast, UpperAirLevel } from './upperAir'
+import { LIVE_PREFIX, readLive } from './liveWeather'
 
 export interface WeatherScenarioEntry {
   id: string
@@ -53,6 +54,15 @@ export function fetchScenarioIndex(): Promise<WeatherScenarioEntry[]> {
 
 export function loadScenario(id: string): Promise<WeatherScenario> {
   let hit = scenarios.get(id)
+  if (!hit && id.startsWith(LIVE_PREFIX)) {
+    // Prevision en direct : gardee dans le navigateur, lisible aussi du worker.
+    const key = id.slice(0, id.lastIndexOf(':'))
+    hit = readLive(key).then((r) => {
+      if (!r) throw new Error(`prevision ${key} absente`)
+      return r.scenario
+    })
+    scenarios.set(id, hit)
+  }
   if (!hit) {
     hit = fetch(`${BASE}${id}.json`).then((r) => {
       if (!r.ok) throw new Error(`scenario ${id}: ${r.status}`)

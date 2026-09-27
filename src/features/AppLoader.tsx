@@ -116,7 +116,7 @@ export function AppLoader() {
       const next: Step[] = [{ label: 'Atmosphère du lieu', done: aerialSkyReady() }]
       if (terrainOn) next.push({ label: 'Relief', done: levels >= 1 })
       // Un scenario meteo : on sort avec des nuages deja calcules, pas un ciel qui se remplit.
-      if (state.weatherScenario && state.layers.atmosphere) next.push({ label: 'Nuages', done: state.cloudsReady })
+      if (state.weatherScenario && state.layers.atmosphere && state.layers.clouds) next.push({ label: 'Nuages', done: state.cloudsReady })
       // Pas de rendu si rien n'a change : le loader ne doit rien couter au fil
       // principal qu'il cherche justement a menager.
       setSteps((prev) =>

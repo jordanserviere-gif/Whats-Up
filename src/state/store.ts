@@ -75,6 +75,11 @@ export interface LayerVisibility {
   /** Flou lumineux autour des sources vives : le halo du Soleil en depend. */
   bloom: boolean
   /**
+   * Nuages. Eteints par defaut : allumes, ils telechargent la prevision du
+   * lieu (voir `liveWeather.ts`) — rien ne part tant qu'ils sont eteints.
+   */
+  clouds: boolean
+  /**
    * Banc de mesure de l'atmosphere : une chaine de montagnes a distance connue.
    *
    * Ce n'est pas un decor. C'est le seul objet de la scene dont la **distance
@@ -309,6 +314,7 @@ const DEFAULT_LAYERS: LayerVisibility = {
   aircraft: false,
   bloom: true,
   terrain: false,
+  clouds: false,
 }
 
 let satSeq = 0

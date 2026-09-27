@@ -45,6 +45,7 @@ const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string }> = [
   { key: 'cardinals', label: 'Points cardinaux' },
   { key: 'ground', label: 'Sol' },
   { key: 'atmosphere', label: 'Atmosphère' },
+  { key: 'clouds', label: 'Nuages' },
   { key: 'terrain', label: 'Banc atmosphère — relief' },
 ]
 
@@ -99,6 +100,8 @@ export function SettingsPanel() {
     const scenario = await loadScenario(entry.id)
     const near = scenario.grids.near
     store.setWeatherScenario(entry)
+    // Une journee archivee se regarde avec ses nuages.
+    store.setLayer('clouds', true)
     store.setLocation({
       latitude: entry.latitude,
       longitude: entry.longitude,

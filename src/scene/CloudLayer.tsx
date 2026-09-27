@@ -36,6 +36,8 @@ import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
 import { SEA_LEVEL_PRESSURE_PA, standardPressure } from '@/atmosphere/thermodynamics/standardAtmosphere'
 import { loadScenario, type WeatherScenario } from '@/data-sources/weatherScenario'
 import { useSkyStore } from '@/state/store'
+import { useLiveCloudsId } from '@/state/liveClouds'
+import { LIVE_PREFIX } from '@/data-sources/liveWeather'
 import { aerialSkyReady, aerialTextures, aerialUniforms, applyAerialUniforms } from './useAerialLut'
 import { SUN_TABLE_WIDTH, uploadField } from './cloudField'
 import { requestCloudField } from './cloudWorkerClient'
@@ -955,6 +957,15 @@ function cloudScreenMaterial(): ShaderMaterial {
   })
 }
 
+/**
+ * Deux identifiants designent-ils la meme prevision en direct (meme lieu,
+ * telechargements differents) ? Les journees archivees n'ont qu'une version.
+ */
+function sameFamily(a: string, b: string): boolean {
+  const family = (id: string) => (id.startsWith(LIVE_PREFIX) ? id.slice(0, id.lastIndexOf(':')) : id)
+  return family(a) === family(b)
+}
+
 /** Une carte et ce qui a servi a la construire. */
 interface CloudBuffer {
   target: WebGLRenderTarget
@@ -1043,12 +1054,19 @@ export function CloudLayer({
   sunDirection: readonly [number, number, number]
   skyExposure: number
 }) {
-  const scenarioId = useSkyStore((s) => s.weatherScenario?.id ?? null)
+  const archivedId = useSkyStore((s) => s.weatherScenario?.id ?? null)
+  const liveId = useLiveCloudsId()
+  const scenarioId = archivedId ?? liveId
   const [scenario, setScenario] = useState<WeatherScenario | null>(null)
   useEffect(() => {
     let alive = true
-    setScenario(null)
-    if (scenarioId) void loadScenario(scenarioId).then((s) => alive && setScenario(s))
+    // Nouvelle version de la meme prevision : l'ancienne reste a l'ecran
+    // jusqu'a ce que la nouvelle soit chargee.
+    setScenario((current) => (current && scenarioId && sameFamily(current.id, scenarioId) ? current : null))
+    if (scenarioId)
+      void loadScenario(scenarioId)
+        .then((s) => alive && setScenario(s))
+        .catch(() => {})
     return () => {
       alive = false
     }
@@ -1104,6 +1122,8 @@ export function CloudLayer({
     waitingFor: null as number | null,
     fadeStart: -Infinity,
     rows: 8,
+    /** Une prevision plus recente est arrivee : refaire la carte, sans effacer l'affichee. */
+    forceRebuild: false,
     opacity: 0,
   })
 
@@ -1166,13 +1186,20 @@ export function CloudLayer({
 
     // Nouveau scenario : les deux cartes repartent de zero.
     if (st.scenarioId !== scenario.id) {
+      const refresh = st.scenarioId != null && sameFamily(st.scenarioId, scenario.id)
       st.scenarioId = scenario.id
       st.build = null
       st.waitingFor = null
-      for (const b of buffers) {
-        b.passes = 0
-        b.timeMs = Number.NaN
-        clearTarget(gl, b.target)
+      if (refresh) {
+        // Meme lieu, prevision plus recente : la carte affichee reste, et une
+        // neuve se construit comme apres un changement d'heure.
+        st.forceRebuild = true
+      } else {
+        for (const b of buffers) {
+          b.passes = 0
+          b.timeMs = Number.NaN
+          clearTarget(gl, b.target)
+        }
       }
     }
 
@@ -1188,6 +1215,7 @@ export function CloudLayer({
       const target = st.waitingFor ?? (buildingFirstPass ? buffers[st.build!.buffer].timeMs : front.timeMs)
       const eyeNow = eyeAltitudeM(observerElevationM, extraHeightM)
       const stale =
+        st.forceRebuild ||
         front.passes === 0 ||
         !(Math.abs(time - front.timeMs) <= STALE_MS) ||
         !(Math.abs(eyeNow - front.eyeM) <= EYE_STALE_M)
@@ -1217,6 +1245,7 @@ export function CloudLayer({
           b.partialRow = 0
           clearTarget(gl, b.target)
           st.waitingFor = null
+          st.forceRebuild = false
           st.build = { buffer: 1 - st.front, pass: 0, row: 0 }
         })
       }
