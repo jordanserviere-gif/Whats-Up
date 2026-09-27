@@ -619,6 +619,8 @@ function terrainMaterial(): ShaderMaterial {
       uOceanSlopeVar: { value: 0.03 },
       uLakeSlopeVar: { value: 0.03 },
       uWaterPixelAngle: { value: 1e-3 },
+      uMoonDirection: { value: new Vector3(0, -1, 0) },
+      uMoonIrradiance: { value: new Vector3() },
       /** Carte d'ombre : altitude a laquelle le Soleil se leve, en chaque point. */
       uShadowMap: { value: null as DataTexture | null },
       /** Demi-etendue de la carte, metres. */
@@ -943,6 +945,8 @@ export function Terrain({
   longitudeDeg,
   sunDirection,
   sunIrradiance,
+  moonDirection = [0, -1, 0],
+  moonIrradiance = [0, 0, 0],
   sunAltitudeDeg,
   sunAzimuthDeg,
   skyExposure,
@@ -963,6 +967,9 @@ export function Terrain({
   skyExposure: number
   /** Teinte du theme night, RGB lineaire, ou `null` hors night. */
   nightTint?: readonly [number, number, number] | null
+  /** Direction de la Lune, et son eclairement au sol — pour son reflet sur l'eau. */
+  moonDirection?: readonly [number, number, number]
+  moonIrradiance?: readonly [number, number, number]
 }) {
   // L'altitude de l'observateur est quantifiee : elle ne bouge qu'au changement
   // de site, et reconstruire cent mille sommets pour un metre n'aurait pas de
@@ -1243,6 +1250,8 @@ export function Terrain({
       u.uLakeSlopeVar.value = variance.lake
     }
     u.uWaveTime.value = performance.now() / 1000
+    ;(u.uMoonDirection.value as Vector3).set(moonDirection[0], moonDirection[1], moonDirection[2])
+    ;(u.uMoonIrradiance.value as Vector3).set(moonIrradiance[0], moonIrradiance[1], moonIrradiance[2])
     u.uWaterPixelAngle.value = (((camera as PerspectiveCamera).fov ?? 60) * DEG) / Math.max(1, size.height)
     u.uCityNear.value = cityLights?.[0] ?? null
     u.uCityFar.value = cityLights?.[1] ?? null

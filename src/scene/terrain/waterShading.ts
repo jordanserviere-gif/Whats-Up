@@ -86,6 +86,8 @@ export const WATER_GLSL = /* glsl */ `
   uniform float uLakeSlopeVar;
   /** Angle d'un pixel, rad. */
   uniform float uWaterPixelAngle;
+  uniform vec3 uMoonDirection;
+  uniform vec3 uMoonIrradiance;
 
   const float WATER_IOR = ${WATER_IOR.toFixed(3)};
   const vec3 OCEAN_RRS = vec3(${OCEAN_RRS.map((v) => v.toFixed(5)).join(', ')});
@@ -165,6 +167,19 @@ export const WATER_GLSL = /* glsl */ `
     return s;
   }
 
+  /** Reflet d'un astre de direction \`l\` et d'eclairement \`irr\` — Cox & Munk, Fresnel, Smith. */
+  vec3 waterGlint(vec3 l, vec3 irr, bool lit, vec3 v, vec3 n, float muV, float sigma2) {
+    float muL = dot(l, n);
+    vec3 halfSum = l + v;
+    if (!lit || muL <= 0.0 || dot(halfSum, halfSum) <= 1e-8) return vec3(0.0);
+    vec3 h = normalize(halfSum);
+    float c = max(dot(h, n), 1e-3);
+    float tan2 = (1.0 - c * c) / (c * c);
+    float d = exp(-tan2 / sigma2) / (3.14159265 * sigma2 * c * c * c * c);
+    float g = smithG1(muV, sigma2) * smithG1(muL, sigma2);
+    return irr * waterFresnel(dot(v, h)) * d * g / (4.0 * muV);
+  }
+
   /**
    * Radiance de la surface (non exposee) ; \`skyReflection\` recoit le ciel
    * reflechi, deja expose comme la table qui le fournit.
@@ -206,21 +221,14 @@ export const WATER_GLSL = /* glsl */ `
     float F = waterFresnel(clamp(muV + 0.7 * sqrt(sigma2) * (1.0 - muV), 0.0, 1.0));
     skyReflection = F * sky;
 
-    // --- Soleil : Cox & Munk, Fresnel a la micro-facette, Smith.
-    vec3 glint = vec3(0.0);
-    float muL = dot(sunDir, n);
-    vec3 halfSum = sunDir + v;
-    if (sunLit && muL > 0.0 && dot(halfSum, halfSum) > 1e-8) {
-      vec3 h = normalize(halfSum);
-      float c = max(dot(h, n), 1e-3);
-      float tan2 = (1.0 - c * c) / (c * c);
-      float d = exp(-tan2 / sigma2) / (3.14159265 * sigma2 * c * c * c * c);
-      float g = smithG1(muV, sigma2) * smithG1(muL, sigma2);
-      glint = sunIrr * waterFresnel(dot(v, h)) * d * g / (4.0 * muV);
-    }
+    // --- Soleil, puis Lune : Cox & Munk, Fresnel a la micro-facette, Smith.
+    vec3 glint = waterGlint(sunDir, sunIrr, sunLit, v, n, muV, sigma2);
+    // La Lune : meme loi, son propre eclairement. La carte d'ombre est celle du
+    // Soleil ; la Lune n'en a pas, elle eclaire toute l'eau qu'elle voit.
+    if (uMoonDirection.y > 0.0) glint += waterGlint(normalize(uMoonDirection), uMoonIrradiance, true, v, n, muV, sigma2);
 
     // --- Lumiere montante.
-    vec3 down = sunIrr * max(dot(sunDir, up), 0.0) * (sunLit ? 1.0 : 0.0) + skyIrr;
+    vec3 down = sunIrr * max(dot(sunDir, up), 0.0) * (sunLit ? 1.0 : 0.0) + skyIrr + uMoonIrradiance * max(dot(uMoonDirection, up), 0.0);
     vec3 upwelling = (1.0 - F) * (ocean ? OCEAN_RRS : LAKE_RRS) * down;
     return glint + upwelling;
   }

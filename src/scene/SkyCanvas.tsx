@@ -312,6 +312,21 @@ export function SkyCanvas() {
    * depend que de la hauteur solaire quantifiee : il ne se refait donc que
    * lorsque celle-ci bouge, pas a chaque image.
    */
+  // Eclairement de la Lune au sol : le trajet atmospherique du Soleil a la
+  // hauteur de la Lune, fois le rapport Lune/Soleil hors atmosphere (phase
+  // comprise). C'est lui qui fait le reflet de la Lune sur l'eau.
+  const moonAltitudeKey = Math.round((moon?.horizontal.altitude ?? -90) * 20) / 20
+  const moonRatio = layers.atmosphere ? sky.moonIrradianceRatio : 0
+  const moonDirection = useMemo<[number, number, number]>(
+    () => viewDirection(moon?.horizontal.azimuth ?? 0, moonAltitudeKey),
+    [moon?.horizontal.azimuth, moonAltitudeKey],
+  )
+  const moonIrradiance = useMemo<[number, number, number]>(() => {
+    if (!(moonRatio > 0) || moonAltitudeKey < -1) return [0, 0, 0]
+    const rgb = directSolar(SOLAR_GRID, moonAltitudeKey, { observerElevationM }).linearSrgb
+    return [rgb[0] * moonRatio, rgb[1] * moonRatio, rgb[2] * moonRatio]
+  }, [moonAltitudeKey, moonRatio, observerElevationM])
+
   const sunIrradiance = useMemo<[number, number, number]>(() => {
     const rgb = directSolar(SOLAR_GRID, sunAltitudeKey, { observerElevationM }).linearSrgb
     return [rgb[0], rgb[1], rgb[2]]
@@ -735,6 +750,8 @@ export function SkyCanvas() {
             sunIrradiance={sunIrradiance}
             sunAltitudeDeg={sky.sunAltitude}
             sunAzimuthDeg={sky.sunAzimuth}
+            moonDirection={moonDirection}
+            moonIrradiance={moonIrradiance}
             skyExposure={skyExposure}
             nightTint={colors.nightTint}
           />
