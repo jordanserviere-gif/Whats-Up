@@ -33,7 +33,7 @@ const LOADING_BUILD_BUDGET_MS = 10
  * droite, decalees d'un temps. Elles s'empilent jusqu'a couvrir tout l'ecran,
  * le loader disparait dessous, et la derniere, en repartant, decouvre la vue.
  */
-const WIPE_BANDS = 4
+const WIPE_BANDS = 2
 /** Duree de la traversee d'une bande, ms. */
 const WIPE_BAND_MS = 1150
 /** Decalage entre deux bandes, ms. */

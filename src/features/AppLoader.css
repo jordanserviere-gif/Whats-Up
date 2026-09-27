@@ -194,9 +194,7 @@
  * primary, ton 40 environ) : une bande de cette couleur y serait invisible a
  * l'arrivee, et l'on croirait a une pause avant elle. */
 .app-wipe__band--0 { background: var(--md-ref-palette-primary-20); }
-.app-wipe__band--1 { background: var(--md-ref-palette-primary-60); }
-.app-wipe__band--2 { background: var(--md-ref-palette-primary-80); }
-.app-wipe__band--3 { background: var(--md-ref-palette-primary-95); }
+.app-wipe__band--1 { background: var(--md-ref-palette-primary-95); }
 
 @keyframes app-wipe {
   0% { transform: translateX(-140%) skewX(-14deg); }
