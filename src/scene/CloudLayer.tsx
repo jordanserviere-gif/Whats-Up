@@ -397,12 +397,15 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         // Turbulence (champ sans divergence, voir \`bakeCurlNoise\`) : elle
         // brasse la forme de base sans changer la fraction couverte — un champ
         // incompressible deplace le nuage sans le comprimer ni le diluer.
-        // Deux echelles. La grande, sur six mailles, tord la silhouette entiere :
-        // tours penchees, bords deportes, sommets inegaux — visible sans zoomer.
-        // La petite, sur deux mailles, casse la grille des textures.
-        vec3 swirlLarge = textureLod(uCurl, fract(wp / (6.0 * cellKm) + 0.57), 0.0).xyz;
-        vec3 swirl = textureLod(uCurl, fract(wp / (2.0 * cellKm)), 0.0).xyz;
-        wp += swirlLarge * (0.6 * cellKm) + swirl * (0.12 * cellKm);
+        // Deux echelles. Pour tordre la silhouette d'un nuage, la longueur d'onde
+        // doit etre la sienne : une maille et demie, et un deplacement de pres
+        // d'une demi-maille — bords deportes, tours penchees, sommets inegaux.
+        // (Sur six mailles, la torsion deplacait chaque nuage d'un bloc sans le
+        // deformer.) La seconde, plus lente, penche l'ensemble d'un nuage a
+        // l'autre.
+        vec3 swirlLarge = textureLod(uCurl, fract(wp / (1.5 * cellKm) + 0.57), 0.0).xyz;
+        vec3 swirl = textureLod(uCurl, fract(wp / (5.0 * cellKm)), 0.0).xyz;
+        wp += swirlLarge * (0.45 * cellKm) + swirl * (0.3 * cellKm);
         // La composante verticale deplace aussi la hauteur ou l'on lit le profil
         // du genre : d'un nuage a l'autre, le dôme monte ou s'affaisse.
         float hw = clamp(h + 0.18 * swirlLarge.y * smoothstep(0.0, 0.2, h), 0.0, 1.0);
@@ -883,7 +886,7 @@ function cloudScreenMaterial(): ShaderMaterial {
       uFront: { value: null as Texture | null },
       uBack: { value: null as Texture | null },
       uFrontPasses: { value: new Vector2(0, 0) },
-      uBackPasses: { value: 0 },
+      uBackPasses: { value: new Vector2(0, 0) },
       uFade: { value: 1 },
       uOpacity: { value: 1 },
       uExposureRatio: { value: new Vector2(1, 1) },
@@ -907,7 +910,8 @@ function cloudScreenMaterial(): ShaderMaterial {
       uniform sampler2D uBack;
       /** x : passes completes de la carte affichee ; y : fraction des lignes deja faites de la suivante. */
       uniform vec2 uFrontPasses;
-      uniform float uBackPasses;
+      /** Idem pour l'ancienne carte, pendant le fondu. */
+      uniform vec2 uBackPasses;
       /** Poids de la carte affichee dans le fondu. */
       uniform float uFade;
       uniform float uOpacity;
@@ -922,7 +926,8 @@ function cloudScreenMaterial(): ShaderMaterial {
         vec2 uv = cacheUv(d);
         float nf = uFrontPasses.x + (uv.y < uFrontPasses.y ? 1.0 : 0.0);
         vec4 front = nf > 0.0 ? texture2D(uFront, uv) / nf : vec4(0.0);
-        vec4 back = uBackPasses > 0.0 ? texture2D(uBack, uv) / uBackPasses : vec4(0.0);
+        float nb = uBackPasses.x + (uv.y < uBackPasses.y ? 1.0 : 0.0);
+        vec4 back = uBackPasses.x > 0.0 ? texture2D(uBack, uv) / nb : vec4(0.0);
         front.rgb *= uExposureRatio.x;
         back.rgb *= uExposureRatio.y;
         vec4 c = mix(back, front, uFade);
@@ -973,6 +978,13 @@ interface CloudBuffer {
    * la camera au lieu de rester au-dessus du relief.
    */
   eyeM: number
+  /**
+   * Lignes deja faites de la passe en cours, ou abandonnee : elles ont un
+   * echantillon de plus que les autres. L'ecran doit le savoir pour les diviser
+   * juste — sinon la frontiere, la ou elle croise un bord de nuage
+   * semi-transparent, y fait une marche.
+   */
+  partialRow: number
   /** Etages a l'aplomb et vent : ce qui cale l'eclairage et la derive. */
   overhead: CloudSlab[]
   windMS: [number, number][]
@@ -995,6 +1007,7 @@ function makeBuffer(): CloudBuffer {
     exposure: 1,
     passes: 0,
     eyeM: Number.NaN,
+    partialRow: 0,
     overhead: [],
     windMS: [],
   }
@@ -1201,6 +1214,7 @@ export function CloudLayer({
           b.windMS = r.windMS
           b.exposure = Number.NaN
           b.eyeM = eyeAltitudeM(observerElevationM, extraHeightM)
+          b.partialRow = 0
           clearTarget(gl, b.target)
           st.waitingFor = null
           st.build = { buffer: 1 - st.front, pass: 0, row: 0 }
@@ -1235,9 +1249,11 @@ export function CloudLayer({
         gl.autoClear = previousAutoClear
 
         st.build.row += rows
+        b.partialRow = st.build.row
         if (st.build.row >= CACHE_HEIGHT) {
           st.build.pass++
           st.build.row = 0
+          b.partialRow = 0
           b.passes = st.build.pass
           // Premiere passe complete : la carte neuve passe a l'ecran, en fondu,
           // et la suite de l'accumulation s'y fait en place.
@@ -1324,12 +1340,11 @@ export function CloudLayer({
     // --- Affichage.
     const shown = buffers[st.front]
     const old = buffers[1 - st.front]
-    const refining = st.build != null && st.build.buffer === st.front
     su.uFront.value = shown.target.texture
     su.uBack.value = old.target.texture
-    ;(su.uFrontPasses.value as Vector2).set(shown.passes, refining ? st.build!.row / CACHE_HEIGHT : 0)
+    ;(su.uFrontPasses.value as Vector2).set(shown.passes, shown.partialRow / CACHE_HEIGHT)
     su.uFade.value = Math.min(1, (performance.now() - st.fadeStart) / FADE_MS)
-    su.uBackPasses.value = su.uFade.value < 1 ? old.passes : 0
+    ;(su.uBackPasses.value as Vector2).set(su.uFade.value < 1 ? old.passes : 0, old.partialRow / CACHE_HEIGHT)
     su.uOpacity.value = st.opacity
     applyAerialUniforms(su as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     const exposure = su.uAerialExposure.value
