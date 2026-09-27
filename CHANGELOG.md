@@ -2,6 +2,20 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.4.0 — 2026-09-27
+
+### Nouveautes
+
+- **ciel** : la Voie lactee — carte Gaia DR2 de la NASA, etalonnee, en couleur, par la loi du ciel profond (6990634)
+
+### Corrections
+
+- **ciel** : la magnitude limite depend de la hauteur — le fond s'eclaircit vers l'horizon, la Voie lactee s'y noie sous un ciel de banlieue (44eff2c)
+- **voie-lactee** : URL de la carte suffixee de son empreinte — une version en cache ne la teinte plus en vert (603fa9b)
+- **ciel-profond** : plus de gris scotopique — les objets gardent leur teinte, comme dans Stellarium (7dbe223)
+- **etoiles** : le ciel noir montre ce qu'il annonce — catalogue a la magnitude 7, extinction du zenith comptee une fois, rien d'eteint sans atmosphere (dd07b13)
+- **ciel-profond** : plus de NaN dans le tampon HDR — la nuit ne passe plus au noir sous le bloom (f05b5d1)
+
 ## v0.3.0 — 2026-09-27
 
 ### Nouveautes
