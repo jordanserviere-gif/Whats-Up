@@ -1,14 +1,19 @@
 # What's Up? — observation en direct
 
-Webapp d'observation du ciel : vue en direct du ciel local avec frise temporelle,
-corps majeurs du système solaire, et un outil de tracé satellite piloté par des
-éléments orbitaux képlériens.
+Webapp d'observation du ciel : le ciel local en direct, vu depuis le vrai relief
+du lieu, avec frise temporelle. Au programme : les corps du système solaire et
+le ciel profond, une atmosphère calculée physiquement, l'eau (océans et lacs),
+les nuages tirés de la prévision, les avions en direct avec leurs traînées, et
+un outil de tracé satellite piloté par des éléments orbitaux képlériens.
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # bundle de production
-npm run verify     # vérification numérique de la couche astronomique
+npm run dev                 # http://localhost:5173 (sert aussi le relais ADS-B)
+npm run build               # vérification des types + bundle de production
+npm run typecheck           # vérification des types seule
+npm run verify              # vérification numérique de la couche astronomique
+npm run verify:atmosphere   # suites de validation du moteur physique (atmosphère, nuages, eau, relief)
+npm run release             # nouvelle version SemVer — voir « Versions »
 ```
 
 ## Choix techniques
@@ -238,6 +243,101 @@ Cette suite a effectivement attrapé une inversion de signe sur l'axe est de la
 matrice de scène, invisible au zénith et au pôle, puis un double comptage du fond
 de ciel entre le terme solaire et l'airglow.
 
+## Atmosphère
+
+`src/atmosphere/` est un moteur d'optique atmosphérique physiquement fondé, en
+SI strict et spectral. Il ne code pas les phénomènes, il code leurs causes :
+
+```
+état physique → propriétés optiques → transport de lumière → image observée
+```
+
+Aucun `sunsetColor` ni aucune condition sur la hauteur du Soleil. Les couchers
+rouges, les crépuscules, le rayon vert et les mirages sortent de :
+
+- la diffusion Rayleigh et Mie (aérosols) ;
+- l'ozone et sa bande de Chappuis ;
+- la diffusion multiple ;
+- l'indice de réfraction de l'air et la courbure des rayons ;
+- les inversions thermiques ;
+- la turbulence optique (seeing, scintillation) ;
+- l'airglow ;
+- le clair de lune diffusé.
+
+À l'écran, tout passe par des tables précalculées : transmittance, ciel vu et
+perspective aérienne. L'exposition suit le ciel, comme l'œil (adaptation
+photopique / scotopique). La documentation module par module est dans
+[`docs/atmosphere-engine.md`](docs/atmosphere-engine.md), et l'avancement dans
+[`docs/atmosphere-progress.md`](docs/atmosphere-progress.md).
+
+## Relief
+
+`src/scene/terrain/` pose l'observateur sur le vrai sol du lieu.
+
+- **Données** : les tuiles *terrarium* mondiales (AWS Open Data), assemblées en
+  une pyramide de trois niveaux dans un plan local azimutal équidistant. En
+  France, le relief proche passe à 3 m avec le RGE ALTI de l'IGN.
+- **Maillage** : un maillage radial en anneaux logarithmiques, réglé sur une
+  erreur d'espace écran. Son azimut suit la caméra, à budget constant.
+- **Couleur du sol** : l'orthophoto de l'IGN est drapée sur le sol, mais on
+  n'en garde que la teinte.
+- **La nuit** : le sol émet les lumières des villes, en unités photométriques.
+  Elles s'allument au crépuscule et éclairent l'air.
+- **Au loin** : au-delà du relief chargé, un globe physique prend le relais.
+  Il n'y a qu'un seul horizon.
+
+## Eau
+
+Océans et lacs, sur le relief comme sur le globe.
+
+- **Masque** : il vient de la couche `water` des tuiles vectorielles
+  OpenFreeMap, qui contient l'océan et les lacs, réservoirs et lagunes d'au
+  moins 1 km². Il est tracé dans un worker, sur la grille même du relief.
+- **Niveau de l'eau** : chaque plan d'eau a le sien, mesuré dans le relief.
+  L'océan est à 0 m, et un lac est à la médiane de son intérieur. Là où le sol
+  dépasse ce niveau de plus de 4 m, l'eau lui cède la place ; les creux sous
+  l'eau sont remontés à sa surface.
+- **Vagues** : elles sont calculées par transformée de Fourier sur le GPU
+  (Tessendorf), à partir d'un spectre JONSWAP. L'océan a trois cascades (497,
+  53 et 5,3 m), les lacs deux. Les pentes sont filtrées selon LEADR : la
+  variance que le filtrage lisse est reportée dans la statistique de Cox & Munk
+  au lieu d'être perdue. L'eau reste donc juste de près comme en visée rasante.
+- **Lumière** : on suit Bruneton (2010) — Fresnel exact, ciel réfléchi, reflets
+  du Soleil et de la Lune (Cox & Munk, masquage de Smith).
+- **État de mer** : il vient d'Open-Meteo Marine, en un seul appel par lieu,
+  gardé 12 h en local.
+
+## Nuages et météo
+
+Le calque Nuages est éteint par défaut. Tant qu'on ne l'active pas, il ne fait
+aucun appel réseau.
+
+- **Données** : la prévision ICON d'Open-Meteo, gardée dans IndexedDB pour ne
+  pas redemander ce qui est déjà connu.
+- **Scénarios** : des journées réelles archivées, figées dans
+  `public/scenarios/`, avec l'image satellite du même instant pour comparaison.
+  Elles se fabriquent avec `scripts/build-weather-scenario.mjs`.
+- **Genre des nuages** : il est déduit de la donnée (ISCCP, Wang & Sassen). Les
+  cumulus sous-maille sortent d'un modèle de panache convectif.
+- **Forme** : un bruit Perlin-Worley 3D, borné par la couverture, et une
+  turbulence sans divergence (curl noise). Le rendu est une marche de rayons
+  avec une diffusion multiple calée sur Eddington.
+- **Calcul** : il se fait dans un worker, hors du fil principal. Au changement
+  d'heure, les nuages se rechargent en silence, avec une barre discrète en bas
+  à gauche. Ils sont coupés au-delà d'une avance rapide de ×60.
+
+## Avions et traînées
+
+- **Positions** : ADS-B en direct depuis adsb.fi, puis adsb.lol en secours, via
+  le relais `/relay/…` que sert Vite (`npm run dev` ou `npm run preview`).
+  Chaque mesure est datée par l'horloge du serveur, et une position de plus de
+  90 s est écartée. L'altitude GNSS est préférée quand elle existe.
+- **Modèles** : un modèle 3D (`public/models/*.glb`) quand on s'approche, une
+  silhouette sinon.
+- **Traînées** : elles se forment et persistent selon l'air réel au niveau de
+  vol (critère de Schmidt–Appleman, bilan de glace), un panache par réacteur.
+  Elles s'étalent par cisaillement et sont éclairées par l'atmosphère.
+
 ## Catalogues et textures
 
 `src/data/stars.json`, `constellations.json` et `deepsky.json` sont générés par
@@ -268,16 +368,25 @@ Chaque version est un tag annoté `vX.Y.Z`, dont le message reprend le journal. 
 | Ciel profond (1 738) | [OpenNGC](https://github.com/mattiaverga/OpenNGC) (Mattia Verga) | CC BY-SA 4.0 |
 | Cartes de surface | [Solar System Scope](https://www.solarsystemscope.com/textures/) | **CC BY 4.0** |
 | Éléments orbitaux | [CelesTrak](https://celestrak.org/) (Dr T.S. Kelso) | usage libre, mise en cache demandée |
+| Relief mondial | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen, AWS Open Data) | attribution des sources |
+| Relief et orthophoto (France) | [RGE ALTI, BD ORTHO](https://geoservices.ign.fr/) (IGN, Géoplateforme) | Licence Ouverte 2.0 |
+| Masque d'eau | [OpenFreeMap](https://openfreemap.org/) (données OpenStreetMap) | ODbL |
+| Trame bâtie des lumières | [terrestris](https://www.terrestris.de/) (fond OSM) | ODbL |
+| Pollution lumineuse | [Atlas de D. Lorenz](https://djlorenz.github.io/astronomy/lp/) | voir la source |
+| Météo, qualité de l'air, état de mer | [Open-Meteo](https://open-meteo.com/) | CC BY 4.0 |
+| Images satellite des scénarios | [NASA Worldview](https://worldview.earthdata.nasa.gov/) (GIBS) | usage libre |
+| Positions d'avions | [adsb.fi](https://adsb.fi/), [adsb.lol](https://adsb.lol/) | données ouvertes (ODbL pour adsb.lol) |
+| Fiches d'avions | [adsbdb](https://www.adsbdb.com/) | voir la source |
+| Géocodage | [Photon](https://photon.komoot.io/) (komoot, données OSM) | ODbL |
 
 Les cartes de Solar System Scope sont redimensionnées mais non modifiées. La
 licence CC BY 4.0 impose de créditer l'auteur : l'attribution figure donc aussi
 **dans l'application**, section « Sources et licences » du panneau Réglages, et
 non seulement ici.
 
-Le modèle de diffusion atmosphérique reprend le shader de Preetham livré avec
-three.js (`examples/jsm/objects/Sky.js`), dont le disque solaire est retiré et
-auquel sont greffés un fondu crépusculaire et une exposition — voir
-`src/scene/SkyBackground.tsx`.
+Le ciel n'emprunte plus de modèle analytique (l'ancien shader de Preetham de
+three.js a été retiré) : il est calculé par le moteur de `src/atmosphere/`, et
+ses références scientifiques sont citées dans chaque suite de validation.
 
 ## Raccourcis
 
