@@ -2,6 +2,18 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.5.0 — 2026-09-27
+
+### Nouveautes
+
+- **avions** : les feux — position rouge et vert, queue blanche, anticollision rouge, doubles eclats blancs (55ab3fe)
+- **corps** : les quatre satellites galileens — Io, Europe, Ganymede, Callisto (b29a8f3)
+
+### Corrections
+
+- **avions** : feux a leur vraie place, visibles au zoom, icone ecartee (0cd8fb1)
+- **voie-lactee** : pas de gain d'instrument — zoomer ne l'eclaircit plus en voile gris raye de noir (fb8c3b6)
+
 ## v0.4.0 — 2026-09-27
 
 ### Nouveautes
