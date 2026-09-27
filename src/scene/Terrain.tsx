@@ -802,6 +802,10 @@ function terrainMaterial(): ShaderMaterial {
         vec2 groundEn = vec2(vRange * vView.x, -vRange * vView.z);
         vec2 waterMask = waterAt(groundEn);
         vec3 skyReflection = vec3(0.0);
+        // L'eau ne couvre que les faces tournees vers le ciel : les parois
+        // verticales du maillage, qui bouchent les fentes entre anneaux, restent
+        // du sol — eclairees en eau, elles se dressaient en lames claires.
+        waterMask *= smoothstep(0.6, 0.9, normalize(vNormal).y);
         if (waterMask.x > 0.004) {
           vec3 upLocal = normalize(vView * vRange + vec3(0.0, uEffectiveRadius + uObserverAltitude, 0.0));
           vec3 reflected;
@@ -895,6 +899,11 @@ function terrainMaterial(): ShaderMaterial {
 
         // Le ciel reflechi est deja expose, comme la table dont il vient.
         vec3 radiance = outgoing * transmittance * uAerialExposure + skyReflection * transmittance + haze;
+        // Borne sous le maximum d'un demi-flottant (65 504) : un reflet solaire
+        // plus intense y deviendrait infini, et le halo lumineux, flou separable,
+        // l'etalerait en colonnes. Rien de reel ne s'affiche au-dela.
+        radiance = min(radiance, vec3(3.0e4));
+        if (any(isnan(radiance))) radiance = vec3(0.0);
         // Theme night : la radiance est reduite a sa luminance puis portee par
         // l'ambre. Le blanc devient ambre, le noir reste noir, et l'ecart de
         // luminance entre une ville et la campagne survit intact. Seul le sol

@@ -188,7 +188,11 @@ export const WATER_GLSL = /* glsl */ `
     float spread = 2.0 * sqrt(0.5 * sigma2);
     vec3 sky = vec3(0.0);
     vec3 tr;
+    // De pres, les vagues sont dans la normale et la dispersion restante est
+    // faible : une seule lecture suffit. Cinq seulement la ou le flou se voit.
+    int taps = spread < 0.03 ? 1 : 5;
     for (int k = 0; k < 5; k++) {
+      if (k >= taps) break;
       vec2 o = k == 0 ? vec2(0.0) : k == 1 ? vec2(1.0, 0.0) : k == 2 ? vec2(-1.0, 0.0) : k == 3 ? vec2(0.0, 1.0) : vec2(0.0, -1.0);
       vec3 rr = normalize(r + spread * (o.x * t1 + o.y * t2));
       // Sous l'horizon, un rayon reflechi rencontrerait l'eau elle-meme : on le
@@ -196,7 +200,7 @@ export const WATER_GLSL = /* glsl */ `
       rr.y = max(rr.y, 0.01);
       sky += aerialPerspectiveToSpace(normalize(rr), tr);
     }
-    sky *= 0.2;
+    sky /= float(taps);
     // Fresnel moyen des facettes vues : en rasant, les facettes visibles sont
     // inclinees vers l'oeil d'environ l'ecart-type des pentes.
     float F = waterFresnel(clamp(muV + 0.7 * sqrt(sigma2) * (1.0 - muV), 0.0, 1.0));
@@ -205,8 +209,9 @@ export const WATER_GLSL = /* glsl */ `
     // --- Soleil : Cox & Munk, Fresnel a la micro-facette, Smith.
     vec3 glint = vec3(0.0);
     float muL = dot(sunDir, n);
-    if (sunLit && muL > 0.0) {
-      vec3 h = normalize(sunDir + v);
+    vec3 halfSum = sunDir + v;
+    if (sunLit && muL > 0.0 && dot(halfSum, halfSum) > 1e-8) {
+      vec3 h = normalize(halfSum);
       float c = max(dot(h, n), 1e-3);
       float tan2 = (1.0 - c * c) / (c * c);
       float d = exp(-tan2 / sigma2) / (3.14159265 * sigma2 * c * c * c * c);
