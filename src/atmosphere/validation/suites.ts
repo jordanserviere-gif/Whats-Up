@@ -51,6 +51,7 @@ import { cityLightsSuite } from '@/scene/terrain/cityLights.validation'
 import type { SuiteResult } from './harness'
 import { cloudSuite } from '../cloud/cloud.validation'
 import { cloudLayerSuite } from '../cloud/cloudLayer.validation'
+import { seaSurfaceSuite } from '../water/seaSurface.validation'
 
 /** Toutes les suites, dans l'ordre des phases. */
 export function allSuites(): SuiteResult[] {
@@ -129,5 +130,6 @@ export function allSuites(): SuiteResult[] {
     // Chantier : milieu nuageux — l'eau condensee, commune aux nuages et aux trainees.
     cloudSuite(),
     cloudLayerSuite(),
+    seaSurfaceSuite(),
   ]
 }

@@ -78,6 +78,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  type Texture,
   ClampToEdgeWrapping,
   DataTexture,
   DoubleSide,
@@ -110,7 +111,7 @@ import {
   terrainPeakM,
   terrainRevision,
 } from './terrain/elevationField'
-import { CLIPMAP_HALF_SPANS_M } from './terrain/elevationClipmap'
+import { CLIPMAP_HALF_SPANS_M, CLIPMAP_SIZE } from './terrain/elevationClipmap'
 import {
   AZIMUTH_STEPS,
   NEAR_M,
@@ -124,7 +125,12 @@ import {
 } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
+import { zoomForResolution } from './terrain/geodesy'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
+import { loadWaterAround, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
+import { LAKE_WAVES, OCEAN_WAVES } from '@/atmosphere/water/seaSurface'
+import { WATER_GLSL, packWaves, seaWaves, slopeVariance, type SeaState } from './terrain/waterShading'
+import { currentSeaState, loadSeaState } from '@/data-sources/seaState'
 import {
   CITY_HALF_SPANS_M,
   CITY_DENSITY_EXPONENT,
@@ -600,6 +606,19 @@ function terrainMaterial(): ShaderMaterial {
       uNight: { value: 0 },
       /** Ce que devient le blanc en night, RGB lineaire — `--app-night-tint`. */
       uNightTint: { value: new Vector3(1, 1, 1) },
+      uWater0: { value: null as Texture | null },
+      uWater1: { value: null as Texture | null },
+      uWater2: { value: null as Texture | null },
+      uWaterHalfSpan: { value: new Vector3(1, 1, 1) },
+      uWaterOn: { value: 0 },
+      uOceanWaveA: { value: new Float32Array(OCEAN_WAVES * 4) },
+      uOceanWaveB: { value: new Float32Array(OCEAN_WAVES * 2) },
+      uLakeWaveA: { value: new Float32Array(LAKE_WAVES * 4) },
+      uLakeWaveB: { value: new Float32Array(LAKE_WAVES * 2) },
+      uWaveTime: { value: 0 },
+      uOceanSlopeVar: { value: 0.03 },
+      uLakeSlopeVar: { value: 0.03 },
+      uWaterPixelAngle: { value: 1e-3 },
       /** Carte d'ombre : altitude a laquelle le Soleil se leve, en chaque point. */
       uShadowMap: { value: null as DataTexture | null },
       /** Demi-etendue de la carte, metres. */
@@ -653,6 +672,7 @@ function terrainMaterial(): ShaderMaterial {
       ${MICRO_RELIEF_GLSL}
       ${ORTHO_GLSL}
       ${CITY_LIGHTS_GLSL}
+      ${WATER_GLSL}
       // Pas de la sommation par segments. Huit suffisent : la table ne porte que
       // seize tranches de distance, et un pas plus fin qu'elles ne ferait
       // qu'interpoler du vide.
@@ -758,7 +778,8 @@ function terrainMaterial(): ShaderMaterial {
         // depasse localement le sol et la surface s'ombre elle-meme.
         //
         // ⚠️ Il valait 300 m en dur, soit deux fois et demie ce qu'il fallait.
-        if (!sunlitAt(vView, vRange, uShadowHalfSpan / float(SHADOW_SIZE - 1))) cosIncidence = 0.0;
+        bool sunLit = sunlitAt(vView, vRange, uShadowHalfSpan / float(SHADOW_SIZE - 1));
+        if (!sunLit) cosIncidence = 0.0;
         float skyView = 0.5 * (1.0 + N.y);
         vec3 irradiance = uSunIrradiance * cosIncidence + uSkyIrradiance * skyView;
 
@@ -773,7 +794,25 @@ function terrainMaterial(): ShaderMaterial {
         // le reste : attenue par l'air, occulte par les cretes, expose comme
         // tout le reste. Sa valeur vient de la norme EN 13201 et d'un spectre de
         // Planck, pas d'une couleur choisie. Voir terrain/cityLights.ts.
-        outgoing += cityEmission(vRange * vView.x, -vRange * vView.z);
+        // --- L'eau -----------------------------------------------------------
+        //
+        // Ocean et lacs, d'apres le masque trace sur la couche \`water\`
+        // d'OpenStreetMap (voir terrain/waterMask.ts). La surface y est deja au
+        // niveau de l'eau ; seul change son eclairage — voir waterShading.ts.
+        vec2 groundEn = vec2(vRange * vView.x, -vRange * vView.z);
+        vec2 waterMask = waterAt(groundEn);
+        vec3 skyReflection = vec3(0.0);
+        if (waterMask.x > 0.004) {
+          vec3 upLocal = normalize(vView * vRange + vec3(0.0, uEffectiveRadius + uObserverAltitude, 0.0));
+          vec3 reflected;
+          vec3 waterOut = waterShade(normalize(vView), upLocal, groundEn, vRange, waterMask.y > 0.5 * waterMask.x,
+            uSunIrradiance, uSkyIrradiance, normalize(uSunDirection), sunLit, reflected);
+          outgoing = mix(outgoing, waterOut, waterMask.x);
+          skyReflection = waterMask.x * reflected;
+        }
+
+        // Les lampes sont a terre : l'eau n'en emet pas.
+        outgoing += cityEmission(vRange * vView.x, -vRange * vView.z) * (1.0 - waterMask.x);
 
         // --- Le trajet jusqu'a l'oeil ---------------------------------------
         //
@@ -854,7 +893,8 @@ function terrainMaterial(): ShaderMaterial {
           previousT = stepT;
         }
 
-        vec3 radiance = outgoing * transmittance * uAerialExposure + haze;
+        // Le ciel reflechi est deja expose, comme la table dont il vient.
+        vec3 radiance = outgoing * transmittance * uAerialExposure + skyReflection * transmittance + haze;
         // Theme night : la radiance est reduite a sa luminance puis portee par
         // l'ambre. Le blanc devient ambre, le noir reste noir, et l'ecart de
         // luminance entre une ville et la campagne survit intact. Seul le sol
@@ -982,6 +1022,18 @@ export function Terrain({
       setOrtho(texture)
     })
 
+    // Masque d'eau, sur la meme pyramide que le relief — voir terrain/waterMask.ts.
+    void loadWaterAround(
+      latitudeDeg,
+      longitudeDeg,
+      CLIPMAP_HALF_SPANS_M.map((halfSpanM) => ({
+        halfSpanM,
+        zoom: Math.min(14, zoomForResolution(latitudeDeg, (2 * halfSpanM) / (CLIPMAP_SIZE - 1))),
+      })),
+    ).then(() => {
+      if (alive && siteHasWater()) void loadSeaState(latitudeDeg, longitudeDeg)
+    })
+
     void loadElevationAround(latitudeDeg, longitudeDeg, (progress) => {
       if (!alive) return
       setTerrainProgress(progress)
@@ -1017,6 +1069,7 @@ export function Terrain({
    */
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
   const build = useRef<MeshBuild | null>(null)
+  const appliedSea = useRef<SeaState | null>(null)
   const shownKey = useRef<string | null>(null)
 
   // La geometrie precedente est liberee **apres** que React a commis la
@@ -1124,7 +1177,7 @@ export function Terrain({
 
   useEffect(() => () => shadowTexture.dispose(), [shadowTexture])
 
-  useFrame(() => {
+  useFrame(({ camera, size }) => {
     const u = material.uniforms
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
@@ -1135,6 +1188,33 @@ export function Terrain({
     u.uOrtho.value = ortho
     u.uOrthoStrength.value = ortho && orthoReady() ? 1 : 0
     u.uOrthoHalfSpan.value = Math.max(1, orthoSpanM())
+
+    // --- Eau : masque, etat de mer, temps des vagues.
+    const water = waterTextures()
+    u.uWaterOn.value = water.length === 3 ? 1 : 0
+    if (water.length === 3) {
+      u.uWater0.value = water[0]
+      u.uWater1.value = water[1]
+      u.uWater2.value = water[2]
+      const spans = waterHalfSpans()
+      ;(u.uWaterHalfSpan.value as Vector3).set(spans[0], spans[1], spans[2])
+    }
+    const sea = currentSeaState()
+    if (sea !== appliedSea.current) {
+      appliedSea.current = sea
+      const waves = seaWaves(sea)
+      const ocean = packWaves(waves.ocean, OCEAN_WAVES)
+      const lake = packWaves(waves.lake, LAKE_WAVES)
+      ;(u.uOceanWaveA.value as Float32Array).set(ocean.a)
+      ;(u.uOceanWaveB.value as Float32Array).set(ocean.b)
+      ;(u.uLakeWaveA.value as Float32Array).set(lake.a)
+      ;(u.uLakeWaveB.value as Float32Array).set(lake.b)
+      const variance = slopeVariance(sea)
+      u.uOceanSlopeVar.value = variance.ocean
+      u.uLakeSlopeVar.value = variance.lake
+    }
+    u.uWaveTime.value = performance.now() / 1000
+    u.uWaterPixelAngle.value = (((camera as PerspectiveCamera).fov ?? 60) * DEG) / Math.max(1, size.height)
     u.uCityNear.value = cityLights?.[0] ?? null
     u.uCityFar.value = cityLights?.[1] ?? null
     // ⚠️ Le terminateur n'est pas une limite en degres mais un **seuil

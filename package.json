@@ -22,11 +22,13 @@
     "release": "node scripts/release.mjs"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
     "@react-three/postprocessing": "^2.19.1",
     "astronomy-engine": "^2.1.19",
     "maplibre-gl": "^6.11.2",
+    "pbf": "^5.1.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "satellite.js": "^7.1.0",
