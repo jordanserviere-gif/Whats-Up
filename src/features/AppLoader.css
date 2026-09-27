@@ -10,8 +10,14 @@
   justify-content: center;
   gap: var(--md-sys-spacing-6);
   padding: var(--md-sys-spacing-6);
-  background: var(--md-sys-color-background);
-  color: var(--md-sys-color-on-surface);
+  /* Fond a la couleur du logo — le primary, qui est le bleu de la marque —,
+   * et tout le contenu en on-primary. En night, le fond reste noir strict :
+   * seul le contenu est ambre (voir night.css). */
+  --_loader-bg: var(--md-sys-color-primary);
+  --_loader-fg: var(--md-sys-color-on-primary);
+  --_loader-fg-muted: color-mix(in srgb, var(--md-sys-color-on-primary) 72%, transparent);
+  background: var(--_loader-bg);
+  color: var(--_loader-fg);
   text-align: center;
   opacity: 0;
   visibility: hidden;
@@ -40,7 +46,7 @@
 .app-loader__star {
   position: absolute;
   aspect-ratio: 1;
-  color: var(--app-brand-logo);
+  color: var(--_loader-fg);
 }
 .app-loader__sx,
 .app-loader__sy {
@@ -119,10 +125,10 @@
   display: inline-flex;
   align-items: center;
   gap: var(--md-sys-spacing-1);
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--_loader-fg-muted);
 }
 .app-loader__steps li.is-done {
-  color: var(--md-sys-color-on-surface);
+  color: var(--_loader-fg);
 }
 .app-loader__steps .md-icon {
   font-size: 1.125rem;
@@ -133,7 +139,7 @@
 .app-loader__phrase {
   min-height: 1.5em;
   margin: 0;
-  color: var(--md-sys-color-on-surface);
+  color: var(--_loader-fg);
   animation: app-loader-phrase var(--md-sys-motion-spring-effects-slow-duration) var(--md-sys-motion-spring-effects-slow) both;
 }
 @keyframes app-loader-phrase {
@@ -150,4 +156,10 @@
   .app-loader__phrase {
     animation: none;
   }
+}
+
+:root[data-theme='night'] .app-loader {
+  --_loader-bg: var(--md-sys-color-background);
+  --_loader-fg: var(--app-brand-logo);
+  --_loader-fg-muted: var(--md-sys-color-on-surface-variant);
 }
