@@ -413,6 +413,10 @@ function SourcesSection() {
       <p className="md-type-body-small">
         Catalogue OpenNGC de Mattia Verga, sous CC BY-SA 4.0. Base HYG d’Astronexus, sous CC BY-SA 2.5.
       </p>
+      <p className="md-type-label-small settings__version">
+        What’s Up? v{__APP_VERSION__}
+        {__APP_COMMIT__ && ` · ${__APP_COMMIT__}`}
+      </p>
     </Section>
   )
 }

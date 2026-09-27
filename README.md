@@ -245,6 +245,19 @@ de ciel entre le terme solaire et l'airglow.
 puis commités. Les cartes de surface sont récupérées par `npm run textures` dans
 `public/textures/`. Rien n'est téléchargé à l'exécution.
 
+## Versions
+
+Numérotation [SemVer](https://semver.org/lang/fr/), déduite des commits, qui suivent la convention `type(portée): sujet`. En 0.x : `feat` fait monter la version mineure, `fix` et `perf` le correctif ; une rupture (`!` après le type, ou `BREAKING CHANGE` dans le corps) fait monter la mineure, puis la majeure à partir de la 1.0.
+
+```sh
+npm run release -- --dry      # aperçu : prochain numéro et journal
+npm run release               # met à jour package.json et CHANGELOG.md, commite, tague vX.Y.Z
+npm run release -- --push     # idem, et pousse le commit et le tag
+npm run release -- --as patch # impose le niveau (major, minor, patch)
+```
+
+Chaque version est un tag annoté `vX.Y.Z`, dont le message reprend le journal. L'appli affiche sa version et son commit en pied de la section « Sources et licences » des réglages.
+
 ## Crédits et licences
 
 | Donnée | Source | Licence |

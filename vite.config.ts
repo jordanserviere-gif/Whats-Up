@@ -1,6 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+
+/**
+ * Version affichee dans l'appli : celle de `package.json`, que `npm run
+ * release` fait monter, et le commit de la construction — pour savoir sans
+ * ambiguite ce qu'on a sous les yeux.
+ */
+const APP_VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version as string
+let APP_COMMIT = ''
+try {
+  APP_COMMIT = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+} catch {
+  APP_COMMIT = ''
+}
 
 /**
  * Relais ADS-B servi par Vite lui-meme, en developpement comme en `preview`.
@@ -26,6 +41,10 @@ const ADSB_RELAY = {
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __APP_COMMIT__: JSON.stringify(APP_COMMIT),
+  },
   server: { proxy: ADSB_RELAY },
   preview: { proxy: ADSB_RELAY },
   resolve: {

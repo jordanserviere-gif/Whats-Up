@@ -18,7 +18,8 @@
     "verify": "esbuild scripts/verify-astro.mjs --bundle --platform=node --format=esm --log-level=error --outfile=scripts/.cache/verify.mjs && node scripts/.cache/verify.mjs",
     "verify:atmosphere": "esbuild scripts/verify-atmosphere.mjs --bundle --platform=node --format=esm --log-level=error --outfile=scripts/.cache/verify-atmosphere.mjs && node scripts/.cache/verify-atmosphere.mjs",
     "atmo:baseline": "node scripts/atmosphere-baseline.mjs",
-    "audit:ui": "node scripts/audit-overflow.mjs"
+    "audit:ui": "node scripts/audit-overflow.mjs",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

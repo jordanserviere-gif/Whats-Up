@@ -16,3 +16,8 @@
   align-items: center;
   gap: var(--md-sys-spacing-2);
 }
+
+/* Version de l'appli, en pied des sources : discrete, mais toujours lisible. */
+.settings__version {
+  color: var(--md-sys-color-on-surface-variant);
+}
