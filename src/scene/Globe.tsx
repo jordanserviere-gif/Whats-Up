@@ -216,7 +216,9 @@ export function Globe({
             // sol mat entre la mer et les montagnes. Pas de vagues ici : la
             // seule statistique, avec la variance totale des pentes.
             vec2 en = vec2(range * d.x, -range * d.z);
-            vec2 wm = waterAt(en);
+            // Le globe est au niveau de la mer : il ne porte que l'ocean.
+            vec3 wAll = waterAt(en);
+            vec2 wm = vec2(wAll.y, wAll.y);
             vec3 skyReflection = vec3(0.0);
             if (wm.x > 0.004) {
               vec3 reflected;

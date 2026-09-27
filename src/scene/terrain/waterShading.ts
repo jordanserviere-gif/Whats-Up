@@ -63,6 +63,14 @@ export function lakeComponents(state: SeaState): SeaComponent[] {
 /** Variance totale des pentes : Cox & Munk, pour le vent du moment. */
 export const totalSlopeVariance = (state: SeaState) => coxMunkSlopeVariance(state.windMS)
 
+/**
+ * Marge au-dessus du niveau de l'eau ou le sol reste de l'eau, m : l'erreur
+ * verticale courante du relief satellite (SRTM, ±5 m). Puis fondu sur quelques
+ * metres vers la terre.
+ */
+const SHORE_MARGIN_M = 4
+const SHORE_BLEND_M = 4
+
 /** Masque, Fresnel, Smith, reflets et lumiere montante — commun au relief et au globe. */
 export const WATER_COMMON_GLSL = /* glsl */ `
   uniform sampler2D uWater0;
@@ -77,26 +85,44 @@ export const WATER_COMMON_GLSL = /* glsl */ `
   const vec3 OCEAN_RRS = vec3(${OCEAN_RRS.map((v) => v.toFixed(5)).join(', ')});
   const vec3 LAKE_RRS = vec3(${LAKE_RRS.map((v) => v.toFixed(5)).join(', ')});
 
-  vec2 waterLevel(sampler2D tex, float half_, vec2 en) {
+  /**
+   * Eau, ocean, niveau de l'eau (m). Le niveau est code sur deux octets (pas
+   * de 12,5 cm, −500 m a l'origine) ; 65 535 — « inconnu » — vaut 7 692 m, ce
+   * qui revient a ne pas decouper l'eau par le relief.
+   */
+  vec3 waterLevel(sampler2D tex, float half_, vec2 en) {
     vec2 f = (en + half_) / (2.0 * half_) * ${CLIPMAP_SIZE - 1}.0;
-    return textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0).rg;
+    vec4 m = textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0);
+    float q = floor(m.b * 255.0 + 0.5) * 256.0 + floor(m.a * 255.0 + 0.5);
+    return vec3(m.rg, q / 8.0 - 500.0);
   }
-  /** Eau, ocean — meme choix de niveau et meme frange que le relief. */
-  vec2 waterAt(vec2 en) {
-    if (uWaterOn < 0.5) return vec2(0.0);
+  /** Eau, ocean, niveau — meme choix de niveau et meme frange que le relief. */
+  vec3 waterAt(vec2 en) {
+    if (uWaterOn < 0.5) return vec3(0.0, 0.0, 0.0);
     float reach = max(abs(en.x), abs(en.y));
     if (reach <= uWaterHalfSpan.x) {
-      vec2 fine = waterLevel(uWater0, uWaterHalfSpan.x, en);
+      vec3 fine = waterLevel(uWater0, uWaterHalfSpan.x, en);
       float t = smoothstep(0.88, 1.0, reach / uWaterHalfSpan.x);
       return t > 0.0 ? mix(fine, waterLevel(uWater1, uWaterHalfSpan.y, en), t) : fine;
     }
     if (reach <= uWaterHalfSpan.y) {
-      vec2 fine = waterLevel(uWater1, uWaterHalfSpan.y, en);
+      vec3 fine = waterLevel(uWater1, uWaterHalfSpan.y, en);
       float t = smoothstep(0.88, 1.0, reach / uWaterHalfSpan.y);
       return t > 0.0 ? mix(fine, waterLevel(uWater2, uWaterHalfSpan.z, en), t) : fine;
     }
     if (reach <= uWaterHalfSpan.z) return waterLevel(uWater2, uWaterHalfSpan.z, en);
-    return vec2(0.0);
+    return vec3(0.0);
+  }
+
+  /**
+   * Part d'eau d'un point du relief a l'altitude \`altitudeM\` : le masque dit
+   * ou est l'eau, le relief dit si le sol y depasse. Au-dela du niveau plus
+   * ${SHORE_MARGIN_M} m — l'erreur verticale courante du relief satellite —, c'est la
+   * terre qui l'emporte, fondue sur ${SHORE_BLEND_M} m : le rivage suit alors les courbes
+   * de niveau reelles, et l'eau ne monte plus sur les pentes.
+   */
+  float waterCover(vec3 w, float altitudeM) {
+    return w.x * (1.0 - smoothstep(w.z + ${SHORE_MARGIN_M}.0, w.z + ${SHORE_MARGIN_M + SHORE_BLEND_M}.0, altitudeM));
   }
 
   float waterFresnel(float c) {
@@ -249,17 +275,22 @@ export const WATER_VERTEX_GLSL = /* glsl */ `
   uniform vec2 uLakeCascadeM;
   uniform float uWaterPixelAngle;
 
-  vec2 waterLevelV(sampler2D tex, float half_, vec2 en) {
+  vec3 waterLevelV(sampler2D tex, float half_, vec2 en) {
     vec2 f = (en + half_) / (2.0 * half_) * ${CLIPMAP_SIZE - 1}.0;
-    return textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0).rg;
+    vec4 m = textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0);
+    float q = floor(m.b * 255.0 + 0.5) * 256.0 + floor(m.a * 255.0 + 0.5);
+    return vec3(m.rg, q / 8.0 - 500.0);
   }
-  vec2 waterAtV(vec2 en) {
-    if (uWaterOn < 0.5) return vec2(0.0);
+  vec3 waterAtV(vec2 en) {
+    if (uWaterOn < 0.5) return vec3(0.0);
     float reach = max(abs(en.x), abs(en.y));
     if (reach <= uWaterHalfSpan.x) return waterLevelV(uWater0, uWaterHalfSpan.x, en);
     if (reach <= uWaterHalfSpan.y) return waterLevelV(uWater1, uWaterHalfSpan.y, en);
     if (reach <= uWaterHalfSpan.z) return waterLevelV(uWater2, uWaterHalfSpan.z, en);
-    return vec2(0.0);
+    return vec3(0.0);
+  }
+  float waterCoverV(vec3 w, float altitudeM) {
+    return w.x * (1.0 - smoothstep(w.z + ${SHORE_MARGIN_M}.0, w.z + ${SHORE_MARGIN_M + SHORE_BLEND_M}.0, altitudeM));
   }
   float cascadeHeight(sampler2D tex, float sizeM, vec2 en, float spacing) {
     float lod = max(0.0, log2(max(spacing, 1e-3) / (sizeM / ${FFT_SIZE}.0)));

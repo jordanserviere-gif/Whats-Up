@@ -127,7 +127,7 @@ import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
 import { zoomForResolution } from './terrain/geodesy'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
-import { loadWaterAround, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
+import { loadWaterAround, refreshWaterLevels, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
 import { LAKE_CASCADES, OCEAN_CASCADES } from '@/atmosphere/water/seaSurface'
 import { OceanCascades } from './terrain/oceanFft'
 import { WATER_GLSL, WATER_VERTEX_GLSL, lakeComponents, oceanComponents, totalSlopeVariance, type SeaState } from './terrain/waterShading'
@@ -674,12 +674,16 @@ function terrainMaterial(): ShaderMaterial {
         // loi que \`terrainDepth\`).
         vec3 metric = vView * range;
         vec2 en = vec2(metric.x, -metric.z);
-        vec2 wm = waterAtV(en) * smoothstep(0.6, 0.9, vNormal.y);
+        vec3 wv = waterAtV(en);
+        float cover = waterCoverV(wv, altitude) * smoothstep(0.6, 0.9, vNormal.y);
+        vec2 wm = vec2(cover, cover * (wv.x > 0.0 ? wv.y / wv.x : 0.0));
         if (wm.x > 0.01) {
           float muUp = max(abs(vView.y), 0.02);
           // Maille estimee : quelques pixels, allongee en rasant.
           float spacing = 4.0 * uWaterPixelAngle * range / muUp;
-          float lift = wm.x * waveHeight(en, spacing, wm.y > 0.5 * wm.x);
+          // Sous l'eau, les creux du relief sont remontes au niveau du plan d'eau :
+          // la surface reste plate, quelle que soit la bathymetrie sous elle.
+          float lift = wm.x * (max(0.0, wv.z - altitude) + waveHeight(en, spacing, wm.y > 0.5 * wm.x));
           metric.y += lift;
           vRange = length(metric);
           vView = metric / vRange;
@@ -828,7 +832,9 @@ function terrainMaterial(): ShaderMaterial {
         // d'OpenStreetMap (voir terrain/waterMask.ts). La surface y est deja au
         // niveau de l'eau ; seul change son eclairage — voir waterShading.ts.
         vec2 groundEn = vec2(vRange * vView.x, -vRange * vView.z);
-        vec2 waterMask = waterAt(groundEn);
+        vec3 waterSample = waterAt(groundEn);
+        float waterCoverage = waterCover(waterSample, vAltitude);
+        vec2 waterMask = vec2(waterCoverage, waterCoverage * (waterSample.x > 0.0 ? waterSample.y / waterSample.x : 0.0));
         vec3 skyReflection = vec3(0.0);
         // L'eau ne couvre que les faces tournees vers le ciel : les parois
         // verticales du maillage, qui bouchent les fentes entre anneaux, restent
@@ -1080,6 +1086,8 @@ export function Terrain({
       if (!alive) return
       setTerrainProgress(progress)
       setRevision(terrainRevision())
+      // Un niveau de relief de plus : le niveau des plans d'eau s'y mesure.
+      refreshWaterLevels()
 
       // L'altitude du sol est une **propriete du terrain**, que le modele
       // numerique connait mieux que n'importe quelle saisie. On la publie donc

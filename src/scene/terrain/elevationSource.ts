@@ -103,6 +103,9 @@ export function elevationM(eastM: number, northM: number): number {
 }
 
 /** Vrai des qu'au moins un niveau porte du relief. */
+/** Pyramide d'altitudes du site courant — le masque d'eau y lit le niveau de chaque lac. */
+export const currentClipmap = (): ElevationClipmap | null => current
+
 export const elevationReady = (): boolean =>
   current !== null && current.levels.some((level) => level.ready)
 

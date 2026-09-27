@@ -2,6 +2,7 @@
 import { VectorTile } from '@mapbox/vector-tile'
 import { PbfReader } from 'pbf'
 import { enuToGeodetic, geodeticToEnu, lonLatToTile, tileToLonLat } from './geodesy'
+import { waterLevels } from './waterLevels'
 
 /**
  * Masque d'eau d'un site, hors du fil principal.
@@ -37,7 +38,26 @@ export interface WaterRequest {
   tilesUrl: string
 }
 
+/** Deuxieme temps : le niveau de chaque plan d'eau, une fois le relief du niveau charge. */
+export interface WaterLevelsRequest {
+  kind: 'levels'
+  requestId: number
+  size: number
+  /** Masque du niveau (eau, ocean), tel que rendu par le premier temps. */
+  mask: Uint8Array
+  /** Altitudes du relief sur la meme grille, m. */
+  heights: Int16Array
+}
+
+export interface WaterLevelsResult {
+  kind: 'levels'
+  requestId: number
+  /** Niveau de l'eau par cellule, m ; propage sur quelques cellules de rivage. */
+  level: Float32Array
+}
+
 export interface WaterResult {
+  kind?: 'mask'
   requestId: number
   /** Un masque par niveau, `size² × 2` octets : eau, ocean. */
   masks: Uint8Array[]
@@ -160,8 +180,15 @@ async function rasterize(req: WaterRequest, level: WaterLevelRequest): Promise<{
 }
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
-scope.onmessage = async (event: MessageEvent<WaterRequest>) => {
-  const req = event.data
+scope.onmessage = async (event: MessageEvent<WaterRequest | WaterLevelsRequest>) => {
+  if ('kind' in event.data && event.data.kind === 'levels') {
+    const { requestId, size, mask, heights } = event.data
+    const level = waterLevels(size, mask, heights)
+    const out: WaterLevelsResult = { kind: 'levels', requestId, level }
+    scope.postMessage(out, [level.buffer as ArrayBuffer])
+    return
+  }
+  const req = event.data as WaterRequest
   const masks: Uint8Array[] = []
   let anyWater = false
   for (const level of req.levels) {

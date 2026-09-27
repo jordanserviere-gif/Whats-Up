@@ -47,6 +47,7 @@ import { meshSamplingSuite } from '@/scene/terrain/meshSampling.validation'
 import { nearFieldSuite } from '@/scene/terrain/nearField.validation'
 import { microReliefSuite } from '@/scene/terrain/microRelief.validation'
 import { orthophotoSuite } from '@/scene/terrain/orthophoto.validation'
+import { waterLevelsSuite } from '@/scene/terrain/waterLevels.validation'
 import { cityLightsSuite } from '@/scene/terrain/cityLights.validation'
 import type { SuiteResult } from './harness'
 import { cloudSuite } from '../cloud/cloud.validation'
@@ -125,6 +126,7 @@ export function allSuites(): SuiteResult[] {
     microReliefSuite(),
     // Dette : drape orthophotographique — la teinte du sol reel, pas sa clarte.
     orthophotoSuite(),
+    waterLevelsSuite(),
     // Dette : le sol emet — les lumieres urbaines, en unites photometriques.
     cityLightsSuite(),
     // Chantier : milieu nuageux — l'eau condensee, commune aux nuages et aux trainees.
