@@ -76,7 +76,12 @@ import type { GeoLocation } from '@/astro/types'
 /** Magnitude, en mag/arcsec², portee par l'octet nul et pas d'un octet. */
 const MU_BRIGHT = RAW.muBright
 const MU_STEP = RAW.muStep
-const MILKY_WAY_URL = 'textures/milky-way.png'
+/**
+ * URL de la carte, avec son empreinte : une carte en cache d'une version
+ * precedente serait lue avec le decodage de celle-ci — une premiere version en
+ * niveaux de gris, lue comme teinte, rendait la Voie lactee verte.
+ */
+const MILKY_WAY_URL = `textures/milky-way.png?v=${RAW.hash}`
 
 /**
  * Ecart entre brillance de surface et magnitude du flux tombant dans l'aire de

@@ -51,6 +51,7 @@
  *
  * Usage : node scripts/build-milky-way.mjs
  */
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -277,6 +278,10 @@ writeFileSync(
       muBright: MU_BRIGHT,
       muStep: MU_STEP,
       chromaRange: CHROMA_RANGE,
+      // Empreinte du PNG, ajoutee a son URL : un navigateur qui garde une
+      // version precedente en cache la lirait avec le decodage de la nouvelle.
+      // Une carte en niveaux de gris lue comme RVB sortait verte.
+      hash: createHash('sha1').update(png).digest('hex').slice(0, 10),
       anchorMu: +ANCHOR_MU.toFixed(3),
       starCut: STAR_CUT,
       landmarks,
