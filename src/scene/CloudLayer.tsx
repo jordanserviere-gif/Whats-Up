@@ -397,19 +397,26 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         // Turbulence (champ sans divergence, voir \`bakeCurlNoise\`) : elle
         // brasse la forme de base sans changer la fraction couverte — un champ
         // incompressible deplace le nuage sans le comprimer ni le diluer.
+        // Deux echelles. La grande, sur six mailles, tord la silhouette entiere :
+        // tours penchees, bords deportes, sommets inegaux — visible sans zoomer.
+        // La petite, sur deux mailles, casse la grille des textures.
+        vec3 swirlLarge = textureLod(uCurl, fract(wp / (6.0 * cellKm) + 0.57), 0.0).xyz;
         vec3 swirl = textureLod(uCurl, fract(wp / (2.0 * cellKm)), 0.0).xyz;
-        wp += swirl * (0.12 * cellKm);
+        wp += swirlLarge * (0.6 * cellKm) + swirl * (0.12 * cellKm);
+        // La composante verticale deplace aussi la hauteur ou l'on lit le profil
+        // du genre : d'un nuage a l'autre, le dôme monte ou s'affaisse.
+        float hw = clamp(h + 0.18 * swirlLarge.y * smoothstep(0.0, 0.2, h), 0.0, 1.0);
         vec2 qh = wp.xz / (4.0 * cellKm);
         // Ramenee dans [0, 1[ : la texture est periodique, et la derive du vent
         // porte la coordonnee a des dizaines de periodes, ou l'unite de texture
         // perd la precision sous le texel et n'interpole plus.
-        vec3 q = fract(vec3(qh.x, 0.25 * h, qh.y));
+        vec3 q = fract(vec3(qh.x, 0.25 * hw, qh.y));
         // Niveau explicite : cette lecture suit des sorties anticipees, donc un
         // flot divergent, ou les derivees implicites sont indefinies — et avec
         // elles le filtrage, qui degenerait en plus proche voisin.
         float n = textureLod(uBase, q, 0.0).r;
         vec2 cover = coverageLookup(f.x);
-        float profile = genusProfile(code, h);
+        float profile = genusProfile(code, hw);
         float threshold = mix(1.0, cover.x, profile);
         float d = clamp((n - threshold) / max(1e-3, 1.0 - threshold), 0.0, 1.0);
         if (d <= 0.0) return 0.0;
