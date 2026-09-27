@@ -225,3 +225,59 @@ export const WATER_GLSL = /* glsl */ `
     return glint + upwelling;
   }
 `
+
+/**
+ * La meme eau, cote sommets : les vagues assez longues pour le maillage
+ * soulevent vraiment la surface — la houle ondule, l'horizon aussi quand on est
+ * en mer. Seules les longueurs d'onde de plusieurs mailles deplacent la
+ * geometrie ; la normale, elle, reste calculee par fragment a partir des memes
+ * trains (voir \`waterShade\`), exacte pour la surface deplacee. Le deplacement
+ * est **vertical** : la position au sol du fragment ne bouge pas, et la phase
+ * des vagues qu'il lit reste celle du sommet.
+ */
+export const WATER_VERTEX_GLSL = /* glsl */ `
+  uniform sampler2D uWater0;
+  uniform sampler2D uWater1;
+  uniform sampler2D uWater2;
+  uniform vec3 uWaterHalfSpan;
+  uniform float uWaterOn;
+  uniform vec4 uOceanWaveA[${OCEAN_WAVES}];
+  uniform vec2 uOceanWaveB[${OCEAN_WAVES}];
+  uniform vec4 uLakeWaveA[${LAKE_WAVES}];
+  uniform vec2 uLakeWaveB[${LAKE_WAVES}];
+  uniform float uWaveTime;
+  uniform float uWaterPixelAngle;
+
+  vec2 waterLevelV(sampler2D tex, float half_, vec2 en) {
+    vec2 f = (en + half_) / (2.0 * half_) * ${CLIPMAP_SIZE - 1}.0;
+    return textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0).rg;
+  }
+  vec2 waterAtV(vec2 en) {
+    if (uWaterOn < 0.5) return vec2(0.0);
+    float reach = max(abs(en.x), abs(en.y));
+    if (reach <= uWaterHalfSpan.x) return waterLevelV(uWater0, uWaterHalfSpan.x, en);
+    if (reach <= uWaterHalfSpan.y) return waterLevelV(uWater1, uWaterHalfSpan.y, en);
+    if (reach <= uWaterHalfSpan.z) return waterLevelV(uWater2, uWaterHalfSpan.z, en);
+    return vec2(0.0);
+  }
+  /** Elevation des vagues que le maillage resout, m. \`spacing\` : maille estimee, m. */
+  float waveHeight(vec2 en, float spacing, bool ocean) {
+    float h = 0.0;
+    if (ocean) {
+      for (int i = 0; i < ${OCEAN_WAVES}; i++) {
+        vec4 a = uOceanWaveA[i];
+        if (a.w <= 0.0) continue;
+        float keep = smoothstep(2.0 * spacing, 6.0 * spacing, 6.2831853 / a.z);
+        h += keep * a.w * sin(a.z * dot(a.xy, en) - uOceanWaveB[i].x * uWaveTime + uOceanWaveB[i].y);
+      }
+    } else {
+      for (int i = 0; i < ${LAKE_WAVES}; i++) {
+        vec4 a = uLakeWaveA[i];
+        if (a.w <= 0.0) continue;
+        float keep = smoothstep(2.0 * spacing, 6.0 * spacing, 6.2831853 / a.z);
+        h += keep * a.w * sin(a.z * dot(a.xy, en) - uLakeWaveB[i].x * uWaveTime + uLakeWaveB[i].y);
+      }
+    }
+    return h;
+  }
+`

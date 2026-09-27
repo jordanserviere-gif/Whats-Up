@@ -129,7 +129,7 @@ import { zoomForResolution } from './terrain/geodesy'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
 import { loadWaterAround, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
 import { LAKE_WAVES, OCEAN_WAVES } from '@/atmosphere/water/seaSurface'
-import { WATER_GLSL, packWaves, seaWaves, slopeVariance, type SeaState } from './terrain/waterShading'
+import { WATER_GLSL, WATER_VERTEX_GLSL, packWaves, seaWaves, slopeVariance, type SeaState } from './terrain/waterShading'
 import { currentSeaState, loadSeaState } from '@/data-sources/seaState'
 import {
   CITY_HALF_SPANS_M,
@@ -647,6 +647,7 @@ function terrainMaterial(): ShaderMaterial {
       uCityDensityExponent: { value: CITY_DENSITY_EXPONENT },
     },
     vertexShader: /* glsl */ `
+      ${WATER_VERTEX_GLSL}
       attribute float range;
       attribute float altitude;
       varying vec3 vNormal;
@@ -658,6 +659,25 @@ function terrainMaterial(): ShaderMaterial {
         vNormal = normalize(mat3(modelMatrix) * normal);
         vView = normalize(world.xyz);
         vRange = range;
+
+        // --- Vagues en relief ---------------------------------------------------
+        // Position metrique du point depuis l'oeil, soulevee par les vagues que la
+        // maille resout, puis replacee a la profondeur de scene du relief (meme
+        // loi que \`terrainDepth\`).
+        vec3 metric = vView * range;
+        vec2 en = vec2(metric.x, -metric.z);
+        vec2 wm = waterAtV(en) * smoothstep(0.6, 0.9, vNormal.y);
+        if (wm.x > 0.01) {
+          float muUp = max(abs(vView.y), 0.02);
+          // Maille estimee : quelques pixels, allongee en rasant.
+          float spacing = 4.0 * uWaterPixelAngle * range / muUp;
+          float lift = wm.x * waveHeight(en, spacing, wm.y > 0.5 * wm.x);
+          metric.y += lift;
+          vRange = length(metric);
+          vView = metric / vRange;
+          float depth = ${TERRAIN_DEPTH_SLOPE.toFixed(3)} * log(max(${NEAR_M.toFixed(3)}, vRange) / ${NEAR_M.toFixed(3)}) / log(10.0) + ${TERRAIN_NEAR_DEPTH.toFixed(3)};
+          world = vec4(vView * depth, 1.0);
+        }
         // L'altitude vient telle quelle du champ de relief. La reconstruire
         // depuis la position de scene serait possible — hauteur apparente fois
         // distance, plus la chute de courbure — mais fragile : la profondeur y
