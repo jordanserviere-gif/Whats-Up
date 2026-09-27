@@ -11,8 +11,8 @@ import {
   Vector3,
 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { buildDeepSkyGeometry, DEEP_SKY_INDEX } from '@/astro/deepsky'
-import { bvToRgb } from '@/astro/catalog'
+import { buildDeepSkyGeometry } from '@/astro/deepsky'
+import { colourFor } from './deepSkyColour'
 import {
   EXTINCTION_COEFFICIENT,
   POINT_BRIGHTNESS_SCALE,
@@ -54,46 +54,6 @@ const ARCMIN = DEG / 60
  * que l'ellipse reelle, ou ce point.
  */
 const QUAD_FLOOR = 8 * ARCMIN
-
-/**
- * Indice de couleur median du catalogue, pour les objets qui n'en ont pas.
- *
- * ⚠️ Treize pour cent des objets de l'atlas n'ont pas de magnitude B. Leur
- * donner la mediane de ceux qui en ont vaut mieux que d'inventer une teinte :
- * c'est la couleur d'un objet quelconque du lot, et rien de plus.
- */
-const MEDIAN_COLOUR_INDEX = (() => {
-  const bv: number[] = []
-  for (const o of DEEP_SKY_INDEX) {
-    if (o.blueMagnitude !== null && Number.isFinite(o.magnitude)) bv.push(o.blueMagnitude - o.magnitude)
-  }
-  bv.sort((x, y) => x - y)
-  return bv.length ? bv[bv.length >> 1] : 0.56
-})()
-
-/**
- * Couleur d'un objet, depuis son indice de couleur B−V.
- *
- * ⚠️ **Elle venait d'un jeton d'interface** — un par type d'objet, si bien que
- * toutes les galaxies partageaient une teinte decidee dans une feuille de
- * style. Le catalogue porte pourtant des magnitudes B **calibrees** pour 87 %
- * des objets de l'atlas : B−V donne une vraie couleur, par la meme conversion
- * que les etoiles.
- *
- * ⚠️ Ce que cette conversion suppose : que l'objet rayonne comme un corps noir.
- * C'est defendable pour une galaxie, dont la lumiere est la somme de celle de
- * ses etoiles ; c'est **faux** pour une nebuleuse a emission, qui rayonne en
- * raies. Le sens de la teinte reste bon — Halpha rougit, et B−V le voit — mais
- * pas sa saturation.
- */
-function colourFor(catalogueIndex: number): [number, number, number] {
-  const o = DEEP_SKY_INDEX[catalogueIndex]
-  const bv =
-    o && o.blueMagnitude !== null && Number.isFinite(o.magnitude)
-      ? o.blueMagnitude - o.magnitude
-      : MEDIAN_COLOUR_INDEX
-  return bvToRgb(bv)
-}
 
 /**
  * Objets du ciel profond, dessines a leur taille apparente reelle.

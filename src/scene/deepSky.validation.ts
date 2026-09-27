@@ -26,6 +26,8 @@ import {
 } from './display/adaptation'
 import { EXTINCTION_COEFFICIENT, airmass } from '@/astro/photometry'
 import { DEEP_SKY_INDEX, findDeepSkyObject } from '@/astro/deepsky'
+import { bvToRgb } from '@/astro/catalog'
+import { colourFor } from './deepSkyColour'
 import {
   DSO_ATLAS_COUNT,
   DSO_ATLAS_MIN_MAJOR_ARCMIN,
@@ -227,6 +229,19 @@ export function deepSkySuite(): SuiteResult {
         EYE_SUMMATION_ARCMIN > 10 && EYE_SUMMATION_ARCMIN < 60,
         `${EYE_SUMMATION_ARCMIN.toFixed(1)} arcmin, deduit de M33 au seuil sous un ciel vierge`,
       )
+
+      // Une couleur NaN n'est pas une teinte fausse : ecrite dans le tampon
+      // HDR, le flou mipmap du bloom l'etalait a toute l'image, noire des que
+      // le ciel profond devenait visible. Chaque objet doit donc rendre une
+      // couleur finie, y compris ceux dont l'indice du catalogue est aberrant.
+      let nonFinite = 0
+      for (let i = 0; i < DEEP_SKY_INDEX.length; i++) {
+        if (colourFor(i).some((c) => !Number.isFinite(c) || c < 0 || c > 1)) nonFinite++
+      }
+      t.check('chaque objet du ciel profond rend une couleur finie', nonFinite, 0, 0, ' objets')
+      let poleNaN = 0
+      for (let bv = -5; bv <= 5; bv += 0.01) if (bvToRgb(bv).some((c) => !Number.isFinite(c))) poleNaN++
+      t.check('la conversion B−V reste finie de part et d autre de son pole a −0,674', poleNaN, 0, 0, ' indices')
 
       // Le plafond n'est pas une commodite : sans lui, un objet plus petit que
       // l'aire de sommation rendrait une magnitude **plus brillante que sa

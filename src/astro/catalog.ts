@@ -120,9 +120,20 @@ export const CONSTELLATIONS: ConstellationFigure[] = RAW_CONST.constellations.ma
 /**
  * Indice de couleur B-V vers couleur RVB perceptuelle.
  * Approximation de la temperature de couleur stellaire (Ballesteros).
+ *
+ * ⚠️ **La formule a un pole a B−V = −0,674**, ou `0,92·BV + 0,62` s'annule.
+ * En dessous, la temperature devient negative, `log(k)` rend NaN, et une
+ * couleur NaN ecrite dans le tampon HDR y reste : le flou mipmap du bloom
+ * l'etalait a toute l'image, qui passait au noir des que le ciel profond
+ * devenait visible — c'est-a-dire la nuit. On borne donc l'indice au plus bleu
+ * qu'une etoile atteigne (les O, vers −0,33) : aucune etoile du catalogue ne
+ * descend sous −0,27, leur rendu est inchange.
  */
+export const BLUEST_COLOUR_INDEX = -0.4
+
 export function bvToRgb(bv: number): [number, number, number] {
-  const t = 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62))
+  const index = Number.isFinite(bv) ? Math.max(BLUEST_COLOUR_INDEX, bv) : 0.56
+  const t = 4600 * (1 / (0.92 * index + 1.7) + 1 / (0.92 * index + 0.62))
   // Approximation du corps noir de Tanner Helland, normalisee.
   const k = t / 100
   let r: number
