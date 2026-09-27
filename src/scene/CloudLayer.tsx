@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import {
   BackSide,
+  Matrix4,
+  type PerspectiveCamera,
   Color,
   Mesh,
   OrthographicCamera,
@@ -299,37 +301,30 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         vec2 st = bakedStructure(p, footprint);
         float sigmaFull = ${structureSigma().toFixed(5)};
         float inside = (sigmaFull * cloudNormalQuantile(f.x) - st.x) / sigmaFull;
-        float thr = volumeThreshold(h);
-        float edge = 0.0;
-        float fine = 0.5;
-        if (detail) {
-          vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / uDetailKm;
-          // Bourgeons : octaves repliees, dont les crêtes arrondies font les
-          // choux-fleurs ; puis quatre octaves fines, quatre fois plus serrees,
-          // qui effilochent les bords.
-          vec4 b = texture(uDetail, q / ${DETAIL_PERIOD}.0);
-          vec4 e = texture(uDetail, q * 4.1 / ${DETAIL_PERIOD}.0 + 0.37);
-          float n = 0.42 * (1.0 - abs(2.0 * b.r - 1.0))
-            + 0.26 * (1.0 - abs(2.0 * b.g - 1.0))
-            + 0.14 * b.b + 0.08 * b.a
-            + 0.10 * (0.5 * e.r + 0.3 * e.g + 0.2 * e.b);
-          fine = 0.5 * e.r + 0.3 * e.g + 0.2 * e.b;
-          // Les creux mordent davantage vers le haut, ou la convection bourgeonne.
-          edge = (n - 0.55) * (1.1 + 1.3 * h);
-        }
-        float occupancy = smoothstep(thr - 0.03, thr + 0.03, inside + edge);
-        // Densite variable dans le nuage — de moyenne ~1, pour garder l'epaisseur
-        // optique du modele : c'est elle qui donne du relief a l'eclairage.
-        // Les bords, a faible occupation, sont effiloches par les octaves fines.
-        float texture_ = detail ? clamp(0.55 + 0.9 * fine, 0.3, 1.5) : 1.0;
-        float wisps = detail ? smoothstep(0.25, 0.65, fine + 0.5 * occupancy) : 1.0;
-        return occupancy * wisps * texture_ * f.w / thickness;
+        // Forme de base, douce sur un ecart-type : c'est l'enveloppe. Le
+        // detail ne l'erode qu'ensuite, et seulement la ou elle est deja
+        // faible — le coeur reste plein, les bords se decoupent (Schneider 2015).
+        float base = smoothstep(volumeThreshold(h) - 0.12, volumeThreshold(h) + 0.9, inside);
+        if (!detail || base <= 0.0) return base * f.w / thickness;
+        vec3 q = vec3(en.x, (uEyeAltitude + hEye) * 1e-3, en.y) / uDetailKm;
+        vec4 b = texture(uDetail, q / ${DETAIL_PERIOD}.0);
+        vec4 e = texture(uDetail, q * 3.7 / ${DETAIL_PERIOD}.0 + 0.37);
+        // Bourgeons en haut (octaves repliees), filaments en bas (les memes,
+        // inversees) : la convection bourgeonne, la base s'effiloche.
+        float billow = 0.5 * (1.0 - abs(2.0 * b.r - 1.0)) + 0.3 * (1.0 - abs(2.0 * b.g - 1.0)) + 0.2 * b.b;
+        float wisp = 1.0 - billow;
+        float n = mix(wisp, billow, smoothstep(0.0, 0.25, h));
+        n = 0.7 * n + 0.3 * (0.5 * e.r + 0.3 * e.g + 0.2 * e.b);
+        // Contraste : le bruit somme se tasse autour de 0,5 ; etire, il decoupe.
+        float erosion = smoothstep(0.3, 0.7, n) * (0.55 + 0.3 * h);
+        float density = clamp((base - erosion) / max(1e-3, 1.0 - erosion), 0.0, 1.0);
+        return density * f.w / thickness;
       }
 
       /**
        * Marche du rayon dans l'etage bas, de \`t0\` a \`t1\` m.
        *
-       * Diffusion : l'ombre vers le Soleil est marchee (quatre pas), puis la
+       * Diffusion : l'ombre vers le Soleil est echantillonnee dans un cone, puis la
        * diffusion multiple est approchee par trois ordres a extinction, phase
        * et poids reduits de moitie a chaque ordre (Wrenninge, Kulla & Lundqvist
        * 2015) — l'approximation des rendus de production, qui rend le
@@ -340,8 +335,12 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
        * x : transmittance ; yzw : radiance diffusee, avant exposition et air.
        */
       vec4 volumeMarch(vec3 d, float t0, float t1, vec3 sunDir, vec3 sun, vec3 sky, vec3 atGround, float footprint, float g) {
-        const int STEPS = 64;
-        float dt = (t1 - t0) / float(STEPS);
+        // Deux regimes (Schneider 2015) : a grands pas sur la seule enveloppe
+        // tant qu'on est hors du nuage ; des qu'elle est touchee, un pas en
+        // arriere et des pas fins, a l'echelle du detail, avec le detail. Apres
+        // huit echantillons vides, on repart a grands pas.
+        float coarse = max(80.0, (t1 - t0) / 48.0);
+        float fine = max(15.0, 200.0 * uDetailKm);
         // Decalage de depart : bruit a gradient entrelace, tourne du nombre d'or
         // a chaque passe — les passes accumulees couvrent tout le pas.
         float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + 0.618034 * uPass);
@@ -351,21 +350,46 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         float phase0 = cloudDropletPhase(uDroplet, cosTheta);
         float phase1 = cloudHenyeyGreenstein(0.5 * g, cosTheta);
         float phase2 = cloudHenyeyGreenstein(0.25 * g, cosTheta);
-        for (int s = 0; s < STEPS; s++) {
-          float t = t0 + (float(s) + jitter) * dt;
+        // Base orthonormee autour du Soleil, pour le cone d'echantillons d'ombre.
+        vec3 sa = normalize(cross(sunDir, abs(sunDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 sb = cross(sunDir, sa);
+        float t = t0 + jitter * coarse;
+        bool inCloud = false;
+        int empty = 0;
+        for (int s = 0; s < 256; s++) {
+          if (t > t1 || T < 0.01) break;
           vec3 pos = d * t;
-          float sigma = volumeExtinction(pos, footprint, true);
-          if (sigma <= 0.0) continue;
-          // Ombre : quatre pas vers le Soleil, detail omis (il ne se voit pas dans l'ombre).
-          float shadowTau = 0.0;
-          // Six pas croissants (60 m a 2 km) : le detail pres du point, la masse au loin.
-          float along = 0.0;
-          float ds = 60.0;
-          for (int k = 0; k < 6; k++) {
-            shadowTau += volumeExtinction(pos + sunDir * (along + 0.5 * ds), footprint, k < 2) * ds;
-            along += ds;
-            ds *= 1.9;
+          if (!inCloud) {
+            if (volumeExtinction(pos, footprint, false) > 0.0) {
+              inCloud = true;
+              empty = 0;
+              t = max(t0, t - coarse) + jitter * fine;
+            } else {
+              t += coarse;
+            }
+            continue;
           }
+          float sigma = volumeExtinction(pos, footprint, true);
+          if (sigma <= 0.0) {
+            if (++empty > 8) inCloud = false;
+            t += fine;
+            continue;
+          }
+          empty = 0;
+          // Ombre : cinq echantillons dans un cone vers le Soleil, de 30 a 480 m,
+          // avec le detail pres du point ; puis un lointain, a 1,5 km, sur la
+          // seule enveloppe — la masse du nuage au-dessus.
+          float shadowTau = 0.0;
+          float along = 0.0;
+          float ds = 30.0;
+          for (int k = 0; k < 5; k++) {
+            float a = 2.39996 * float(k) + 6.2831853 * jitter;
+            vec3 offset = (sa * cos(a) + sb * sin(a)) * (0.18 * (along + 0.5 * ds));
+            shadowTau += volumeExtinction(pos + sunDir * (along + 0.5 * ds) + offset, footprint, k < 3) * ds;
+            along += ds;
+            ds *= 2.0;
+          }
+          shadowTau += volumeExtinction(pos + sunDir * 1500.0, footprint, false) * 1000.0;
           // Profondeur jusqu'au sommet et a la base, estimee sur la verticale locale.
           vec3 up;
           vec2 en = groundPoint(normalize(pos), length(pos), up);
@@ -374,17 +398,21 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
           float z = uEyeAltitude + t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
           float tauUp = sigma * max(0.0, f.z - z);
           float tauDown = sigma * max(0.0, z - f.y);
+          // Effet « powder » : pres de la surface eclairee, il y a peu de nuage
+          // autour du point pour y renvoyer de la lumiere diffusee plusieurs
+          // fois. Les ordres multiples y sont reduits ; la diffusion simple
+          // non. D'ou les bords sombres d'un cumulus vu dos au Soleil.
+          float powder = 1.0 - exp(-2.0 * shadowTau);
           vec3 direct = sun * (
             phase0 * exp(-shadowTau)
-            + 0.5 * phase1 * exp(-0.5 * shadowTau)
-            + 0.25 * phase2 * exp(-0.25 * shadowTau));
+            + powder * (0.5 * phase1 * exp(-0.5 * shadowTau) + 0.25 * phase2 * exp(-0.25 * shadowTau)));
           vec3 ambient = 0.5 * (sky / PI) * exp(-(1.0 - g) * tauUp)
             + 0.5 * (${GROUND_ALBEDO} * atGround / PI) * exp(-(1.0 - g) * tauDown);
           vec3 S = sigma * (direct + ambient);
-          float stepT = exp(-sigma * dt);
+          float stepT = exp(-sigma * fine);
           L += T * (S - S * stepT) / sigma;
           T *= stepT;
-          if (T < 0.01) break;
+          t += fine;
         }
         return vec4(T, L);
       }
@@ -608,6 +636,13 @@ const RESTART_MS = 5 * 60_000
 const FADE_MS = 500
 /** Au-dela de cette vitesse du temps, les nuages sont retires : ils ne suivraient pas. */
 const MAX_CLOUD_SPEED = 60
+/**
+ * Sous ce champ de vue, degres, le pixel de l'ecran devient plus fin que la
+ * carte des directions (0,09°) : une carte alignee sur la vue prend le relais.
+ */
+const VIEW_MAX_FOV = 60
+const drawingSize = new Vector2()
+const rotationOnly = new Matrix4()
 /** Couleur de fond du rendu, sauvee le temps d'effacer une carte. */
 const clearColor = new Color()
 
@@ -654,6 +689,26 @@ function cloudFillMaterial(): ShaderMaterial {
   })
 }
 
+/**
+ * Carte de la vue, pour le zoom : le meme calcul, une direction par pixel de
+ * l'ecran. Elle ne vaut que pour une visee et un champ donnes, et s'accumule
+ * tant que la vue ne bouge pas.
+ */
+function cloudViewFillMaterial(): ShaderMaterial {
+  const m = cloudFillMaterial()
+  m.uniforms = { ...cloudUniforms(), uInvViewProj: { value: new Matrix4() } }
+  m.fragmentShader = /* glsl */ `
+    ${CLOUD_SHADE_GLSL}
+    uniform mat4 uInvViewProj;
+    varying vec2 vUv;
+    void main() {
+      vec4 w = uInvViewProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+      gl_FragColor = cloudShade(normalize(w.xyz / w.w));
+    }
+  `
+  return m
+}
+
 /** Affichage : les deux cartes normalisees et fondues, profondeur calee sur la premiere nappe. */
 function cloudScreenMaterial(): ShaderMaterial {
   return new ShaderMaterial({
@@ -675,6 +730,10 @@ function cloudScreenMaterial(): ShaderMaterial {
       uFade: { value: 1 },
       uOpacity: { value: 1 },
       uExposureRatio: { value: new Vector2(1, 1) },
+      uView: { value: null as Texture | null },
+      uViewProj: { value: new Matrix4() },
+      /** x : passes completes ; y : fraction de lignes de la suivante ; z : poids dans le fondu. */
+      uViewPasses: { value: new Vector3(0, 0, 0) },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -697,6 +756,9 @@ function cloudScreenMaterial(): ShaderMaterial {
       uniform float uOpacity;
       /** Exposition courante rapportee a celle de chaque carte (affichee, ancienne). */
       uniform vec2 uExposureRatio;
+      uniform sampler2D uView;
+      uniform mat4 uViewProj;
+      uniform vec3 uViewPasses;
       varying vec3 vDir;
       void main() {
         vec3 d = normalize(vDir);
@@ -706,7 +768,19 @@ function cloudScreenMaterial(): ShaderMaterial {
         vec4 back = uBackPasses > 0.0 ? texture2D(uBack, uv) / uBackPasses : vec4(0.0);
         front.rgb *= uExposureRatio.x;
         back.rgb *= uExposureRatio.y;
-        vec4 c = mix(back, front, uFade) * uOpacity;
+        vec4 c = mix(back, front, uFade);
+        // Carte de la vue, quand elle existe : meme instant que la carte affichee.
+        if (uViewPasses.z > 0.0) {
+          vec4 clipV = uViewProj * vec4(d, 1.0);
+          vec2 vuv = clipV.xy / clipV.w * 0.5 + 0.5;
+          float nv = uViewPasses.x + (vuv.y < uViewPasses.y ? 1.0 : 0.0);
+          if (nv > 0.0) {
+            vec4 view = texture2D(uView, vuv) / nv;
+            view.rgb *= uExposureRatio.x;
+            c = mix(c, view, uViewPasses.z * uFade);
+          }
+        }
+        c *= uOpacity;
         if (c.a < 0.002) discard;
         // Profondeur : la loi du relief, pour que l'un masque l'autre juste.
         float nearest = cloudNearest(d);
@@ -803,6 +877,7 @@ export function CloudLayer({
   }, [scenarioId])
 
   const fill = useMemo(cloudFillMaterial, [])
+  const viewFill = useMemo(cloudViewFillMaterial, [])
   const screen = useMemo(cloudScreenMaterial, [])
   const buffers = useMemo<[CloudBuffer, CloudBuffer]>(() => [makeBuffer(), makeBuffer()], [])
   const fillPass = useMemo(() => {
@@ -810,8 +885,20 @@ export function CloudLayer({
     const quad = new Mesh(new PlaneGeometry(2, 2), fill)
     quad.frustumCulled = false
     scene.add(quad)
-    return { scene, camera: new OrthographicCamera(-1, 1, 1, -1, 0, 1) }
+    return { scene, quad, camera: new OrthographicCamera(-1, 1, 1, -1, 0, 1) }
   }, [fill])
+  const view = useMemo(
+    () => ({
+      target: null as WebGLRenderTarget | null,
+      key: '',
+      passes: 0,
+      row: 0,
+      building: false,
+      readyAt: -Infinity,
+      viewProj: new Matrix4(),
+    }),
+    [],
+  )
   useEffect(
     () => () => {
       for (const b of buffers) {
@@ -821,10 +908,12 @@ export function CloudLayer({
         b.sun?.dispose()
       }
       fill.dispose()
+      viewFill.dispose()
+      view.target?.dispose()
       screen.dispose()
       publishProgress(null, false)
     },
-    [buffers, fill, screen],
+    [buffers, fill, viewFill, view, screen],
   )
 
   const mesh = useRef<Mesh>(null)
@@ -840,7 +929,7 @@ export function CloudLayer({
     opacity: 0,
   })
 
-  useFrame(({ gl }, delta) => {
+  useFrame(({ gl, camera }, delta) => {
     const st = state.current
     const store = useSkyStore.getState()
     const u = fill.uniforms
@@ -948,6 +1037,73 @@ export function CloudLayer({
       }
     }
 
+    // --- Carte de la vue, quand on zoome au-dela de la finesse de la carte.
+    const shownBuffer = buffers[st.front]
+    const fov = (camera as PerspectiveCamera).fov ?? 90
+    const size = gl.getDrawingBufferSize(drawingSize)
+    const zoomed = fov < VIEW_MAX_FOV && shownBuffer.passes > 0 && !hidden
+    if (zoomed) {
+      camera.updateMatrixWorld()
+      const q = camera.quaternion
+      const key =
+        [q.x, q.y, q.z, q.w].map((v) => v.toFixed(5)).join(':') +
+        `:${fov.toFixed(3)}:${st.front}:${shownBuffer.timeMs}:${size.x}x${size.y}`
+      if (key !== view.key) {
+        view.key = key
+        if (!view.target || view.target.width !== size.x || view.target.height !== size.y) {
+          view.target?.dispose()
+          view.target = new WebGLRenderTarget(size.x, size.y, {
+            type: HalfFloatType,
+            depthBuffer: false,
+            magFilter: LinearFilter,
+            minFilter: LinearFilter,
+          })
+        }
+        clearTarget(gl, view.target)
+        view.passes = 0
+        view.row = 0
+        view.building = true
+        view.readyAt = -Infinity
+        view.viewProj.multiplyMatrices(camera.projectionMatrix, rotationOnly.extractRotation(camera.matrixWorldInverse))
+      }
+      // La carte des directions d'abord : la vue ne se construit qu'une fois celle-ci a l'ecran.
+      const firstPassPending = st.waitingFor != null || (st.build != null && st.build.buffer !== st.front)
+      if (view.building && !firstPassPending && view.target) {
+        const vu = viewFill.uniforms
+        applyAerialUniforms(vu as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
+        vu.uAerialExposure.value = shownBuffer.exposure
+        applyBufferUniforms(vu, shownBuffer, scenario, observerElevationM, extraHeightM)
+        vu.uStructure.value = u.uStructure.value
+        vu.uDetail.value = u.uDetail.value
+        vu.uPixelAngle.value = (fov * Math.PI) / 180 / size.y
+        vu.uPass.value = view.passes
+        ;(vu.uInvViewProj.value as Matrix4).copy(view.viewProj).invert()
+        const rows = Math.min(store.sceneLoading ? ROWS_LOADING : st.rows, size.y - view.row)
+        const previousTarget = gl.getRenderTarget()
+        const previousAutoClear = gl.autoClear
+        view.target.scissor.set(0, view.row, size.x, rows)
+        view.target.scissorTest = true
+        view.target.viewport.set(0, 0, size.x, size.y)
+        gl.autoClear = false
+        fillPass.quad.material = viewFill
+        gl.setRenderTarget(view.target)
+        gl.render(fillPass.scene, fillPass.camera)
+        fillPass.quad.material = fill
+        gl.setRenderTarget(previousTarget)
+        gl.autoClear = previousAutoClear
+        view.row += rows
+        if (view.row >= size.y) {
+          view.row = 0
+          view.passes++
+          if (view.passes === 1) view.readyAt = performance.now()
+          if (view.passes >= CACHE_PASSES) view.building = false
+        }
+      }
+    } else if (view.key) {
+      view.key = ''
+      view.passes = 0
+    }
+
     // --- Affichage.
     const shown = buffers[st.front]
     const old = buffers[1 - st.front]
@@ -962,11 +1118,27 @@ export function CloudLayer({
     const exposure = su.uAerialExposure.value
     ;(su.uExposureRatio.value as Vector2).set(exposure / (shown.exposure || 1), exposure / (old.exposure || 1))
     if (shown.passes > 0) applyBufferUniforms(su, shown, scenario, observerElevationM, extraHeightM)
+    const viewWeight = zoomed && view.passes > 0 ? Math.min(1, (performance.now() - view.readyAt) / FADE_MS) : 0
+    su.uView.value = view.target?.texture ?? null
+    ;(su.uViewProj.value as Matrix4).copy(view.viewProj)
+    ;(su.uViewPasses.value as Vector3).set(
+      view.passes,
+      view.building ? view.row / Math.max(1, view.target?.height ?? 1) : 0,
+      viewWeight,
+    )
     if (mesh.current) mesh.current.visible = st.opacity > 0 && shown.passes > 0
 
     const firstPass = st.waitingFor != null || (st.build != null && st.build.buffer !== st.front)
     const progress = hidden || !firstPass ? null : st.build ? st.build.row / CACHE_HEIGHT : 0
     publishProgress(progress, shown.passes > 0)
+    if (import.meta.env.DEV)
+      (window as unknown as { __clouds: unknown }).__clouds = {
+        front: st.front,
+        passes: shown.passes,
+        build: st.build && { ...st.build },
+        view: { passes: view.passes, row: view.row, building: view.building, zoomed, weight: viewWeight },
+        rows: st.rows,
+      }
   })
 
   if (!scenario) return null
