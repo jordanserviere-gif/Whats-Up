@@ -37,6 +37,10 @@ export type BodyId =
   | 'uranus'
   | 'neptune'
   | 'pluto'
+  | 'io'
+  | 'europa'
+  | 'ganymede'
+  | 'callisto'
 
 /** Etat complet d'un corps a un instant et pour un lieu donnes. */
 export interface BodyState {

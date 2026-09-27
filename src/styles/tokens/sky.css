@@ -18,6 +18,12 @@
   --app-body-uranus: #a8e5ee;
   --app-body-neptune: #7fa8ff;
   --app-body-pluto: #cbb8a6;
+  /* Satellites galileens : Io soufree, Europe glacee, Ganymede et Callisto
+   * plus sombres — teintes des images Galileo, a peine marquees. */
+  --app-body-io: #f2e3a6;
+  --app-body-europa: #ece6da;
+  --app-body-ganymede: #d8cfc2;
+  --app-body-callisto: #bfb3a3;
   --app-body-satellite: var(--app-scene-bright);
 
   /* Couches de la scene. */

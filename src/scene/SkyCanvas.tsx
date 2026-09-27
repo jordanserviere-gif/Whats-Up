@@ -4,9 +4,10 @@ import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { DisplayEffect } from './display/DisplayEffect'
 import { RADIANCE_AT_DISPLAY_WHITE } from './display/tonemap'
 import { HalfFloatType, Matrix4, NoToneMapping } from 'three'
-import { BODIES } from '@/astro/bodies'
+import { BODIES, BODY_BY_ID } from '@/astro/bodies'
+import { instrumentGainMag } from './display/instrument'
 import { ozoneColumnDu as ozoneColumnDuFor } from '@/atmosphere/absorption/ozoneClimatology'
-import { CARDINALS, equatorialToHorizontal } from '@/astro/coords'
+import { CARDINALS, angularSeparation, equatorialToHorizontal } from '@/astro/coords'
 import { useSkyStore, selectedBodyId, selectedSatelliteId } from '@/state/store'
 import {
   useAerosolAutoSync,
@@ -92,6 +93,9 @@ const LIGHT_POLLUTION_TINT: string | null = null
  * devant le Soleil, un satellite devant une planete — sortent du tampon de
  * profondeur, pas d'un ordre de dessin choisi a la main.
  */
+/** Ecart minimal a sa planete, en pixels, pour qu'un satellite soit nomme. */
+const GALILEAN_LABEL_MIN_PX = 28
+
 export function SkyCanvas() {
   const host = useRef<HTMLDivElement>(null)
   const labelHost = useRef<HTMLDivElement>(null)
@@ -517,10 +521,21 @@ export function SkyCanvas() {
     }
 
     if (layers.bodyLabels) {
+      // Pixels par degre au centre du champ, pour juger si un satellite se
+      // detache de sa planete.
+      const heightPx = host.current?.clientHeight ?? 800
+      const pixelsPerDeg = heightPx / (2 * Math.tan((fov * Math.PI) / 360)) * (Math.PI / 180)
+      const gain = instrumentGainMag(Math.PI / 180 / pixelsPerDeg)
       for (const b of bodies) {
         if (b.horizontal.altitude < -5) continue
-        // On n'etiquette que ce qui est effectivement perceptible.
-        if (b.magnitude > limitingMagnitude + 0.5) continue
+        // On n'etiquette que ce qui est effectivement perceptible — instrument
+        // compris, comme le rendu des corps.
+        if (b.magnitude > limitingMagnitude + gain + 0.5) continue
+        // Un satellite n'a de nom que separe de sa planete : a champ large, les
+        // quatre galileens s'empileraient sur Jupiter.
+        const def = BODY_BY_ID.get(b.id)
+        const parent = def?.parent ? bodies.find((p) => p.id === def.parent) : undefined
+        if (parent && angularSeparation(parent.equatorial, b.equatorial) * pixelsPerDeg < GALILEAN_LABEL_MIN_PX) continue
         out.push({
           id: `body-${b.id}`,
           text: b.name,
@@ -594,7 +609,7 @@ export function SkyCanvas() {
     }
 
     return out
-  }, [layers, bodies, satellites, satStates, selectedSatellite, aircraftStates, colors, bodyColors, limitingMagnitude])
+  }, [layers, bodies, satellites, satStates, selectedSatellite, aircraftStates, colors, bodyColors, limitingMagnitude, fov])
 
   // Les figures ne se lisent que sur un ciel sombre : inutile de les etiqueter
   // en plein jour, ou les etoiles qui les portent sont invisibles.

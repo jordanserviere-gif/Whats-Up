@@ -31,6 +31,17 @@ export interface BodyDefinition {
   colorToken: string
   /** Ordre d'affichage dans les listes. */
   order: number
+  /**
+   * Planete autour de laquelle le corps tourne — les satellites galileens.
+   *
+   * ⚠️ `body` vaut alors celui de la planete : astronomy-engine ne connait pas
+   * les satellites comme des corps, seulement leur position relative. Tout ce
+   * qui passe par `body` — lever, coucher, culmination — rend donc ceux de
+   * Jupiter, a dix minutes d'arc pres : a l'echelle d'un horaire, c'est la meme
+   * chose. La position, la magnitude et l'eclipse sont, elles, calculees pour
+   * le satellite.
+   */
+  parent?: 'jupiter'
 }
 
 export const BODIES: readonly BodyDefinition[] = [
@@ -44,6 +55,11 @@ export const BODIES: readonly BodyDefinition[] = [
   { id: 'uranus', name: 'Uranus', body: A.Body.Uranus, radiusKm: 25362, colorToken: '--app-body-uranus', order: 7 },
   { id: 'neptune', name: 'Neptune', body: A.Body.Neptune, radiusKm: 24622, colorToken: '--app-body-neptune', order: 8 },
   { id: 'pluto', name: 'Pluton', body: A.Body.Pluto, radiusKm: 1188.3, colorToken: '--app-body-pluto', order: 9 },
+  // Rayons moyens, NASA Planetary Fact Sheet.
+  { id: 'io', name: 'Io', body: A.Body.Jupiter, radiusKm: 1821.6, colorToken: '--app-body-io', order: 10, parent: 'jupiter' },
+  { id: 'europa', name: 'Europe', body: A.Body.Jupiter, radiusKm: 1560.8, colorToken: '--app-body-europa', order: 11, parent: 'jupiter' },
+  { id: 'ganymede', name: 'Ganymède', body: A.Body.Jupiter, radiusKm: 2634.1, colorToken: '--app-body-ganymede', order: 12, parent: 'jupiter' },
+  { id: 'callisto', name: 'Callisto', body: A.Body.Jupiter, radiusKm: 2410.3, colorToken: '--app-body-callisto', order: 13, parent: 'jupiter' },
 ] as const
 
 export const BODY_BY_ID = new Map(BODIES.map((b) => [b.id, b]))
@@ -76,6 +92,87 @@ const ABSOLUTE_MAGNITUDE_H: Partial<Record<BodyId, number>> = {
   neptune: -6.87,
   pluto: -1.0,
   moon: 0.23,
+  // Satellites galileens, V(1,0) — magnitude a 1 UA du Soleil et de
+  // l'observateur, phase nulle (Explanatory Supplement to the Astronomical
+  // Almanac, 3e ed., tableau 10.6).
+  io: -1.68,
+  europa: -1.41,
+  ganymede: -2.09,
+  callisto: -1.05,
+}
+
+/** Vitesse de la lumiere, UA par jour. */
+const C_AU_PER_DAY = 173.144632674
+
+/** Rayon equatorial de Jupiter, km — c'est lui qui borde l'ombre. */
+const JUPITER_EQUATORIAL_RADIUS_KM = 71492
+
+/**
+ * Magnitude d'un satellite eclipse : assez faible pour qu'aucun calque ne le
+ * dessine, finie pour ne pas empoisonner les calculs qui la lisent.
+ */
+const ECLIPSED_MAGNITUDE = 99
+
+/**
+ * Position et eclat d'un satellite galileen.
+ *
+ * ## La position
+ *
+ * `JupiterMoons` rend le vecteur jovicentrique, repere J2000, en UA. On le
+ * prend a l'instant ou la lumiere **quitte** le systeme — une quarantaine de
+ * minutes plus tot : Io parcourt en ce temps pres d'un degre de son orbite, soit
+ * plusieurs secondes d'arc vues de la Terre. Il est ensuite tourne dans le
+ * repere de la date et ajoute a la position topocentrique apparente de
+ * Jupiter, aberration comprise, que les deux partagent.
+ *
+ * ## L'eclat
+ *
+ * `H + 5·log10(r·Δ)`, avec les distances de Jupiter. L'effet de phase est
+ * neglige : vu de la Terre, l'angle de phase ne depasse jamais douze degres.
+ *
+ * ## L'eclipse
+ *
+ * Dans l'ombre de Jupiter, un satellite ne recoit plus rien et disparait —
+ * c'est ce qu'on observe, a quelques minutes pres, dans une petite lunette.
+ * L'ombre est un cylindre du rayon equatorial de Jupiter : son cone, long de
+ * quatre-vingt-dix millions de kilometres, ne retrecit que de deux pour cent a
+ * l'orbite de Callisto.
+ */
+function galileanGeometry(def: BodyDefinition, date: Date, observer: A.Observer) {
+  const jup = A.Equator(A.Body.Jupiter, date, observer, true, true)
+  const lightTimeDays = jup.dist / C_AU_PER_DAY
+  const emitted = new Date(date.getTime() - lightTimeDays * 86_400_000)
+  const moons = A.JupiterMoons(emitted)
+  const sv = moons[def.id as 'io' | 'europa' | 'ganymede' | 'callisto']
+  const ofDate = A.RotateVector(A.Rotation_EQJ_EQD(date), new A.Vector(sv.x, sv.y, sv.z, sv.t))
+
+  const ra = jup.ra * 15 * DEG
+  const dec = jup.dec * DEG
+  const jx = jup.dist * Math.cos(dec) * Math.cos(ra)
+  const jy = jup.dist * Math.cos(dec) * Math.sin(ra)
+  const jz = jup.dist * Math.sin(dec)
+  const x = jx + ofDate.x
+  const y = jy + ofDate.y
+  const z = jz + ofDate.z
+  const dist = Math.hypot(x, y, z)
+  const equatorial: Equatorial = { ra: norm360(Math.atan2(y, x) * RAD), dec: Math.asin(z / dist) * RAD }
+
+  // Ombre : direction Soleil → Jupiter, dans le repere J2000 ou le vecteur du
+  // satellite est donne.
+  const helio = A.HelioVector(A.Body.Jupiter, emitted)
+  const hn = Math.hypot(helio.x, helio.y, helio.z)
+  const ux = helio.x / hn
+  const uy = helio.y / hn
+  const uz = helio.z / hn
+  const along = sv.x * ux + sv.y * uy + sv.z * uz
+  const px = sv.x - along * ux
+  const py = sv.y - along * uy
+  const pz = sv.z - along * uz
+  const eclipsed = along > 0 && Math.hypot(px, py, pz) * KM_PER_AU < JUPITER_EQUATORIAL_RADIUS_KM
+
+  const h = ABSOLUTE_MAGNITUDE_H[def.id] ?? 5
+  const magnitude = eclipsed ? ECLIPSED_MAGNITUDE : h + 5 * Math.log10(hn * dist)
+  return { equatorial, distanceAu: dist, magnitude, eclipsed }
 }
 
 /**
@@ -114,7 +211,11 @@ function toVector(raDeg: number, decDeg: number, distanceKm: number): [number, n
 /** Etat complet d'un corps pour un instant et un lieu. */
 export function computeBodyState(def: BodyDefinition, date: Date, location: GeoLocation): BodyState {
   const observer = observerOf(location)
-  const eqOfDate = A.Equator(def.body, date, observer, true, true)
+  const galilean = def.parent ? galileanGeometry(def, date, observer) : null
+  const planet = galilean ? null : A.Equator(def.body, date, observer, true, true)
+  const eqOfDate = galilean
+    ? { ra: galilean.equatorial.ra / 15, dec: galilean.equatorial.dec, dist: galilean.distanceAu }
+    : planet!
   const equatorial: Equatorial = { ra: norm360(eqOfDate.ra * 15), dec: eqOfDate.dec }
   // --- Coordonnees horizontales, refractees par le moteur ------------------
   //
@@ -146,7 +247,11 @@ export function computeBodyState(def: BodyDefinition, date: Date, location: GeoL
   let magnitude = -26.74
   let illumination = 1
   let ringTiltDeg: number | null = null
-  if (def.id !== 'sun') {
+  if (galilean) {
+    magnitude = galilean.magnitude
+    // Vus de la Terre, les satellites sont toujours presque pleins.
+    illumination = A.Illumination(A.Body.Jupiter, date).phase_fraction
+  } else if (def.id !== 'sun') {
     const illum = A.Illumination(def.body, date)
     magnitude = illum.mag
     illumination = illum.phase_fraction

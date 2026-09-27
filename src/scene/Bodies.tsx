@@ -14,6 +14,7 @@ import {
 } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { BODY_BY_ID } from '@/astro/bodies'
+import { instrumentGainMag } from './display/instrument'
 import { bodyOrientation } from '@/astro/orientation'
 import {
   earthshineRatio,
@@ -590,15 +591,21 @@ function Body({
         ;(halo.uniforms.uColor.value as Color).set(glowColor)
       } else {
         // Comparee a la magnitude limite, qui contient deja l'extinction du
-        // zenith : seul l'exces compte — voir \`visibilityExtinction\`.
+        // zenith : seul l'exces compte — voir `visibilityExtinction`.
         const apparentMag =
           state.magnitude + visibilityExtinction(state.horizontal.altitude, aerosolTurbidity, location.elevation)
-        const px = pointSizePixels(apparentMag, limitingMagnitude)
+        // L'instrument que le champ implique, comme pour le ciel profond — voir
+        // display/instrument.ts. Nul a champ large ; en zoomant sur Jupiter, il
+        // leve ses satellites sous un ciel de ville, comme une paire de jumelles.
+        const fovRad = ((camera as PerspectiveCamera).fov * Math.PI) / 180
+        const pixelsPerRadian = size.height / (2 * Math.tan(fovRad / 2))
+        const limit = limitingMagnitude + instrumentGainMag(1 / pixelsPerRadian)
+        const px = pointSizePixels(apparentMag, limit)
         const glowWorld = worldSizeForPixels(Math.max(px, 0.5), camera as PerspectiveCamera, size.height, depth)
         // Le halo s'efface des que le disque est resolu : sinon il le noierait.
         const resolved = Math.min(1, discPixels / Math.max(1e-3, px))
         gl.scale.setScalar(Math.max(glowWorld, trueRadius * discScale * 2.4))
-        halo.uniforms.uOpacity.value = pointIntensity(apparentMag, limitingMagnitude) * (1 - 0.85 * resolved)
+        halo.uniforms.uOpacity.value = pointIntensity(apparentMag, limit) * (1 - 0.85 * resolved)
         halo.uniforms.uFalloff.value = 3.4
         halo.uniforms.uCore.value = 0.16
         ;(halo.uniforms.uColor.value as Color).set(color)
