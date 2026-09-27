@@ -2,6 +2,22 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.3.0 — 2026-09-27
+
+### Nouveautes
+
+- **ui** : What's Up? Design System a la place de Material 3 — bichrome bleu et blanc, plat, sans ombre ; quatre themes (clair, bleu, sombre, night), Archivo, IBM Plex Mono et titrage Helvetica Neue 93 (local), icones Sharp, classes wu- (398d296)
+
+### Corrections
+
+- **ui** : passe de mise en page — loader au bleu du logo, heures sous la frise, boussole a sa largeur, fiche ancree sans double cadre, grands nombres entiers, resumes lisibles ; traits du theme sombre adoucis (a56f9a1)
+- **ui** : titrage oblique (fonte de titre, heure, boussole, conditions, cartes), libelles des badges et du FAB redresses, plus de filet par ligne de donnee, grilles espacees ; theme bleu par defaut, traits adoucis (c18cf98)
+- **eau** : chaque plan d'eau a son niveau, mesure dans le relief (ocean 0 m, lac = mediane de son interieur) ; l'eau ne monte plus sur les pentes, les creux sous l'eau sont remontes a sa surface (0d42af6)
+
+### Documentation
+
+- **readme** : atmosphere, relief, eau, nuages et avions decrits ; commandes a jour, sources de donnees creditees (3236b56)
+
 ## v0.2.0 — 2026-09-27
 
 ### Nouveautes
