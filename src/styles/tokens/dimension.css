@@ -1,53 +1,44 @@
-/* Tokens dimensionnels : espacement, cibles tactiles, densites, epaisseurs.
- * Expressive augmente les cibles et les respirations par rapport a M3 de base. */
+/* Dimensions — espacement, tailles de composants, couches.
+ *
+ * En rem : la taille de police racine (`html`, base.css) redimensionne toute
+ * l'interface d'un seul point, y compris sur mobile. */
 
 :root {
-  /* Echelle d'espacement (multiple de 4). */
-  --md-sys-spacing-0: 0px;
-  --md-sys-spacing-1: 0.25rem;
-  --md-sys-spacing-2: 0.5rem;
-  --md-sys-spacing-3: 0.75rem;
-  --md-sys-spacing-4: 1rem;
-  --md-sys-spacing-5: 1.25rem;
-  --md-sys-spacing-6: 1.5rem;
-  --md-sys-spacing-7: 1.75rem;
-  --md-sys-spacing-8: 2rem;
-  --md-sys-spacing-10: 2.5rem;
-  --md-sys-spacing-12: 3rem;
-  --md-sys-spacing-14: 3.5rem;
-  --md-sys-spacing-16: 4rem;
+  /* Echelle d'espacement : 2 · 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 56 · 80 px. */
+  --space-0: 0;
+  --space-1: 0.125rem;
+  --space-2: 0.25rem;
+  --space-3: 0.5rem;
+  --space-4: 0.75rem;
+  --space-5: 1rem;
+  --space-6: 1.25rem;
+  --space-7: 1.5rem;
+  --space-8: 2rem;
+  --space-9: 2.5rem;
+  --space-10: 3.5rem;
+  --space-11: 5rem;
 
+  /* Tailles de composants. */
+  --size-control-xs: 1.75rem;
+  --size-control-s: 2rem;
+  --size-control-m: 2.5rem;
+  --size-control-l: 3rem;
+  --size-control-xl: 3.5rem;
+  --size-fab: 3.5rem;
+  --size-rail: 5.5rem;
+  --size-panel: 23.75rem;
   /* Cible tactile minimale. */
-  --md-sys-touch-target-min: 3rem;
+  --size-touch: 3rem;
 
-  /* Hauteurs de composants (tailles Expressive : xs → xl). */
-  --md-comp-button-height-xs: 2rem;
-  --md-comp-button-height-s: 2.5rem;
-  --md-comp-button-height-m: 3.5rem;
-  --md-comp-button-height-l: 6rem;
-  --md-comp-button-height-xl: 8.5rem;
-
-  --md-comp-icon-button-size-xs: 2rem;
-  --md-comp-icon-button-size-s: 2.5rem;
-  --md-comp-icon-button-size-m: 3.5rem;
-  --md-comp-icon-button-size-l: 6rem;
-
-  --md-comp-fab-size-small: 2.5rem;
-  --md-comp-fab-size-medium: 3.5rem;
-  --md-comp-fab-size-large: 6rem;
-
-  --md-comp-top-app-bar-height: 4rem;
-  --md-comp-navigation-rail-width: 6rem;
-  --md-comp-navigation-rail-width-expanded: 15rem;
-
-  /* Traits et contours : epaisseur en px, volontairement hors echelle — un
-   * trait doit rester net au pixel pres, quelle que soit la densite de l'UI. */
-  --md-sys-outline-width-thin: 1px;
-  --md-sys-outline-width-thick: 2px;
-  --md-sys-outline-width-focus: 3px;
+  /* Etats : un aplat d'accent doux au survol, et ces opacites pour le reste. */
+  --opacity-disabled: 0.4;
+  --state-hover: 0.08;
+  --state-focus: 0.1;
+  --state-pressed: 0.12;
+  --state-dragged: 0.16;
 
   /* Panneaux applicatifs. */
-  --app-side-panel-width: 23.75rem;
+  --app-side-panel-width: var(--size-panel);
   --app-timeline-height: 7.5rem;
   --app-z-scene: 0;
   --app-z-overlay: 10;

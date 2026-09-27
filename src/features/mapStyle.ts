@@ -31,16 +31,16 @@ function mix(a: string, b: string, t: number): string {
 const NAME: ExpressionSpecification = ['coalesce', ['get', 'name:fr'], ['get', 'name']]
 
 export function buildMapStyle(): StyleSpecification {
-  const land = readToken('--md-sys-color-surface-container-high', '#2a2a2d')
-  const text = readToken('--md-sys-color-on-surface', '#e4e2e5')
-  const textMuted = readToken('--md-sys-color-on-surface-variant', '#c7c6cb')
-  const water = readToken('--md-sys-color-primary-container', '#1d4291')
-  const outline = readToken('--md-sys-color-outline', '#909095')
-  const outlineVariant = readToken('--md-sys-color-outline-variant', '#46464b')
-  const tertiary = readToken('--md-sys-color-tertiary', '#8ccff1')
+  const land = readToken('--surface', '#0c1530')
+  const text = readToken('--ink', '#e4e2e5')
+  const textMuted = readToken('--ink-muted', '#c7c6cb')
+  const water = readToken('--accent-soft-hover', '#1c3163')
+  const outline = readToken('--ink-muted', '#909095')
+  const outlineVariant = readToken('--line', '#46464b')
+  const tint = readToken('--accent', '#ffffff')
 
-  const wood = mix(land, tertiary, 0.1)
-  const grass = mix(land, tertiary, 0.05)
+  const wood = mix(land, tint, 0.1)
+  const grass = mix(land, tint, 0.05)
 
   return {
     version: 8,

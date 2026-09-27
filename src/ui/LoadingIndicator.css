@@ -1,99 +1,89 @@
-.md-loading {
+.wu-loading {
   display: inline-grid;
   place-items: center;
+  color: var(--accent);
 }
 
-.md-loading__svg {
+/* --- Indetermine : trois barres penchees --- */
+.wu-loading__bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 12%;
+  height: 60%;
+}
+.wu-loading__bars i {
+  display: block;
+  width: auto;
+  aspect-ratio: 0.28;
+  height: 100%;
+  background: currentColor;
+  transform: skewX(var(--slant));
+  animation: wu-loading-bar 900ms var(--ease-in-out) infinite;
+}
+.wu-loading__bars i:nth-child(2) {
+  animation-delay: 120ms;
+}
+.wu-loading__bars i:nth-child(3) {
+  animation-delay: 240ms;
+}
+@keyframes wu-loading-bar {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* --- Determine : anneau plat --- */
+.wu-loading__svg {
   width: 100%;
   height: 100%;
   overflow: visible;
 }
-
-.md-loading__track,
-.md-loading__arc {
+.wu-loading__track,
+.wu-loading__arc {
   fill: none;
-  stroke-width: 5;
-  stroke-linecap: round;
+  stroke-width: 4;
 }
-
-.md-loading__track {
-  stroke: var(--md-sys-color-secondary-container);
+.wu-loading__track {
+  stroke: var(--line);
 }
-
-.md-loading__arc {
-  stroke: var(--md-sys-color-primary);
-  transform-origin: center;
-}
-
-/* Rotation + respiration de l'arc : la « forme » evolue pendant le tour. */
-.md-loading.is-indeterminate .md-loading__arc {
-  stroke-dasharray: 30 113;
-  animation:
-    md-loading-spin 1.4s var(--md-sys-motion-easing-linear) infinite,
-    md-loading-morph 1.4s var(--md-sys-motion-easing-emphasized) infinite;
-}
-
-.md-loading.is-determinate .md-loading__arc {
+.wu-loading__arc {
+  stroke: currentColor;
   transform: rotate(-90deg);
-  transition: stroke-dasharray var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
-}
-
-@keyframes md-loading-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes md-loading-morph {
-  0% {
-    stroke-dasharray: 12 113;
-  }
-  50% {
-    stroke-dasharray: 80 113;
-  }
-  100% {
-    stroke-dasharray: 12 113;
-  }
+  transform-origin: center;
+  transition: stroke-dasharray var(--dur-base) var(--ease-out);
 }
 
 /* --- Barre lineaire --- */
-.md-linear-progress {
+.wu-linear-progress {
   position: relative;
-  height: 0.25rem;
+  height: 4px;
   width: 100%;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-secondary-container);
+  border-radius: 2px;
+  background: var(--line);
   overflow: hidden;
 }
 
-.md-linear-progress__bar {
-  height: 100%;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-primary);
-  transition: width var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
-}
-
-.md-linear-progress.is-indeterminate .md-linear-progress__bar {
-  width: 40%;
-  animation: md-linear-slide 1.6s var(--md-sys-motion-easing-emphasized) infinite;
-}
-
-/* Indicateur de butee : marqueur MD3 en fin de piste. */
-.md-linear-progress__stop {
+.wu-linear-progress__bar {
   position: absolute;
-  right: 0;
-  top: 50%;
-  width: 0.25rem;
-  height: 0.25rem;
-  margin-top: -0.125rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-primary);
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  transition: width var(--dur-base) var(--ease-out);
 }
 
-@keyframes md-linear-slide {
-  0% {
-    transform: translateX(-100%);
+.wu-linear-progress.is-indeterminate .wu-linear-progress__bar {
+  width: 35%;
+  animation: wu-linear-slide 1.2s var(--ease-in-out) infinite;
+}
+
+@keyframes wu-linear-slide {
+  from {
+    left: -35%;
   }
-  100% {
-    transform: translateX(250%);
+  to {
+    left: 100%;
   }
 }

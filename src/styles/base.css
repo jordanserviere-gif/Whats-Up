@@ -1,8 +1,8 @@
+@import './tokens/fonts.css';
 @import './tokens/color.css';
 @import './tokens/typography.css';
 @import './tokens/shape.css';
 @import './tokens/motion.css';
-@import './tokens/elevation.css';
 @import './tokens/dimension.css';
 @import './tokens/sky.css';
 @import './tokens/brand.css';
@@ -36,8 +36,8 @@ html {
   }
 }
 
-/* Le theme sombre est le defaut : on observe le ciel de nuit. Night reste un
- * theme sombre pour le navigateur (barres de defilement, controles natifs). */
+/* Pour le navigateur (barres de defilement, controles natifs), seul le clair
+ * est un theme clair : bleu, sombre et night posent un fond fonce. */
 :root {
   color-scheme: dark;
 }
@@ -46,33 +46,43 @@ html {
 }
 
 body {
-  background: var(--md-sys-color-background);
-  color: var(--md-sys-color-on-surface);
-  font-family: var(--md-sys-typescale-body-medium-font);
-  font-size: var(--md-sys-typescale-body-medium-size);
-  line-height: var(--md-sys-typescale-body-medium-line-height);
-  letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-stretch: var(--wdth-ui);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--tracking-body);
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Les controles natifs n'heritent pas de la fonte par defaut. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-stretch: inherit;
 }
 
 /* Transition douce lors d'un changement de theme. */
 :root[data-theme-transition='on'] * {
   transition:
-    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
-    color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
-    border-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+    background-color var(--dur-base) var(--ease-out),
+    color var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
 }
 
 /* --- Anneau de focus unifie --- */
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: var(--md-sys-outline-width-focus) solid var(--md-sys-color-secondary);
+  outline: var(--border) solid var(--focus);
   outline-offset: 2px;
 }
 
-/* --- Icones Material Symbols --- */
-.md-icon {
-  font-family: 'Material Symbols Rounded';
+/* --- Icones Material Symbols Sharp : angles vifs, comme la marque --- */
+.wu-icon {
+  font-family: 'Material Symbols Sharp';
   font-weight: normal;
   font-style: normal;
   line-height: 1;
@@ -88,42 +98,30 @@ body {
   font-size: var(--_icon-size, 1.5rem);
   font-variation-settings:
     'FILL' var(--_icon-fill, 0),
-    'wght' var(--_icon-weight, 400),
+    'wght' var(--_icon-weight, 500),
     'GRAD' var(--_icon-grade, 0),
     'opsz' var(--_icon-opsz, 24);
-}
-
-/* --- Couche d'etat reutilisable (hover / focus / press) ---
- * Un element porteur ajoute `.md-state-layer` a un enfant en position absolue. */
-.md-state-layer {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: currentColor;
-  opacity: 0;
-  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
 }
 
 /* --- Barres de defilement discretes --- */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--md-sys-color-outline-variant) transparent;
+  scrollbar-color: var(--line) transparent;
 }
 *::-webkit-scrollbar {
   width: 0.5rem;
   height: 0.5rem;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--line);
+  border-radius: var(--radius-pill);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 
 /* --- Accessibilite --- */
-.md-visually-hidden {
+.wu-visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;

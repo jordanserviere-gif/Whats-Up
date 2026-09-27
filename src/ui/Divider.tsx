@@ -14,7 +14,7 @@ export function Divider({
     <hr
       role="separator"
       aria-orientation={vertical ? 'vertical' : 'horizontal'}
-      className={cx('md-divider', inset && 'md-divider--inset', vertical && 'md-divider--vertical', className)}
+      className={cx('wu-divider', inset && 'wu-divider--inset', vertical && 'wu-divider--vertical', className)}
     />
   )
 }

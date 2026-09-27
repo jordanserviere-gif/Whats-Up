@@ -10,8 +10,9 @@ export interface LoadingIndicatorProps {
 }
 
 /**
- * Indicateur de chargement Expressive : une forme qui morphe en tournant
- * (contained loading indicator), plutot que l'arc circulaire de M3 de base.
+ * Indicateur de chargement. Indetermine : trois barres penchees aux 12° du
+ * logotype, qui s'allument tour a tour. Determine : un anneau plat qui se
+ * remplit.
  */
 export function LoadingIndicator({ progress, size = 48, label = 'Chargement', className }: LoadingIndicatorProps) {
   const determinate = progress !== undefined
@@ -19,7 +20,7 @@ export function LoadingIndicator({ progress, size = 48, label = 'Chargement', cl
   const circumference = 2 * Math.PI * r
   return (
     <div
-      className={cx('md-loading', determinate ? 'is-determinate' : 'is-indeterminate', className)}
+      className={cx('wu-loading', determinate ? 'is-determinate' : 'is-indeterminate', className)}
       style={{ width: size, height: size }}
       role="progressbar"
       aria-label={label}
@@ -27,16 +28,18 @@ export function LoadingIndicator({ progress, size = 48, label = 'Chargement', cl
       aria-valuemin={0}
       aria-valuemax={100}
     >
-      <svg viewBox="0 0 48 48" className="md-loading__svg">
-        <circle className="md-loading__track" cx="24" cy="24" r={r} />
-        <circle
-          className="md-loading__arc"
-          cx="24"
-          cy="24"
-          r={r}
-          strokeDasharray={determinate ? `${circumference * progress} ${circumference}` : undefined}
-        />
-      </svg>
+      {determinate ? (
+        <svg viewBox="0 0 48 48" className="wu-loading__svg">
+          <circle className="wu-loading__track" cx="24" cy="24" r={r} />
+          <circle className="wu-loading__arc" cx="24" cy="24" r={r} strokeDasharray={`${circumference * progress} ${circumference}`} />
+        </svg>
+      ) : (
+        <span className="wu-loading__bars">
+          <i />
+          <i />
+          <i />
+        </span>
+      )}
     </div>
   )
 }
@@ -45,12 +48,11 @@ export function LinearProgress({ progress, className }: { progress?: number; cla
   const determinate = progress !== undefined
   return (
     <div
-      className={cx('md-linear-progress', determinate ? 'is-determinate' : 'is-indeterminate', className)}
+      className={cx('wu-linear-progress', determinate ? 'is-determinate' : 'is-indeterminate', className)}
       role="progressbar"
       aria-valuenow={determinate ? Math.round(progress * 100) : undefined}
     >
-      <div className="md-linear-progress__bar" style={determinate ? { width: `${progress * 100}%` } : undefined} />
-      <div className="md-linear-progress__stop" />
+      <div className="wu-linear-progress__bar" style={determinate ? { width: `${progress * 100}%` } : undefined} />
     </div>
   )
 }

@@ -14,7 +14,7 @@ export interface DialogProps {
   children?: ReactNode
 }
 
-/** Boite de dialogue MD3 basee sur `<dialog>` natif (focus trap + touche Echap). */
+/** Boite de dialogue basee sur `<dialog>` natif (focus trap + touche Echap). */
 export function Dialog({ open, onClose, icon, title, supportingText, actions, className, children }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
 
@@ -28,7 +28,7 @@ export function Dialog({ open, onClose, icon, title, supportingText, actions, cl
   return (
     <dialog
       ref={ref}
-      className={cx('md-dialog', className)}
+      className={cx('wu-dialog', className)}
       onCancel={(e) => {
         e.preventDefault()
         onClose()
@@ -37,16 +37,16 @@ export function Dialog({ open, onClose, icon, title, supportingText, actions, cl
         if (e.target === ref.current) onClose()
       }}
     >
-      <div className="md-dialog__panel">
+      <div className="wu-dialog__panel">
         {icon && (
-          <span className="md-dialog__icon">
+          <span className="wu-dialog__icon">
             <Icon name={icon} size={24} />
           </span>
         )}
-        <h2 className={cx('md-type-headline-small', 'is-emphasized', icon && 'md-dialog__title--centered')}>{title}</h2>
-        {supportingText && <p className="md-type-body-medium md-dialog__support">{supportingText}</p>}
-        {children && <div className="md-dialog__content">{children}</div>}
-        {actions && <div className="md-dialog__actions">{actions}</div>}
+        <h2 className={cx('wu-type-headline', 'is-emphasized', icon && 'wu-dialog__title--centered')}>{title}</h2>
+        {supportingText && <p className="wu-type-body-m wu-dialog__support">{supportingText}</p>}
+        {children && <div className="wu-dialog__content">{children}</div>}
+        {actions && <div className="wu-dialog__actions">{actions}</div>}
       </div>
     </dialog>
   )

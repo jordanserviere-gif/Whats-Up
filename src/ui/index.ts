@@ -1,4 +1,4 @@
-/** Bibliotheque de composants Material 3 Expressive de l'application. */
+/** Bibliotheque de composants de l'application — What's Up? Design System. */
 export { Badge } from './Badge'
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize, type ButtonShape } from './Button'
 export { Card, CardHeader, CardBody, CardActions } from './Card'
@@ -12,7 +12,6 @@ export { IconButton } from './IconButton'
 export { List, ListItem, ListSubheader } from './List'
 export { LoadingIndicator, LinearProgress } from './LoadingIndicator'
 export { NavigationRail, type NavDestination } from './NavigationRail'
-export { Ripple } from './Ripple'
 export { SearchBar, type SearchSuggestion } from './SearchBar'
 export { SegmentedButton, type Segment } from './SegmentedButton'
 export { Section } from './Section'

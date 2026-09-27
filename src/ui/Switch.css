@@ -1,26 +1,31 @@
-.md-switch-row {
+.wu-switch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--md-sys-spacing-4);
-  min-height: var(--md-sys-touch-target-min);
+  gap: var(--space-5);
+  min-height: var(--size-touch);
 }
 
-.md-switch-row__text {
+.wu-switch-row__text {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
   cursor: pointer;
   min-width: 0;
+  font-weight: var(--fw-medium);
 }
-.md-switch-row__support {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-switch-row__support {
+  color: var(--ink-muted);
+  font-weight: var(--fw-regular);
 }
 
-.md-switch {
+/* Interrupteur — piste a trait de 2 px, pastille pleine. Allume, la piste se
+ * remplit d'accent et la pastille passe dans la couleur du contenu. */
+.wu-switch {
   position: relative;
   flex: none;
-  width: 3.25rem;
-  height: 2rem;
+  width: 2.75rem;
+  height: 1.5rem;
   padding: 0;
   border: none;
   background: none;
@@ -28,61 +33,39 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.md-switch__track {
+.wu-switch__track {
   position: absolute;
   inset: 0;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-surface-container-highest);
-  border: var(--md-sys-outline-width-thick) solid var(--md-sys-color-outline);
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-pill);
   transition:
-    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
-    border-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 
-.md-switch__handle {
+.wu-switch__handle {
   position: absolute;
-  top: 50%;
-  left: 0.25rem;
-  width: 1rem;
-  height: 1rem;
-  display: grid;
-  place-items: center;
-  transform: translateY(-50%);
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-outline);
-  color: var(--md-sys-color-surface-container-highest);
-  /* Ressort spatial : le curseur depasse legerement puis se cale. */
+  top: 3px;
+  left: 3px;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: var(--line-strong);
   transition:
-    left var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
-    width var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
-    height var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
-    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+    transform var(--dur-base) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
 }
 
-.md-switch.is-checked .md-switch__track {
-  background: var(--md-sys-color-primary);
-  border-color: var(--md-sys-color-primary);
+.wu-switch.is-checked .wu-switch__track {
+  background: var(--accent);
+  border-color: var(--accent);
 }
-.md-switch.is-checked .md-switch__handle {
-  left: 1.5rem;
-  width: 1.5rem;
-  height: 1.5rem;
-  background: var(--md-sys-color-on-primary);
-  color: var(--md-sys-color-on-primary-container);
+.wu-switch.is-checked .wu-switch__handle {
+  transform: translateX(1.25rem);
+  background: var(--on-accent);
 }
 
-.md-switch:active .md-switch__handle {
-  width: 1.75rem;
-  height: 1.75rem;
-}
-.md-switch:active:not(.is-checked) .md-switch__handle {
-  left: 0.125rem;
-}
-.md-switch:active.is-checked .md-switch__handle {
-  left: 1.375rem;
-}
-
-.md-switch-row.is-disabled {
-  opacity: var(--md-sys-state-disabled-content-opacity);
+.wu-switch-row.is-disabled {
+  opacity: var(--opacity-disabled);
   pointer-events: none;
 }

@@ -1,0 +1,16 @@
+/* Fonte de titre — Helvetica Neue LT 93 Black Extended Oblique.
+ *
+ * Fonte commerciale (Linotype) : elle n'est pas versionnee. Deposer le fichier
+ * dans `public/fonts/` (ignore par git) pour l'avoir ; sans lui, le titrage se
+ * replie sur Archivo Black elargi et oblique, voir `--font-display`. */
+@font-face {
+  font-family: 'WU Display';
+  src: url('/fonts/HelveticaNeue-93-BlackExtendedOblique.ttf') format('truetype');
+  font-weight: 900;
+  /* Declaree oblique et elargie : c'est ce que le titrage demande, et la fonte
+   * l'est deja — le navigateur n'en rajoute donc pas. Archivo, en repli, recoit
+   * la meme demande et s'incline et s'elargit, lui. */
+  font-style: oblique 12deg;
+  font-stretch: 125%;
+  font-display: swap;
+}

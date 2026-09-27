@@ -11,11 +11,11 @@ export interface IconProps {
   className?: string
 }
 
-/** Glyphe Material Symbols Rounded, pilote par ses axes variables. */
-export function Icon({ name, size = 24, filled = false, weight = 400, grade = 0, className }: IconProps) {
+/** Glyphe Material Symbols Sharp, pilote par ses axes variables. */
+export function Icon({ name, size = 24, filled = false, weight = 500, grade = 0, className }: IconProps) {
   return (
     <span
-      className={cx('md-icon', className)}
+      className={cx('wu-icon', className)}
       aria-hidden="true"
       style={
         {

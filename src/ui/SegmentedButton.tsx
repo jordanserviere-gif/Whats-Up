@@ -1,5 +1,4 @@
 import { Icon } from './Icon'
-import { Ripple } from './Ripple'
 import { cx } from './utils'
 import './SegmentedButton.css'
 
@@ -41,7 +40,7 @@ export function SegmentedButton<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={cx('md-segmented', `md-segmented--${size}`, fullWidth && 'md-segmented--full', className)}
+      className={cx('wu-segmented', `wu-segmented--${size}`, fullWidth && 'wu-segmented--full', className)}
     >
       {segments.map((seg) => {
         const selected = seg.value === value
@@ -53,12 +52,11 @@ export function SegmentedButton<T extends string>({
             aria-checked={selected}
             aria-label={seg.title}
             title={seg.title}
-            className={cx('md-segmented__item', selected && 'is-selected')}
+            className={cx('wu-segmented__item', selected && 'is-selected')}
             onClick={() => onChange(seg.value)}
           >
-            <Ripple />
             {seg.icon && <Icon name={seg.icon} size={18} filled={selected} />}
-            <span className={cx('md-segmented__label', 'md-type-label-large', selected && 'is-emphasized', seg.compact && 'md-segmented__label--compact')}>
+            <span className={cx('wu-segmented__label', 'wu-type-strong', selected && 'is-emphasized', seg.compact && 'wu-segmented__label--compact')}>
               {seg.label}
             </span>
           </button>

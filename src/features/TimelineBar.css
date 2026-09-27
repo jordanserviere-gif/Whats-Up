@@ -2,15 +2,15 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-2);
-  padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4) var(--md-sys-spacing-2);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
   pointer-events: auto;
 }
 
 .timeline__row--main {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-spacing-3);
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
@@ -32,45 +32,45 @@
   color: inherit;
   cursor: pointer;
   text-align: start;
-  border-radius: var(--md-sys-shape-corner-small);
+  border-radius: var(--radius-s);
 }
 .timeline__clock-button:hover .timeline__time {
-  color: var(--md-sys-color-primary);
+  color: var(--accent);
 }
 
 .timeline__time {
-  font-size: var(--md-sys-typescale-headline-small-size);
-  line-height: var(--md-sys-typescale-headline-small-line-height);
-  font-weight: var(--md-sys-typescale-emphasized-headline-small-weight);
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+  font-weight: var(--fw-black);
   font-variant-numeric: tabular-nums;
-  transition: color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .timeline__date {
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--ink-muted);
 }
 
 .timeline__input {
   height: 2.5rem;
-  padding-inline: var(--md-sys-spacing-2);
-  border: var(--md-sys-outline-width-thick) solid var(--md-sys-color-primary);
-  border-radius: var(--md-sys-shape-corner-medium);
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface);
-  font-family: var(--md-ref-typeface-mono);
-  font-size: var(--md-sys-typescale-title-medium-size);
+  padding-inline: var(--space-3);
+  border: var(--border) solid var(--accent);
+  border-radius: var(--radius-m);
+  background: var(--surface-tint);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
 }
 
 .timeline__badges {
   display: flex;
-  gap: var(--md-sys-spacing-1);
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .timeline__jumps {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-spacing-1);
+  gap: var(--space-2);
   margin-inline-start: auto;
 }
 
@@ -86,14 +86,14 @@
 }
 
 .timeline__speed-trigger {
-  height: var(--md-comp-icon-button-size-s);
-  padding-inline: var(--md-sys-spacing-3);
+  height: var(--size-control-m);
+  padding-inline: var(--space-4);
   border: none;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-  font-size: var(--md-sys-typescale-label-large-size);
-  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: var(--fs-body-s);
+  font-weight: var(--fw-bold);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -101,13 +101,13 @@
 /* Le menu s'ouvre vers le haut : la frise est ancree en bas de l'ecran. */
 .timeline__speed-menu {
   position: absolute;
-  bottom: calc(100% + var(--md-sys-spacing-2));
+  bottom: calc(100% + var(--space-3));
   right: 0;
   z-index: var(--app-z-sheet);
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
-  padding: var(--md-sys-spacing-1);
+  padding: var(--space-2);
   min-width: 9rem;
 }
 
@@ -115,27 +115,27 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--md-sys-spacing-2);
-  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: none;
-  border-radius: var(--md-sys-shape-corner-medium);
+  border-radius: var(--radius-m);
   background: transparent;
-  color: var(--md-sys-color-on-surface);
-  font-size: var(--md-sys-typescale-label-large-size);
-  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
+  color: var(--ink);
+  font-size: var(--fs-body-s);
+  font-weight: var(--fw-bold);
   text-align: start;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .timeline__speed-option:hover {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+  background: var(--accent-soft);
 }
 .timeline__speed-option.is-selected {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .timeline__speed-option-title {
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--ink-muted);
   font-weight: 400;
 }
 .timeline__speed-option.is-selected .timeline__speed-option-title {
@@ -159,10 +159,10 @@
   height: var(--_track-h);
   display: flex;
   align-items: center;
-  margin-top: var(--md-sys-spacing-1);
-  border-radius: var(--md-sys-shape-corner-full);
-  /* Un liseré discret detache la bande du fond translucide de la barre. */
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-sys-color-outline-variant) 40%, transparent);
+  margin-top: var(--space-2);
+  border-radius: var(--radius-pill);
+  /* Un filet detache la bande de la barre. */
+  box-shadow: inset 0 0 0 var(--border-hair) var(--line);
 }
 
 /* Graduations horaires. */
@@ -171,7 +171,7 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent);
+  background: var(--line);
   pointer-events: none;
 }
 
@@ -179,7 +179,7 @@
   position: absolute;
   top: 0.125rem;
   left: 0.1875rem;
-  color: color-mix(in srgb, var(--md-sys-color-on-surface) 62%, transparent);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
   white-space: nowrap;
@@ -208,18 +208,18 @@
   background: transparent;
 }
 
-/* Poignee en barre : coherente avec le slider Expressive. */
+/* Tete de lecture : le rouge signal, reserve au temps et au direct. */
 .timeline__cursor {
   position: absolute;
   top: -0.1875rem;
   bottom: -0.1875rem;
   width: 0.25rem;
   margin-left: -0.125rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-on-surface);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-sys-color-surface-container-high) 85%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--surface);
   pointer-events: none;
-  transition: left var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+  transition: left var(--dur-fast) var(--ease-out);
 }
 .timeline__scrubber:hover .timeline__cursor {
   width: 0.375rem;
@@ -231,9 +231,9 @@
   width: 0.375rem;
   margin-left: -0.1875rem;
 }
-/* En temps accelere non plus : le ressort de 389 ms est plus long que la
- * traversee complete de la fenetre a x86400, la tete trainerait derriere le
- * ciel au lieu de le suivre. */
+/* En temps accelere non plus : la transition est plus longue que la traversee
+ * complete de la fenetre a x86400, la tete trainerait derriere le ciel au lieu
+ * de le suivre. */
 .timeline__scrubber.is-running .timeline__cursor {
   transition: none;
 }
@@ -245,9 +245,9 @@
   width: 0.5rem;
   height: 0.5rem;
   margin: -0.25rem 0 0 -0.25rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-primary);
-  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--md-sys-color-primary) 60%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--surface);
   pointer-events: none;
 }
 
@@ -255,12 +255,12 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--md-sys-spacing-3);
+  gap: var(--space-4);
 }
 
 .timeline__lux,
 .timeline__zone {
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--ink-muted);
   opacity: 0.75;
 }
 .timeline__lux {
@@ -277,10 +277,10 @@
   /* Le SegmentedButton reste utilise jusqu'a 600px (le bouton + menu mobile ne
    * prend le relais qu'en dessous) : ses segments se partagent la largeur
    * plutot que de laisser un vide a droite du conteneur, desormais plein largeur. */
-  .timeline__speed--desktop .md-segmented__item {
+  .timeline__speed--desktop .wu-segmented__item {
     flex: 1 1 0;
     min-width: 0;
-    padding-inline: var(--md-sys-spacing-1);
+    padding-inline: var(--space-2);
   }
 }
 
@@ -291,8 +291,8 @@
  * de l'ecran. */
 @media (max-width: 600px) {
   .timeline {
-    gap: var(--md-sys-spacing-1);
-    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3) var(--md-sys-spacing-1);
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4) var(--space-2);
   }
 
   /* Grille plutot que flex-wrap : chaque commande a sa case fixe, seule la
@@ -304,8 +304,8 @@
     grid-template-columns: auto auto 1fr auto auto;
     grid-template-areas: 'play clock scrubber speed expand';
     align-items: center;
-    column-gap: var(--md-sys-spacing-2);
-    row-gap: var(--md-sys-spacing-2);
+    column-gap: var(--space-3);
+    row-gap: var(--space-3);
   }
   .timeline.is-expanded .timeline__row--main {
     grid-template-areas:
@@ -318,7 +318,7 @@
   }
   /* Le bouton de lecture reste la cible principale, mais sans etre monumental.
    * La classe est portee par le wrapper Tooltip : le bouton en est un enfant. */
-  .timeline__play .md-icon-button--m {
+  .timeline__play .wu-icon-button--m {
     --_size: 2.75rem;
   }
 
@@ -328,7 +328,7 @@
     grid-area: clock;
     flex-direction: row;
     align-items: center;
-    gap: var(--md-sys-spacing-2);
+    gap: var(--space-3);
     min-width: 0;
     overflow: hidden;
   }
@@ -336,8 +336,8 @@
     flex: 0 0 auto;
   }
   .timeline__time {
-    font-size: var(--md-sys-typescale-title-large-size);
-    line-height: var(--md-sys-typescale-title-large-line-height);
+    font-size: var(--fs-title);
+    line-height: var(--lh-title);
   }
   /* Repliees par defaut : elles ne reapparaissent que dans le tiroir. */
   .timeline__badges {
@@ -369,7 +369,7 @@
   .timeline.is-expanded .timeline__jumps {
     display: flex;
   }
-  .timeline__jumps .md-icon-button {
+  .timeline__jumps .wu-icon-button {
     --_size: 2.25rem;
   }
 

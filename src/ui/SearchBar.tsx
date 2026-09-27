@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Icon } from './Icon'
-import { Ripple } from './Ripple'
 import { cx } from './utils'
 import './SearchBar.css'
 
@@ -31,7 +30,7 @@ export interface SearchBarProps {
 }
 
 /**
- * Barre de recherche MD3, en forme pleine, avec volet de resultats attache.
+ * Barre de recherche en pilule, avec volet de resultats attache.
  *
  * Le volet ne s'ouvre que lorsqu'il a quelque chose a montrer, et la navigation
  * au clavier reste complete : fleches pour parcourir, Entree pour valider,
@@ -95,14 +94,14 @@ export function SearchBar({
   }
 
   return (
-    <div ref={rootRef} className={cx('md-search', open && 'is-open', className)}>
-      <div className="md-search__bar">
-        <Icon name="search" size={20} className="md-search__leading" />
+    <div ref={rootRef} className={cx('wu-search', open && 'is-open', className)}>
+      <div className="wu-search__bar">
+        <Icon name="search" size={20} className="wu-search__leading" />
         <input
           ref={inputRef}
           type="search"
           role="combobox"
-          className="md-search__input md-type-body-large"
+          className="wu-search__input wu-type-body"
           value={value}
           placeholder={placeholder}
           aria-label={label}
@@ -121,7 +120,7 @@ export function SearchBar({
         {value.length > 0 && (
           <button
             type="button"
-            className="md-search__clear"
+            className="wu-search__clear"
             aria-label="Effacer la recherche"
             onClick={() => {
               onChange('')
@@ -134,29 +133,28 @@ export function SearchBar({
       </div>
 
       {open && (
-        <div className="md-search__panel">
+        <div className="wu-search__panel">
           {showEmpty ? (
-            <p className="md-type-body-medium md-search__empty">{emptyText}</p>
+            <p className="wu-type-body-m wu-search__empty">{emptyText}</p>
           ) : (
-            <ul id={listId} role="listbox" className="md-search__list">
+            <ul id={listId} role="listbox" className="wu-search__list">
               {suggestions.map((s, i) => (
                 <li key={s.id} role="presentation">
                   <button
                     type="button"
                     role="option"
                     aria-selected={i === active}
-                    className={cx('md-search__option', i === active && 'is-active')}
+                    className={cx('wu-search__option', i === active && 'is-active')}
                     onPointerEnter={() => setActive(i)}
                     onClick={() => commit(s.id)}
                   >
-                    <Ripple />
-                    {s.dot && <span className="md-search__dot" style={{ background: s.dot }} />}
-                    {s.leadingIcon && !s.dot && <Icon name={s.leadingIcon} size={20} className="md-search__icon" />}
-                    <span className="md-search__text">
-                      <span className="md-type-body-large md-search__headline">{s.headline}</span>
-                      {s.supporting && <span className="md-type-body-small md-search__support">{s.supporting}</span>}
+                    {s.dot && <span className="wu-search__dot" style={{ background: s.dot }} />}
+                    {s.leadingIcon && !s.dot && <Icon name={s.leadingIcon} size={20} className="wu-search__icon" />}
+                    <span className="wu-search__text">
+                      <span className="wu-type-body wu-search__headline">{s.headline}</span>
+                      {s.supporting && <span className="wu-type-body-s wu-search__support">{s.supporting}</span>}
                     </span>
-                    {s.trailing && <span className="md-type-label-large md-numeric md-search__trailing">{s.trailing}</span>}
+                    {s.trailing && <span className="wu-type-strong wu-numeric wu-search__trailing">{s.trailing}</span>}
                   </button>
                 </li>
               ))}

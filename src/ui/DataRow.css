@@ -1,17 +1,23 @@
-.md-data-row {
+/* Ligne de donnee — libelle a gauche, valeur a chasse fixe a droite, filet
+ * fin dessous. */
+.wu-data-row {
   display: flex;
-  align-items: center;
-  gap: var(--md-sys-spacing-2);
+  align-items: baseline;
+  gap: var(--space-4);
   min-height: 1.75rem;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-hair) solid var(--line);
+  min-width: 0;
 }
 
-.md-data-row__icon {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-data-row__icon {
+  color: var(--ink-muted);
   flex: none;
+  align-self: center;
 }
 
-.md-data-row__label {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-data-row__label {
+  color: var(--ink-muted);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -19,71 +25,87 @@
   white-space: nowrap;
 }
 
-.md-data-row__value {
+.wu-data-row__value {
   flex: none;
-  color: var(--md-sys-color-on-surface);
-  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-size: var(--fs-data);
+  font-weight: var(--fw-medium);
+  text-align: end;
 }
 
-.md-data-row.is-emphasis .md-data-row__value {
-  color: var(--md-sys-color-primary);
-  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
+.wu-data-row.is-emphasis .wu-data-row__value {
+  font-weight: var(--fw-semibold);
+  color: var(--ink-strong);
 }
 
-.md-data-row__unit {
-  color: var(--md-sys-color-on-surface-variant);
-  font-weight: 400;
+.wu-data-row__unit {
+  color: var(--ink-muted);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-regular);
 }
 
-.md-data-grid {
+.wu-data-grid {
   display: grid;
-  gap: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+  column-gap: var(--space-7);
 }
 
 /* --- Tuile --- */
-.md-stat-tile {
+.wu-stat-tile {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-1);
-  padding: var(--md-sys-spacing-3);
-  border-radius: var(--md-sys-shape-corner-large-increased);
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--border) solid var(--_line, var(--line));
+  border-radius: var(--radius-m);
   background: var(--_bg);
   color: var(--_fg);
+  min-width: 0;
 }
 
-.md-stat-tile--neutral {
-  --_bg: var(--md-sys-color-surface-container-high);
-  --_fg: var(--md-sys-color-on-surface);
+.wu-stat-tile--neutral,
+.wu-stat-tile--secondary,
+.wu-stat-tile--tertiary {
+  --_bg: transparent;
+  --_fg: var(--ink);
 }
-.md-stat-tile--primary {
-  --_bg: var(--md-sys-color-primary-container);
-  --_fg: var(--md-sys-color-on-primary-container);
-}
-.md-stat-tile--secondary {
-  --_bg: var(--md-sys-color-secondary-container);
-  --_fg: var(--md-sys-color-on-secondary-container);
-}
-.md-stat-tile--tertiary {
-  --_bg: var(--md-sys-color-tertiary-container);
-  --_fg: var(--md-sys-color-on-tertiary-container);
+/* La tuile vedette : aplat d'accent, texte blanc. */
+.wu-stat-tile--primary {
+  --_bg: var(--accent);
+  --_fg: var(--on-accent);
+  --_line: var(--accent);
 }
 
-.md-stat-tile__head {
+.wu-stat-tile__head {
   display: flex;
   align-items: center;
-  gap: var(--md-sys-spacing-1);
-  opacity: 0.85;
+  gap: var(--space-2);
+  color: inherit;
+}
+.wu-stat-tile:not(.wu-stat-tile--primary) .wu-stat-tile__head {
+  color: var(--ink-muted);
 }
 
-.md-stat-tile__value {
+/* Grand nombre : la fonte de titre. */
+.wu-stat-tile__value {
   margin: 0;
-  font-size: var(--md-sys-typescale-headline-small-size);
-  line-height: var(--md-sys-typescale-headline-small-line-height);
-  font-weight: var(--md-sys-typescale-emphasized-headline-small-weight);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-style: var(--display-style);
+  font-stretch: var(--display-stretch);
+  font-weight: var(--fw-black);
+  font-size: var(--fs-display-m);
+  line-height: 0.95;
+  letter-spacing: var(--tracking-display);
   font-variant-numeric: tabular-nums;
 }
 
-.md-stat-tile__unit {
-  font-size: var(--md-sys-typescale-body-medium-size);
-  opacity: 0.7;
+.wu-stat-tile__unit {
+  font-family: var(--font-body);
+  font-style: normal;
+  font-stretch: var(--wdth-ui);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-body-m);
+  letter-spacing: 0;
 }

@@ -15,11 +15,11 @@ export interface TooltipProps {
 /** Info-bulle purement CSS : aucun repositionnement JS, donc zero cout au rendu. */
 export function Tooltip({ content, placement = 'top', rich = false, title, className, children }: TooltipProps) {
   return (
-    <span className={cx('md-tooltip-anchor', className)}>
+    <span className={cx('wu-tooltip-anchor', className)}>
       {children}
-      <span role="tooltip" className={cx('md-tooltip', `md-tooltip--${placement}`, rich && 'md-tooltip--rich')}>
-        {rich && title && <span className="md-type-title-small is-emphasized md-tooltip__title">{title}</span>}
-        <span className={rich ? 'md-type-body-medium' : 'md-type-body-small'}>{content}</span>
+      <span role="tooltip" className={cx('wu-tooltip', `wu-tooltip--${placement}`, rich && 'wu-tooltip--rich')}>
+        {rich && title && <span className="wu-type-title-s is-emphasized wu-tooltip__title">{title}</span>}
+        <span className={rich ? 'wu-type-body-m' : 'wu-type-body-s'}>{content}</span>
       </span>
     </span>
   )

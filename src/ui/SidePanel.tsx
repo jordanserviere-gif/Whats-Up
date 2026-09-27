@@ -55,22 +55,22 @@ export function SidePanel({
   return (
     <aside
       ref={ref}
-      className={cx('md-side-panel', `md-side-panel--${side}`, open ? 'is-open' : 'is-closed', className)}
+      className={cx('wu-side-panel', `wu-side-panel--${side}`, open ? 'is-open' : 'is-closed', className)}
       aria-hidden={!open}
     >
-      <header className="md-side-panel__header">
-        <div className="md-side-panel__titles">
-          {subtitle && <p className="md-type-label-small md-side-panel__overline">{subtitle}</p>}
-          <h2 className="md-type-title-large is-emphasized">{title}</h2>
+      <header className="wu-side-panel__header">
+        <div className="wu-side-panel__titles">
+          {subtitle && <p className="wu-type-label wu-side-panel__overline">{subtitle}</p>}
+          <h2 className="wu-type-headline is-emphasized">{title}</h2>
         </div>
-        <div className="md-side-panel__actions">
+        <div className="wu-side-panel__actions">
           {actions}
           {onClose && <IconButton icon="close" label="Fermer le panneau" onClick={onClose} />}
         </div>
       </header>
-      <div className="md-side-panel__content">{children}</div>
-      {detail && <div className="md-side-panel__detail">{detail}</div>}
-      {footer && <footer className="md-side-panel__footer">{footer}</footer>}
+      <div className="wu-side-panel__content">{children}</div>
+      {detail && <div className="wu-side-panel__detail">{detail}</div>}
+      {footer && <footer className="wu-side-panel__footer">{footer}</footer>}
     </aside>
   )
 }

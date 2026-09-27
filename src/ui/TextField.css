@@ -1,125 +1,118 @@
-.md-text-field {
-  --_height: 3.5rem;
-  --_outline: var(--md-sys-color-outline);
-  --_label-color: var(--md-sys-color-on-surface-variant);
+/* Champ — boite a trait de 2 px, rayon de 4 px. Le libelle, en capitales,
+ * se tient en haut de la boite : il ne flotte pas, il est toujours lisible. */
+.wu-text-field {
+  --_height: 3.25rem;
+  --_outline: var(--line);
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-1);
+  gap: var(--space-2);
   min-width: 0;
 }
 
-.md-text-field--compact {
-  --_height: 3rem;
+.wu-text-field--compact {
+  --_height: 2.875rem;
 }
 
-.md-text-field__box {
+.wu-text-field__box {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--md-sys-spacing-2);
+  gap: var(--space-3);
   height: var(--_height);
-  padding-inline: var(--md-sys-spacing-4);
-  border-radius: var(--md-sys-shape-corner-large);
-  transition:
-    border-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
-    background-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+  padding-inline: var(--space-4);
+  border: var(--border) solid var(--_outline);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.wu-text-field--filled .wu-text-field__box {
+  background: var(--surface-tint);
+}
+.wu-text-field__box:hover {
+  --_outline: var(--ink-muted);
+}
+.wu-text-field__box:focus-within {
+  --_outline: var(--line-strong);
 }
 
-.md-text-field--outlined .md-text-field__box {
-  border: var(--md-sys-outline-width-thin) solid var(--_outline);
-  background: transparent;
-}
-.md-text-field--filled .md-text-field__box {
-  background: var(--md-sys-color-surface-container-highest);
-  border-bottom: var(--md-sys-outline-width-thin) solid var(--_outline);
-  border-radius: var(--md-sys-shape-corner-medium) var(--md-sys-shape-corner-medium) 0 0;
-}
-
-.md-text-field__box:focus-within {
-  --_outline: var(--md-sys-color-primary);
-  --_label-color: var(--md-sys-color-primary);
-}
-.md-text-field--outlined .md-text-field__box:focus-within {
-  border-width: var(--md-sys-outline-width-thick);
-  padding-inline: calc(var(--md-sys-spacing-4) - 1px);
-}
-
-.md-text-field__input {
+.wu-text-field__input {
   flex: 1;
   min-width: 0;
   height: 100%;
   border: none;
   outline: none;
   background: transparent;
-  color: var(--md-sys-color-on-surface);
-  font-family: var(--md-sys-typescale-body-large-font);
-  font-size: var(--md-sys-typescale-body-large-size);
-  letter-spacing: var(--md-sys-typescale-body-large-tracking);
-  padding: var(--md-sys-spacing-5) 0 0;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  padding: var(--space-5) 0 0;
 }
-.md-text-field__input.md-numeric {
-  font-family: var(--md-ref-typeface-mono);
-  font-variant-numeric: tabular-nums;
+.wu-text-field__input.wu-numeric {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
 }
-.md-text-field__input::-webkit-outer-spin-button,
-.md-text-field__input::-webkit-inner-spin-button {
+.wu-text-field__input::placeholder {
+  color: var(--ink-muted);
+  opacity: 0.8;
+}
+.wu-text-field__input::-webkit-outer-spin-button,
+.wu-text-field__input::-webkit-inner-spin-button {
   appearance: none;
   margin: 0;
 }
-.md-text-field__input[type='number'] {
+.wu-text-field__input[type='number'] {
   appearance: textfield;
   -moz-appearance: textfield;
 }
 
-/* Label flottant : repos au centre, ancre en haut des qu'il y a du contenu. */
-.md-text-field__label {
+.wu-text-field__label {
   position: absolute;
-  left: var(--md-sys-spacing-4);
-  top: 50%;
-  transform: translateY(-50%);
-  transform-origin: left center;
-  color: var(--_label-color);
+  left: var(--space-4);
+  top: 0.5rem;
+  color: var(--ink-muted);
   pointer-events: none;
-  font-family: var(--md-sys-typescale-body-large-font);
-  font-size: var(--md-sys-typescale-body-large-size);
-  transition: all var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
-}
-.md-text-field__box:focus-within .md-text-field__label,
-.md-text-field__input:not(:placeholder-shown) + .md-text-field__label {
-  top: 0.75rem;
-  transform: translateY(0) scale(0.75);
-  font-weight: var(--md-sys-typescale-emphasized-body-small-weight);
+  font-size: var(--fs-label-s);
+  line-height: 1;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-stretch: var(--wdth-label);
 }
 
-.md-text-field__leading {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-text-field__leading {
+  color: var(--ink-muted);
   flex: none;
 }
-.md-text-field__box:has(.md-text-field__leading) .md-text-field__label {
-  left: calc(var(--md-sys-spacing-4) + 1.25rem + var(--md-sys-spacing-2));
+.wu-text-field__box:has(.wu-text-field__leading) .wu-text-field__label {
+  left: calc(var(--space-4) + 1.25rem + var(--space-3));
 }
 
-.md-text-field__suffix {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-text-field__suffix {
+  color: var(--ink-muted);
   flex: none;
-  padding-top: var(--md-sys-spacing-5);
+  padding-top: var(--space-5);
   white-space: nowrap;
+  font-family: var(--font-mono);
+  font-stretch: normal;
 }
 
-.md-text-field__support {
-  padding-inline: var(--md-sys-spacing-4);
-  color: var(--md-sys-color-on-surface-variant);
+.wu-text-field__support {
+  color: var(--ink-muted);
 }
 
-.md-text-field.is-invalid {
-  --_outline: var(--md-sys-color-error);
-  --_label-color: var(--md-sys-color-error);
+.wu-text-field.is-invalid {
+  --_outline: var(--signal);
 }
-.md-text-field.is-invalid .md-text-field__support {
-  color: var(--md-sys-color-error);
+.wu-text-field.is-invalid .wu-text-field__box {
+  --_outline: var(--signal);
+}
+.wu-text-field.is-invalid .wu-text-field__support,
+.wu-text-field.is-invalid .wu-text-field__label {
+  color: var(--signal);
 }
 
-.md-text-field.is-disabled {
-  opacity: var(--md-sys-state-disabled-content-opacity);
+.wu-text-field.is-disabled {
+  opacity: var(--opacity-disabled);
   pointer-events: none;
 }

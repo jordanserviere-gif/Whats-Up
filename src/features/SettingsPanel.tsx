@@ -50,7 +50,7 @@ const LAYER_LABELS: Array<{ key: keyof LayerVisibility; label: string }> = [
 ]
 
 /** Reglages : lieu d'observation, calques, apparence. */
-const THEME_SUMMARY = { light: 'clair', dark: 'sombre', night: 'night' } as const
+const THEME_SUMMARY = { light: 'clair', blue: 'bleu', dark: 'sombre', night: 'night' } as const
 
 export function SettingsPanel() {
   const location = useSkyStore((s) => s.location)
@@ -198,7 +198,7 @@ export function SettingsPanel() {
             ))}
           </List>
         ) : (
-          <p className="md-type-body-small">Aucun favori : ajoutez un lieu depuis la carte avec l’étoile.</p>
+          <p className="wu-type-body-s">Aucun favori : ajoutez un lieu depuis la carte avec l’étoile.</p>
         )}
 
         {/* Juste de quoi agir sur le lieu propose : le garder en favori, et le
@@ -371,6 +371,7 @@ export function SettingsPanel() {
           fullWidth
           segments={[
             { value: 'light', label: 'Clair', icon: 'light_mode' },
+            { value: 'blue', label: 'Bleu', icon: 'contrast' },
             { value: 'dark', label: 'Sombre', icon: 'dark_mode' },
             { value: 'night', label: 'Night', icon: 'nightlight' },
           ]}
@@ -399,7 +400,7 @@ function SourcesSection() {
       <DataRow label="Ciel profond" value={`OpenNGC · ${DEEP_SKY_COUNT.toLocaleString('fr-FR')}`} />
       <DataRow label="Figures" value="d3-celestial" />
       <Divider />
-      <p className="md-type-body-small">
+      <p className="wu-type-body-s">
         Cartes de surface des planètes et de la Lune :{' '}
         <a className="settings__link" href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noreferrer">
           Solar System Scope
@@ -410,10 +411,10 @@ function SourcesSection() {
         </a>
         . Elles sont redimensionnées mais non modifiées.
       </p>
-      <p className="md-type-body-small">
+      <p className="wu-type-body-s">
         Catalogue OpenNGC de Mattia Verga, sous CC BY-SA 4.0. Base HYG d’Astronexus, sous CC BY-SA 2.5.
       </p>
-      <p className="md-type-label-small settings__version">
+      <p className="wu-type-label settings__version">
         What’s Up? v{__APP_VERSION__}
         {__APP_COMMIT__ && ` · ${__APP_COMMIT__}`}
       </p>

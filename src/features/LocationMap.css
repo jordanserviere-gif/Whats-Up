@@ -1,7 +1,7 @@
 .location-map {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-2);
+  gap: var(--space-3);
 }
 
 .location-map__search {
@@ -13,43 +13,42 @@
 .location-map__hits {
   position: absolute;
   inset-inline: 0;
-  top: calc(100% + var(--md-sys-spacing-1));
+  top: calc(100% + var(--space-2));
   z-index: 5;
   margin: 0;
-  padding: var(--md-sys-spacing-1) 0;
+  padding: var(--space-2) 0;
   list-style: none;
-  border-radius: var(--md-sys-shape-corner-medium);
-  background: var(--md-sys-color-surface-container-highest);
-  box-shadow: var(--md-sys-elevation-level2);
-  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  border: var(--border) solid var(--line-strong);
 }
 .location-map__hits button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
-  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+  padding: var(--space-3) var(--space-5);
   border: 0;
   background: transparent;
-  color: var(--md-sys-color-on-surface);
+  color: var(--ink);
   text-align: start;
   cursor: pointer;
 }
 .location-map__hits button:hover,
 .location-map__hits button:focus-visible {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+  background: var(--accent-soft);
 }
 .location-map__hit-detail {
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--ink-muted);
 }
 
 .location-map__frame {
   position: relative;
   aspect-ratio: 4 / 3;
-  border-radius: var(--md-sys-shape-corner-large);
+  border-radius: var(--radius-m);
   overflow: hidden;
-  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
+  border: var(--border-hair) solid var(--line);
+  background: var(--surface-tint);
 }
 
 .location-map__canvas {
@@ -63,12 +62,13 @@
 
 /* Controles MapLibre, ramenes au langage de l'interface. */
 .location-map .maplibregl-ctrl-group {
-  border-radius: var(--md-sys-shape-corner-medium);
-  background: var(--md-sys-color-surface-container-highest);
-  box-shadow: var(--md-sys-elevation-level1);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  border: var(--border) solid var(--line-strong);
+  box-shadow: none;
 }
 .location-map .maplibregl-ctrl-group button + button {
-  border-top-color: var(--md-sys-color-outline-variant);
+  border-top-color: var(--line);
 }
 .location-map .maplibregl-ctrl-attrib {
   font-size: 0.625rem;

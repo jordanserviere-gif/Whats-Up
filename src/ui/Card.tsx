@@ -22,7 +22,7 @@ export function Card({ variant = 'filled', shape = 'extra-large', glass, classNa
       shape={shape}
       glass={glass}
       outlined={variant === 'outlined'}
-      className={cx('md-card', className)}
+      className={cx('wu-card', className)}
     >
       {children}
     </Surface>
@@ -40,26 +40,26 @@ export interface CardHeaderProps {
 
 export function CardHeader({ icon, overline, title, subtitle, trailing, className }: CardHeaderProps) {
   return (
-    <header className={cx('md-card__header', className)}>
+    <header className={cx('wu-card__header', className)}>
       {icon && (
-        <span className="md-card__header-icon">
+        <span className="wu-card__header-icon">
           <Icon name={icon} size={20} />
         </span>
       )}
-      <div className="md-card__header-text">
-        {overline && <p className="md-type-label-small md-card__overline">{overline}</p>}
-        <h3 className="md-type-title-medium is-emphasized">{title}</h3>
-        {subtitle && <p className="md-type-body-small md-card__subtitle">{subtitle}</p>}
+      <div className="wu-card__header-text">
+        {overline && <p className="wu-type-label wu-card__overline">{overline}</p>}
+        <h3 className="wu-type-title is-emphasized">{title}</h3>
+        {subtitle && <p className="wu-type-body-s wu-card__subtitle">{subtitle}</p>}
       </div>
-      {trailing && <div className="md-card__header-trailing">{trailing}</div>}
+      {trailing && <div className="wu-card__header-trailing">{trailing}</div>}
     </header>
   )
 }
 
 export function CardBody({ className, children }: { className?: string; children?: ReactNode }) {
-  return <div className={cx('md-card__body', className)}>{children}</div>
+  return <div className={cx('wu-card__body', className)}>{children}</div>
 }
 
 export function CardActions({ className, children }: { className?: string; children?: ReactNode }) {
-  return <div className={cx('md-card__actions', className)}>{children}</div>
+  return <div className={cx('wu-card__actions', className)}>{children}</div>
 }

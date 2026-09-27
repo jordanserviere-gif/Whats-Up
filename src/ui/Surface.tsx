@@ -17,10 +17,10 @@ export type SurfaceShape =
 
 export interface SurfaceProps {
   as?: ElementType
-  /** Niveau d'elevation MD3 : pilote l'ombre et la teinte du conteneur. */
+  /** Niveau du conteneur. Sans ombre dans ce systeme : il ne change que le fond. */
   level?: SurfaceLevel
   shape?: SurfaceShape
-  /** Fond translucide + flou : pour le chrome pose sur la scene 3D. */
+  /** Chrome pose sur la scene 3D : fond plein et trait fort, jamais translucide. */
   glass?: boolean
   outlined?: boolean
   className?: string
@@ -29,9 +29,23 @@ export interface SurfaceProps {
   children?: ReactNode
 }
 
+/** Paliers de forme historiques, replies sur les quatre rayons du systeme. */
+const RADIUS: Record<SurfaceShape, string> = {
+  none: 'var(--radius-0)',
+  'extra-small': 'var(--radius-s)',
+  small: 'var(--radius-s)',
+  medium: 'var(--radius-m)',
+  large: 'var(--radius-m)',
+  'large-increased': 'var(--radius-l)',
+  'extra-large': 'var(--radius-l)',
+  'extra-large-increased': 'var(--radius-l)',
+  'extra-extra-large': 'var(--radius-l)',
+  full: 'var(--radius-pill)',
+}
+
 /**
- * Brique de base de tout conteneur : traduit un niveau d'elevation et un palier
- * de l'echelle de forme en tokens CSS. Tous les panneaux en derivent.
+ * Brique de base de tout conteneur : traduit un niveau et un palier de forme en
+ * tokens CSS. Tous les panneaux en derivent.
  */
 export function Surface({
   as: Tag = 'div',
@@ -47,8 +61,8 @@ export function Surface({
   return (
     <Tag
       role={role}
-      className={cx('md-surface', `md-surface--l${level}`, glass && 'md-surface--glass', outlined && 'md-surface--outlined', className)}
-      style={{ '--_shape': `var(--md-sys-shape-corner-${shape})`, ...style } as CSSProperties}
+      className={cx('wu-surface', `wu-surface--l${level}`, glass && 'wu-surface--glass', outlined && 'wu-surface--outlined', className)}
+      style={{ '--_shape': RADIUS[shape], ...style } as CSSProperties}
     >
       {children}
     </Tag>

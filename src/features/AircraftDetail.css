@@ -4,10 +4,10 @@
    * large le montre entier et rend au reste de la fiche une centaine de pixels. */
   aspect-ratio: 16 / 7;
   object-fit: cover;
-  border-radius: var(--md-sys-shape-corner-large);
-  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--radius-m);
+  background: var(--surface-tint);
 }
 
 .aircraft-detail__note {
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--ink-muted);
 }

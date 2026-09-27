@@ -42,7 +42,7 @@ export interface SceneLabel {
 /**
  * Etiquettes du ciel.
  *
- * Elles vivent dans le DOM (pour beneficier de la typographie et des tokens MD3)
+ * Elles vivent dans le DOM (pour beneficier de la typographie et des tokens du design system)
  * mais sont positionnees par projection depuis la scene, sans passer par le
  * rendu React : le `useFrame` ecrit directement dans les styles.
  */
@@ -70,7 +70,7 @@ export function LabelLayer({ labels, host }: { labels: SceneLabel[]; host: React
         node = document.createElement('span')
         // Le repere d'un avion est un glyphe Material Symbols, pas du texte :
         // meme convention que le composant `Icon` (nom du glyphe en contenu).
-        node.className = `sky-label sky-label--${label.kind}${label.kind === 'aircraft' ? ' md-icon' : ''}`
+        node.className = `sky-label sky-label--${label.kind}${label.kind === 'aircraft' ? ' wu-icon' : ''}`
         container.appendChild(node)
         nodes.current.set(label.id, node)
       }

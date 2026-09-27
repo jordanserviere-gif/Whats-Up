@@ -1,68 +1,68 @@
-.md-tooltip-anchor {
+.wu-tooltip-anchor {
   position: relative;
   display: inline-flex;
 }
 
-.md-tooltip {
+/* Bulle — aplat d'accent, rayon de 4 px, fondu court. */
+.wu-tooltip {
   position: absolute;
   z-index: var(--app-z-tooltip);
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  max-width: 240px;
-  padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
-  border-radius: var(--md-sys-shape-corner-extra-small);
-  background: var(--md-sys-color-inverse-surface);
-  color: var(--md-sys-color-inverse-on-surface);
+  gap: var(--space-1);
+  max-width: 15rem;
+  padding: 0.4375rem 0.625rem;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--fw-semibold);
   /* `nowrap` conjugue a `max-width` est un piege : passe la largeur, le texte
    * ne s'enroule pas, il deborde. Une bulle courte n'atteint jamais sa largeur
    * max et tient sur une ligne de toute facon ; une plus longue s'enroule
    * proprement plutot que de sortir de sa boite. */
   white-space: normal;
+  width: max-content;
   opacity: 0;
   pointer-events: none;
-  transform: scale(0.9);
-  transition:
-    opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
-    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.md-tooltip-anchor:hover > .md-tooltip,
-.md-tooltip-anchor:focus-within > .md-tooltip {
+.wu-tooltip-anchor:hover > .wu-tooltip,
+.wu-tooltip-anchor:focus-within > .wu-tooltip {
   opacity: 1;
-  transform: scale(1);
 }
 
-.md-tooltip--top {
-  bottom: calc(100% + var(--md-sys-spacing-2));
+.wu-tooltip--top {
+  bottom: calc(100% + var(--space-3));
   left: 50%;
   translate: -50% 0;
 }
-.md-tooltip--bottom {
-  top: calc(100% + var(--md-sys-spacing-2));
+.wu-tooltip--bottom {
+  top: calc(100% + var(--space-3));
   left: 50%;
   translate: -50% 0;
 }
-.md-tooltip--start {
-  right: calc(100% + var(--md-sys-spacing-2));
+.wu-tooltip--start {
+  right: calc(100% + var(--space-3));
   top: 50%;
   translate: 0 -50%;
 }
-.md-tooltip--end {
-  left: calc(100% + var(--md-sys-spacing-2));
+.wu-tooltip--end {
+  left: calc(100% + var(--space-3));
   top: 50%;
   translate: 0 -50%;
 }
 
-.md-tooltip--rich {
-  white-space: normal;
-  max-width: 300px;
-  padding: var(--md-sys-spacing-3);
-  border-radius: var(--md-sys-shape-corner-medium);
-  background: var(--md-sys-color-surface-container-highest);
-  color: var(--md-sys-color-on-surface-variant);
-  box-shadow: var(--md-sys-elevation-level2);
+/* Bulle riche : la surface du chrome, trait fort. */
+.wu-tooltip--rich {
+  max-width: 18.75rem;
+  padding: var(--space-4);
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-weight: var(--fw-regular);
 }
-.md-tooltip__title {
-  color: var(--md-sys-color-on-surface);
+.wu-tooltip__title {
+  color: var(--ink);
 }

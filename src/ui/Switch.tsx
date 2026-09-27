@@ -1,5 +1,4 @@
 import { useId } from 'react'
-import { Icon } from './Icon'
 import { cx } from './utils'
 import './Switch.css'
 
@@ -9,19 +8,17 @@ export interface SwitchProps {
   label?: string
   supportingText?: string
   disabled?: boolean
-  /** Icone affichee dans la poignee a l'etat actif. */
-  icon?: string
   className?: string
 }
 
-export function Switch({ checked, onChange, label, supportingText, disabled, icon = 'check', className }: SwitchProps) {
+export function Switch({ checked, onChange, label, supportingText, disabled, className }: SwitchProps) {
   const id = useId()
   return (
-    <div className={cx('md-switch-row', disabled && 'is-disabled', className)}>
+    <div className={cx('wu-switch-row', disabled && 'is-disabled', className)}>
       {label && (
-        <label className="md-switch-row__text" htmlFor={id}>
-          <span className="md-type-body-large">{label}</span>
-          {supportingText && <span className="md-type-body-small md-switch-row__support">{supportingText}</span>}
+        <label className="wu-switch-row__text" htmlFor={id}>
+          <span className="wu-type-body">{label}</span>
+          {supportingText && <span className="wu-type-body-s wu-switch-row__support">{supportingText}</span>}
         </label>
       )}
       <button
@@ -31,11 +28,11 @@ export function Switch({ checked, onChange, label, supportingText, disabled, ico
         aria-checked={checked}
         aria-label={label}
         disabled={disabled}
-        className={cx('md-switch', checked && 'is-checked')}
+        className={cx('wu-switch', checked && 'is-checked')}
         onClick={() => onChange(!checked)}
       >
-        <span className="md-switch__track">
-          <span className="md-switch__handle">{checked && <Icon name={icon} size={16} />}</span>
+        <span className="wu-switch__track">
+          <span className="wu-switch__handle" />
         </span>
       </button>
     </div>

@@ -196,7 +196,7 @@ export function AircraftDetail() {
             }}
           />
         )}
-        {metaLoading && <p className="md-type-body-small aircraft-detail__note">Recherche des informations de l’appareil…</p>}
+        {metaLoading && <p className="wu-type-body-s aircraft-detail__note">Recherche des informations de l’appareil…</p>}
 
         {hasDetails && (
           <SegmentedButton

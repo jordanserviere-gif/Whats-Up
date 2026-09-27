@@ -1,7 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react'
 import { Icon } from './Icon'
 import { LoadingIndicator } from './LoadingIndicator'
-import { Ripple } from './Ripple'
 import { cx } from './utils'
 import './IconButton.css'
 
@@ -15,7 +14,7 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   selectedIcon?: string
   variant?: IconButtonVariant
   size?: IconButtonSize
-  /** Expressive : la largeur est un axe independant de la hauteur. */
+  /** La largeur est un axe independant de la hauteur. */
   width?: IconButtonWidth
   shape?: 'round' | 'square'
   selected?: boolean
@@ -52,19 +51,18 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       title={label}
       aria-pressed={selected === undefined ? undefined : selected}
       className={cx(
-        'md-icon-button',
-        `md-icon-button--${variant}`,
-        `md-icon-button--${size}`,
-        `md-icon-button--w-${width}`,
-        `md-icon-button--${shape}`,
+        'wu-icon-button',
+        `wu-icon-button--${variant}`,
+        `wu-icon-button--${size}`,
+        `wu-icon-button--w-${width}`,
+        `wu-icon-button--${shape}`,
         selected && 'is-selected',
         className,
       )}
       {...rest}
     >
-      <Ripple disabled={disabled} />
       {loading ? (
-        <LoadingIndicator size={iconSize} label={label} className="md-icon-button__loading" />
+        <LoadingIndicator size={iconSize} label={label} className="wu-icon-button__loading" />
       ) : (
         <Icon name={selected && selectedIcon ? selectedIcon : icon} size={iconSize} filled={!!selected} />
       )}

@@ -94,7 +94,7 @@ export function LocationMap({ latitudeDeg, longitudeDeg, onPick }: LocationMapPr
     })
     instance.addControl(new NavigationControl({ showCompass: false }), 'top-right')
 
-    const pin = new Marker({ draggable: true, color: readToken('--md-sys-color-primary', '#2c4f9e') })
+    const pin = new Marker({ draggable: true, color: readToken('--accent', '#2c4f9e') })
       .setLngLat(initial.current)
       .addTo(instance)
     pin.on('dragend', () => {
@@ -187,8 +187,8 @@ export function LocationMap({ latitudeDeg, longitudeDeg, onPick }: LocationMapPr
             {hits.map((hit) => (
               <li key={`${hit.lat},${hit.lon}`}>
                 <button type="button" role="option" aria-selected="false" onClick={() => choose(hit)}>
-                  <span className="md-type-body-medium">{hit.name}</span>
-                  {hit.detail && <span className="md-type-body-small location-map__hit-detail">{hit.detail}</span>}
+                  <span className="wu-type-body-m">{hit.name}</span>
+                  {hit.detail && <span className="wu-type-body-s location-map__hit-detail">{hit.detail}</span>}
                 </button>
               </li>
             ))}

@@ -1,114 +1,116 @@
-.md-nav-rail {
+/* Rail de navigation — aplat plein, trait fort a droite, pilule pleine sur la
+ * destination active. */
+.wu-nav-rail {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--md-sys-spacing-3);
-  width: var(--md-comp-navigation-rail-width);
+  gap: var(--space-3);
+  width: var(--size-rail);
   flex: none;
-  padding: var(--md-sys-spacing-3) var(--md-sys-spacing-2);
-  background: var(--md-sys-color-surface-container);
-  border-radius: 0 var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0;
+  padding: var(--space-5) 0;
+  background: var(--surface);
+  color: var(--ink);
+  border-right: var(--border) solid var(--line-strong);
   z-index: var(--app-z-chrome);
 }
 
-.md-nav-rail__header,
-.md-nav-rail__footer {
+.wu-nav-rail__header,
+.wu-nav-rail__footer {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--md-sys-spacing-2);
+  gap: var(--space-4);
 }
-.md-nav-rail__footer {
+.wu-nav-rail__header {
+  margin-bottom: 0.875rem;
+}
+.wu-nav-rail__footer {
   margin-top: auto;
 }
 
-.md-nav-rail__list {
+.wu-nav-rail__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-1);
+  gap: var(--space-2);
   width: 100%;
 }
 
-.md-nav-rail__item {
+.wu-nav-rail__item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--md-sys-spacing-1);
+  gap: 0.3125rem;
   width: 100%;
-  padding: var(--md-sys-spacing-1) 0;
+  padding: var(--space-2) 0;
   border: none;
   background: none;
-  color: var(--md-sys-color-on-surface-variant);
+  color: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Indicateur pilule : morphe en s'activant, sur un ressort spatial. */
-.md-nav-rail__indicator {
+.wu-nav-rail__indicator {
   position: relative;
   display: grid;
   place-items: center;
-  width: 3.5rem;
+  width: 3.25rem;
   height: 2rem;
-  border-radius: var(--md-sys-shape-corner-full);
+  border-radius: var(--radius-pill);
   background: transparent;
   transition:
-    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
-    width var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
-    height var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default),
-    color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
-.md-nav-rail__item:hover .md-nav-rail__indicator {
-  background: color-mix(in srgb, currentColor calc(var(--md-sys-state-hover-opacity) * 100%), transparent);
+.wu-nav-rail__item:hover .wu-nav-rail__indicator {
+  background: var(--accent-soft);
 }
-.md-nav-rail__item.is-active .md-nav-rail__indicator {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-  width: 4rem;
-  height: 2.25rem;
-}
-.md-nav-rail__item.is-active {
-  color: var(--md-sys-color-on-surface);
+.wu-nav-rail__item.is-active .wu-nav-rail__indicator {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
-.md-nav-rail__label {
+.wu-nav-rail__label {
   text-align: center;
+  font-size: var(--fs-label-s);
+  line-height: 1.1;
+  font-weight: var(--fw-semibold);
 }
 
-.md-nav-rail__badge {
+.wu-nav-rail__badge {
   position: absolute;
   top: -0.125rem;
-  right: 0.5rem;
+  right: 0.375rem;
   min-width: 1rem;
   height: 1rem;
-  padding-inline: 0.25rem;
+  padding-inline: var(--space-2);
   display: grid;
   place-items: center;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-error);
-  color: var(--md-sys-color-on-error);
+  border-radius: var(--radius-pill);
+  background: var(--signal);
+  color: var(--on-signal);
 }
 
 /* Sous 900 px : barre de navigation ancree en bas. */
 @media (max-width: 900px) {
-  .md-nav-rail {
+  .wu-nav-rail {
     flex-direction: row;
     width: 100%;
     height: 4.75rem;
-    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2) env(safe-area-inset-bottom, 0);
-    border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;
+    padding: var(--space-3) var(--space-3) env(safe-area-inset-bottom, 0);
+    border-right: 0;
+    border-top: var(--border) solid var(--line-strong);
   }
-  .md-nav-rail__list {
+  .wu-nav-rail__list {
     flex-direction: row;
     justify-content: space-around;
   }
-  .md-nav-rail__header {
+  .wu-nav-rail__header {
     display: none;
   }
-  .md-nav-rail__footer {
+  .wu-nav-rail__footer {
     margin-top: 0;
     flex-direction: row;
   }

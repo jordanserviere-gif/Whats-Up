@@ -1,7 +1,7 @@
 .luminance-band {
   position: absolute;
   inset: 0;
-  border-radius: var(--md-sys-shape-corner-full);
+  border-radius: var(--radius-pill);
   pointer-events: none;
   /* Aucun filtre hors night : la bande doit rendre fidelement l'echelle de
    * luminance. En night, elle passe par la meme conversion que la scene. */

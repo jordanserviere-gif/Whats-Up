@@ -89,7 +89,7 @@ export function SatellitesPanel() {
         }
       >
         {manual.length === 0 ? (
-          <p className="md-type-body-medium satellites-panel__empty">Aucune orbite saisie.</p>
+          <p className="wu-type-body-m satellites-panel__empty">Aucune orbite saisie.</p>
         ) : (
           <List>
             {manual.map((el) => (
@@ -247,7 +247,7 @@ function CelestrakSection() {
           choisir ce qu'on veut bien voir. */}
       <div className="satellites-panel__groups">
         <div className="satellites-panel__groups-head">
-          <span className="md-type-label-large">Groupes suivis</span>
+          <span className="wu-type-strong">Groupes suivis</span>
           <Button
             variant="text"
             size="xs"
@@ -274,7 +274,7 @@ function CelestrakSection() {
       </div>
 
       {enabled && groups.length === 0 && (
-        <p className="md-type-body-medium satellites-panel__empty">
+        <p className="wu-type-body-m satellites-panel__empty">
           Aucun groupe sélectionné : le ciel ne montre pour l’instant que les orbites saisies plus bas.
         </p>
       )}
@@ -282,7 +282,7 @@ function CelestrakSection() {
       {enabled && feed.loading && <LinearProgress />}
 
       {enabled && !feed.loading && feed.elements.length === 0 && (
-        <p className="md-type-body-medium satellites-panel__empty">
+        <p className="wu-type-body-m satellites-panel__empty">
           Aucun élément disponible : le réseau n’a pas répondu et rien n’est en cache. Les orbites saisies
           plus bas restent utilisables.
         </p>
@@ -495,7 +495,7 @@ function PassesSection({ element }: { element: OrbitalElements }) {
       {loading && <LinearProgress />}
 
       {!loading && passes.length === 0 && (
-        <p className="md-type-body-medium satellites-panel__empty">
+        <p className="wu-type-body-m satellites-panel__empty">
           Aucun passage {filter === 'visibles' ? 'visible ' : ''}au-dessus de 10° de hauteur sur cette fenêtre.
         </p>
       )}

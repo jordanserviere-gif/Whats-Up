@@ -1,6 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react'
 import { Icon } from './Icon'
-import { Ripple } from './Ripple'
 import { cx } from './utils'
 import './Fab.css'
 
@@ -26,12 +25,11 @@ export const Fab = forwardRef<HTMLButtonElement, FabProps>(function Fab(
       type="button"
       aria-label={extended ? undefined : label}
       title={extended ? undefined : label}
-      className={cx('md-fab', `md-fab--${size}`, `md-fab--${color}`, extended && 'md-fab--extended', className)}
+      className={cx('wu-fab', `wu-fab--${size}`, `wu-fab--${color}`, extended && 'wu-fab--extended', className)}
       {...rest}
     >
-      <Ripple />
       <Icon name={icon} size={size === 'large' ? 36 : 24} />
-      {extended && <span className="md-fab__label">{label}</span>}
+      {extended && <span className="wu-fab__label">{label}</span>}
     </button>
   )
 })

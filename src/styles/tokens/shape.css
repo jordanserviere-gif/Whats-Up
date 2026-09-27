@@ -1,23 +1,26 @@
-/* Material 3 Expressive — echelle de forme (corner radius scale)
- * Expressive etend l'echelle M3 de base avec les paliers « increased » et
- * « extra-extra-large », qui portent le langage plus arrondi du systeme. */
+/* Forme — rayons, traits, et l'inclinaison du logotype.
+ *
+ * Pilule pour les boutons, puces, barres d'outils et segments ; 4 px pour les
+ * champs, badges et snackbar ; 10 px pour les cartes et tuiles ; 18 px pour
+ * les dialogues et panneaux. Aucune ombre : la hierarchie tient au trait
+ * (1 px → 2 px → 2 px bleu) ou a une bascule pleine sur l'accent. */
 
 :root {
-  --md-sys-shape-corner-none: 0px;
-  --md-sys-shape-corner-extra-small: 0.25rem;
-  --md-sys-shape-corner-small: 0.5rem;
-  --md-sys-shape-corner-medium: 0.75rem;
-  --md-sys-shape-corner-large: 1rem;
-  --md-sys-shape-corner-large-increased: 1.25rem;
-  --md-sys-shape-corner-extra-large: 1.75rem;
-  --md-sys-shape-corner-extra-large-increased: 2rem;
-  --md-sys-shape-corner-extra-extra-large: 3rem;
-  /* Volontairement hors echelle rem : sert de raccourci « assez grand pour
-   * etre toujours une pilule », pas une taille reelle destinee a s'afficher. */
-  --md-sys-shape-corner-full: 9999px;
+  --radius-0: 0;
+  --radius-s: 0.25rem;
+  --radius-m: 0.625rem;
+  --radius-l: 1.125rem;
+  --radius-pill: 999px;
 
-  /* Variantes a coins partiellement arrondis (feuilles, barres ancrees). */
-  --md-sys-shape-corner-large-top: var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0 0;
-  --md-sys-shape-corner-extra-large-top: var(--md-sys-shape-corner-extra-large)
-    var(--md-sys-shape-corner-extra-large) 0 0;
+  /* Traits en px, hors echelle : un trait reste net au pixel pres. */
+  --border-hair: 1px;
+  --border: 2px;
+  --border-heavy: 3px;
+
+  /* Le seul motif decoratif : les 12° du logotype. Bouton flottant, badges,
+   * barres de chargement — jamais un panneau ni un bloc de texte. */
+  --slant: -12deg;
+  --slant-inv: 12deg;
+
+  --shadow-none: none;
 }

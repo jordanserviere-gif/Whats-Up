@@ -73,64 +73,68 @@ hauteur zéro, un plan coplanaire ne projette qu'une ligne.
 - Les éphémérides sont recalculées à 10 Hz, le rendu tourne à la fréquence de
   l'écran : le mouvement reste fluide sans recalculer les positions à chaque image.
 - Les étiquettes du ciel sont des nœuds DOM positionnés par projection directe
-  dans `useFrame`, sans passer par React — elles gardent ainsi la typographie MD3.
+  dans `useFrame`, sans passer par React — elles gardent ainsi la typographie du design system.
 - L'orientation de la caméra vit dans une référence locale et n'est publiée dans
   le store qu'à 10 Hz : glisser dans le ciel ne reconstruit pas l'interface.
 
-## Material 3 Expressive
+## What's Up? Design System
 
-Tout le système visuel est tokenisé sous `src/styles/tokens/`. Aucun composant
-ne code une couleur, un rayon, une durée ou une graisse en dur.
+L'interface suit le design system **What's Up?**, tenu dans le projet Claude
+Design du même nom. Il remplace Material 3 Expressive. Le parti pris est
+bichrome — le bleu du logo et le blanc —, plat et moderne. Tout le système est
+tokenisé sous `src/styles/tokens/`, et aucun composant ne code en dur une
+couleur, un rayon, une durée ou une graisse.
 
-| Fichier | Contenu | Généré ? |
-| --- | --- | --- |
-| `color.css` | 54 rôles de couleur × clair/sombre × 3 niveaux de contraste | `npm run color` |
-| `motion.css` | ressorts Expressive convertis en courbes CSS `linear()` | `npm run motion` |
-| `typography.css` | échelle à 30 styles : 15 de base + 15 « emphasized » | à la main |
-| `shape.css` | échelle de forme, paliers `increased` et `extra-extra-large` inclus | à la main |
-| `elevation.css`, `dimension.css` | ombres, couches d'état, espacements, tailles | à la main |
-| `sky.css` | tokens applicatifs : couleurs des corps, couches de la scène | à la main |
+| Fichier | Contenu |
+| --- | --- |
+| `color.css` | palette (`--wu-blue-50…950`, signal, ambre) puis rôles (`--bg`, `--surface`, `--ink`, `--line`, `--accent`…) pour quatre thèmes |
+| `typography.css` | trois familles, l'échelle `--fs-*` et les classes de rôle `wu-type-*` |
+| `fonts.css` | la fonte de titre, chargée depuis `public/fonts/` si elle y est |
+| `shape.css` | rayons `0 · 4 · 10 · 18 · pilule`, traits de 1, 2 et 3 px, inclinaison de 12° |
+| `motion.css` | deux courbes et quatre durées (80, 140, 220 et 360 ms) |
+| `dimension.css` | espacements `--space-*`, tailles de composants, couches |
+| `sky.css`, `brand.css` | tokens applicatifs : couleurs des corps, traits de la scène, logo |
 
-### Le système de mouvement
+### Couleur et thèmes
 
-M3 Expressive remplace les courbes de Bézier par un système **physique** : chaque
-transition est un ressort défini par une raideur et un amortissement. Les tokens
-« spatial » (position, taille, forme) admettent un dépassement ; les tokens
-« effects » (couleur, opacité) sont amortis de façon critique.
+Il n'y a qu'une teinte, `#2C4F9E`, avec ses nuances. S'y ajoutent un rouge
+signal, `#E0452F`, réservé aux erreurs, au direct et à la tête de lecture de la
+frise, et l'ambre du thème night. Quatre thèmes, via `data-theme` sur `<html>` :
 
-`scripts/gen-motion.mjs` échantillonne la réponse indicielle de chaque ressort de
-`MotionScheme.expressive()` et l'exprime en `linear()` CSS — ce qu'une
-`cubic-bezier` ne peut pas faire, puisqu'elle ne dépasse jamais 1 proprement.
-Les durées obtenues (389 / 465 / 629 ms en spatial) recoupent les valeurs
-publiées par Material.
+- **clair** : chrome blanc, encre bleue ;
+- **bleu** : l'inverse signature, fond bleu, encre et accent blancs ;
+- **sombre** : fond bleu nuit, accent blanc ;
+- **night** : ambre sur noir pur.
 
-### Formes et couleurs
+Les traits et les textes posés dans la scène (grilles, figures, étiquettes,
+traces) ne suivent pas le thème de l'interface : ils se posent sur le ciel, et
+prennent donc les nuances claires du même bleu (`--app-scene-*`).
 
-L'échelle de forme sert la **morphologie** : un bouton sélectionné passe de
-`full` à `medium`, un élément de liste s'arrondit davantage à la sélection, une
-pastille de couleur devient un cercle. Le mouvement de forme utilise le ressort
-spatial, donc rebondit légèrement.
+### Forme, mouvement, typographie
 
-La palette est générée par `scripts/gen-color.mjs` avec
-`@material/material-color-utilities`, à partir de palettes tonales choisies
-plutôt que dérivées d'un variant :
-
-- **primary** — le bleu du logo, `#2C4F9E` ;
-- **neutral / neutral-variant** — un noir et blanc à peine bleuté (teinte du
-  logo, chroma 3 et 5) pour les fonds, surfaces, textes et contours ;
-- **secondary / tertiary** — le même bleu désaturé, et un pivot vers le cyan.
-
-Les palettes tonales sont exposées en `--md-ref-palette-*`, les rôles MD3 en
-`--md-sys-color-*`, pour trois thèmes — clair, sombre, night — à un seul niveau
-de contraste.
+- **Élévation** : zéro ombre. La hiérarchie tient au trait (1 px, puis 2 px,
+  puis 2 px bleu) ou à une bascule pleine sur l'accent.
+- **Chrome** : ce qui flotte sur le ciel est un aplat plein à trait fort. Rien
+  n'est translucide, sauf le voile des dialogues.
+- **États** : le survol pose un aplat d'accent doux, l'appui fonce d'un cran et
+  descend d'un pixel. La sélection bascule sur l'accent plein. Il n'y a pas
+  d'onde (ripple) ni de ressort.
+- **Motif** : l'inclinaison de 12° du logotype est le seul motif décoratif. On
+  la trouve sur le bouton flottant, les badges et l'indicateur de chargement.
+- **Titres** : Helvetica Neue 93 Black Extended Oblique, en capitales. Cette
+  fonte commerciale n'est pas versionnée : déposée dans `public/fonts/`
+  (ignoré par git), elle est prise ; sinon le titrage se replie sur Archivo
+  élargi et incliné.
+- **Texte** : Archivo à la chasse 112.
+- **Données** : IBM Plex Mono, chiffres tabulaires.
+- **Icônes** : Material Symbols Sharp.
 
 ### Le thème night
 
 Pour observer sans perdre l'adaptation de l'œil à l'obscurité. Tout fond est
-**noir pur** — surfaces, conteneurs, rôles *fixed* — et l'ambre ne porte que le
-contenu, sur cinq niveaux d'emphase (actif, texte, secondaire, contour,
-séparateur), au plus bas que permet WCAG AA sur le noir. La sélection, que MD3
-signale par un aplat, passe par un contour ambre (`src/styles/night.css`).
+**noir pur**, et l'ambre ne porte que le contenu. La sélection, que les autres
+thèmes signalent par un aplat, passe en night par un contour ambre
+(`src/styles/night.css`).
 
 Le **sol** (relief et sol plat) est converti dans son shader : sa radiance est
 réduite à sa luminance puis portée par l'ambre — le blanc devient ambre, le noir
@@ -140,17 +144,18 @@ couleur physique (pastilles des corps, frise d'éclairement, cadran lunaire,
 
 ## Composants
 
-`src/ui/` contient une bibliothèque MD3 autonome, sans dépendance UI externe :
+`src/ui/` contient la bibliothèque de composants, sans dépendance UI externe.
+Les classes sont préfixées `wu-` :
 
 `Badge` · `Button` (5 variantes × 5 tailles × 2 formes) · `Card` · `Chip` /
 `ChipSet` · `DataRow` / `DataGrid` / `StatTile` · `Dialog` · `Divider` · `Fab` ·
 `Icon` · `IconButton` (4 variantes × 4 tailles × 3 largeurs) · `List` ·
-`LoadingIndicator` / `LinearProgress` · `NavigationRail` · `Ripple` ·
+`LoadingIndicator` / `LinearProgress` · `NavigationRail` · `SearchBar` ·
 `SegmentedButton` · `Section` · `Select` · `SidePanel` · `Slider` · `Snackbar` ·
 `Surface` · `Switch` · `TextField` · `ThemeProvider` · `Toolbar` · `Tooltip`
 
-`Surface` est la brique de base : elle traduit un niveau d'élévation et un palier
-de l'échelle de forme en tokens. Tous les conteneurs en dérivent.
+`Surface` est la brique de base : elle traduit un niveau et un palier de forme en
+tokens. Tous les conteneurs en dérivent.
 
 ## Astronomie
 

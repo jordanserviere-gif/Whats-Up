@@ -37,15 +37,15 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
   return (
     <SnackbarContext.Provider value={api}>
       {children}
-      <div className="md-snackbar-host" role="status" aria-live="polite">
+      <div className="wu-snackbar-host" role="status" aria-live="polite">
         {queue.map((m) => (
-          <div key={m.id} className="md-snackbar">
-            <span className="md-type-body-medium md-snackbar__text">{m.text}</span>
+          <div key={m.id} className="wu-snackbar">
+            <span className="wu-type-body-m wu-snackbar__text">{m.text}</span>
             {m.actionLabel && (
               <Button
                 variant="text"
                 size="xs"
-                className="md-snackbar__action"
+                className="wu-snackbar__action"
                 onClick={() => {
                   m.onAction?.()
                   dismiss(m.id)

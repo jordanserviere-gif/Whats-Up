@@ -20,7 +20,7 @@ export interface SelectProps<T extends string> {
   className?: string
 }
 
-/** Menu deroulant MD3 : `<select>` natif habille, donc utilisable au clavier et sur mobile. */
+/** Menu deroulant : `<select>` natif habille, donc utilisable au clavier et sur mobile. */
 export function Select<T extends string>({
   label,
   value,
@@ -40,15 +40,15 @@ export function Select<T extends string>({
   }
 
   return (
-    <div className={cx('md-select', disabled && 'is-disabled', className)}>
-      <div className="md-select__box">
-        {leadingIcon && <Icon name={leadingIcon} size={20} className="md-select__leading" />}
-        <label className="md-type-body-small md-select__label" htmlFor={id}>
+    <div className={cx('wu-select', disabled && 'is-disabled', className)}>
+      <div className="wu-select__box">
+        {leadingIcon && <Icon name={leadingIcon} size={20} className="wu-select__leading" />}
+        <label className="wu-type-body-s wu-select__label" htmlFor={id}>
           {label}
         </label>
         <select
           id={id}
-          className="md-select__native md-type-body-large"
+          className="wu-select__native wu-type-body"
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value as T)}
@@ -71,9 +71,9 @@ export function Select<T extends string>({
             ),
           )}
         </select>
-        <Icon name="arrow_drop_down" size={22} className="md-select__chevron" />
+        <Icon name="arrow_drop_down" size={22} className="wu-select__chevron" />
       </div>
-      {supportingText && <p className="md-type-body-small md-select__support">{supportingText}</p>}
+      {supportingText && <p className="wu-type-body-s wu-select__support">{supportingText}</p>}
     </div>
   )
 }

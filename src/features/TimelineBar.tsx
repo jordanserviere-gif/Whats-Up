@@ -111,7 +111,7 @@ export function TimelineBar() {
         <div className="timeline__clock">
           {editing ? (
             <input
-              className="timeline__input md-numeric"
+              className="timeline__input wu-numeric"
               type="datetime-local"
               autoFocus
               value={toDateTimeLocalValue(date)}
@@ -132,8 +132,8 @@ export function TimelineBar() {
                 aria-label="Régler la date et l’heure"
                 onClick={() => setEditing(true)}
               >
-                <span className="timeline__time md-numeric">{formatTime(date, true)}</span>
-                <span className="md-type-label-medium timeline__date">{formatDate(date)}</span>
+                <span className="timeline__time wu-numeric">{formatTime(date, true)}</span>
+                <span className="wu-type-caption timeline__date">{formatDate(date)}</span>
               </button>
             </Tooltip>
           )}
@@ -194,7 +194,7 @@ export function TimelineBar() {
         <div className="timeline__speed timeline__speed--mobile" ref={speedMenuRef}>
           <button
             type="button"
-            className="timeline__speed-trigger md-numeric"
+            className="timeline__speed-trigger wu-numeric"
             aria-haspopup="listbox"
             aria-expanded={speedMenuOpen}
             aria-label={`Vitesse d’écoulement du temps : ${currentSpeed.title}`}
@@ -210,14 +210,14 @@ export function TimelineBar() {
                   type="button"
                   role="option"
                   aria-selected={s.value === speed}
-                  className={cx('timeline__speed-option', 'md-numeric', s.value === speed && 'is-selected')}
+                  className={cx('timeline__speed-option', 'wu-numeric', s.value === speed && 'is-selected')}
                   onClick={() => {
                     setSpeed(s.value)
                     setSpeedMenuOpen(false)
                   }}
                 >
                   {s.label}
-                  <span className="md-type-label-small timeline__speed-option-title">{s.title}</span>
+                  <span className="wu-type-label timeline__speed-option-title">{s.title}</span>
                 </button>
               ))}
             </Surface>
@@ -240,7 +240,7 @@ export function TimelineBar() {
 
           {ticks.map((t) => (
             <span key={t.left} className="timeline__tick" style={{ left: `${t.left}%` }} aria-hidden="true">
-              <span className="md-type-label-small timeline__tick-label">{t.label}</span>
+              <span className="wu-type-label timeline__tick-label">{t.label}</span>
             </span>
           ))}
 
@@ -269,11 +269,11 @@ export function TimelineBar() {
       </div>
 
       <div className="timeline__footer">
-        <span className="md-type-label-small timeline__lux md-numeric">
+        <span className="wu-type-label timeline__lux wu-numeric">
           {formatIlluminance(sky.illuminance)} · mag limite {sky.limitingMagnitude.toFixed(1).replace('.', ',')}
           {sky.lunarLux > sky.solarLux && sky.moonAltitude > 0 ? ' · ciel dominé par la Lune' : ''}
         </span>
-        <span className="md-type-label-small timeline__zone">{localTimeZone()}</span>
+        <span className="wu-type-label timeline__zone">{localTimeZone()}</span>
       </div>
     </Surface>
   )

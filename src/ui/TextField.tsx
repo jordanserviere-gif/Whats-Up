@@ -16,7 +16,7 @@ export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   density?: 'default' | 'compact'
 }
 
-/** Champ texte MD3 a label flottant. */
+/** Champ texte, libelle en capitales dans le haut de la boite. */
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField(
   {
     label,
@@ -42,16 +42,16 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
   return (
     <div
       className={cx(
-        'md-text-field',
-        `md-text-field--${variant}`,
-        density === 'compact' && 'md-text-field--compact',
+        'wu-text-field',
+        `wu-text-field--${variant}`,
+        density === 'compact' && 'wu-text-field--compact',
         invalid && 'is-invalid',
         disabled && 'is-disabled',
         className,
       )}
     >
-      <div className="md-text-field__box">
-        {leadingIcon && <Icon name={leadingIcon} size={20} className="md-text-field__leading" />}
+      <div className="wu-text-field__box">
+        {leadingIcon && <Icon name={leadingIcon} size={20} className="wu-text-field__leading" />}
         <input
           ref={ref}
           id={fieldId}
@@ -59,16 +59,16 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
           aria-invalid={invalid || undefined}
           aria-describedby={supportingText || errorText ? helpId : undefined}
           placeholder=" "
-          className={cx('md-text-field__input', numeric && 'md-numeric')}
+          className={cx('wu-text-field__input', numeric && 'wu-numeric')}
           {...rest}
         />
-        <label className="md-text-field__label" htmlFor={fieldId}>
+        <label className="wu-text-field__label" htmlFor={fieldId}>
           {label}
         </label>
-        {suffix && <span className="md-text-field__suffix md-type-body-small">{suffix}</span>}
+        {suffix && <span className="wu-text-field__suffix wu-type-body-s">{suffix}</span>}
       </div>
       {(errorText || supportingText) && (
-        <p id={helpId} className="md-type-body-small md-text-field__support">
+        <p id={helpId} className="wu-type-body-s wu-text-field__support">
           {errorText ?? supportingText}
         </p>
       )}

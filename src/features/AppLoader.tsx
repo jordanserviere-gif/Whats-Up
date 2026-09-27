@@ -223,13 +223,13 @@ export function AppLoader() {
         })}
       </div>
       {/* La cle relance le fondu a chaque phrase. */}
-      <p key={phraseIndex} className="md-type-body-large app-loader__phrase">
+      <p key={phraseIndex} className="wu-type-body app-loader__phrase">
         {phrases[phraseIndex % phrases.length]}
       </p>
       <ul className="app-loader__steps">
         {steps.map((s) => (
-          <li key={s.label} className={cx('md-type-label-medium', s.done && 'is-done')}>
-            <span className="md-icon" aria-hidden="true">
+          <li key={s.label} className={cx('wu-type-caption', s.done && 'is-done')}>
+            <span className="wu-icon" aria-hidden="true">
               {s.done ? 'check_circle' : 'radio_button_unchecked'}
             </span>
             {s.label}

@@ -1,341 +1,151 @@
-/* Material 3 Expressive — echelle typographique
- * 30 styles : 15 roles de base + 15 roles « emphasized » introduits par
- * Expressive (graisse superieure, destines aux moments cles de l'interface). */
+/* Typographie — trois familles, chacune un role.
+ *
+ * - **Titres** : Helvetica Neue 93 Black Extended Oblique (`WU Display`),
+ *   toujours en capitales, interlignage serre. Titres, heures, grands nombres.
+ *   La fonte est commerciale : elle n'est pas versionnee. Posee localement dans
+ *   `public/fonts/` (voir fonts.css), elle est prise ; sinon repli sur Archivo
+ *   Black elargi.
+ * - **Interface et texte** : Archivo, a la chasse 112 (semi-elargie, en echo a
+ *   la largeur du titrage).
+ * - **Donnees** : IBM Plex Mono, chiffres tabulaires.
+ *
+ * Les libelles sont en Archivo 600, 12 px, capitales, +0,08 em. */
 
 :root {
-  --md-ref-typeface-brand: 'Roboto Flex', 'Roboto', system-ui, sans-serif;
-  --md-ref-typeface-plain: 'Roboto Flex', 'Roboto', system-ui, sans-serif;
-  --md-ref-typeface-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-display: 'WU Display', 'Archivo', system-ui, sans-serif;
+  /* A poser avec `--font-display` : voir fonts.css. */
+  --display-style: oblique 12deg;
+  --display-stretch: 125%;
+  --font-body: 'Archivo', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
 
-  --md-ref-typeface-weight-regular: 400;
-  --md-ref-typeface-weight-medium: 500;
-  --md-ref-typeface-weight-bold: 700;
+  /* Chasse d'Archivo, en `font-stretch` : elle se compose avec les axes des
+   * icones au lieu de les ecraser. */
+  --wdth-ui: 112%;
+  --wdth-label: 118%;
 
-  /* display */
-  --md-sys-typescale-display-large-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-display-large-size: 3.5625rem;
-  --md-sys-typescale-display-large-line-height: 4rem;
-  --md-sys-typescale-display-large-weight: 400;
-  --md-sys-typescale-display-large-tracking: -0.25px;
+  --fs-display-xl: 4.5rem;
+  --fs-display-l: 3rem;
+  --fs-display-m: 2rem;
+  --fs-headline-l: 1.75rem;
+  --fs-headline: 1.5rem;
+  --fs-title: 1.125rem;
+  --fs-body: 0.9375rem;
+  --fs-body-m: 0.875rem;
+  --fs-body-s: 0.8125rem;
+  --fs-label: 0.75rem;
+  --fs-label-s: 0.6875rem;
+  --fs-data: 0.875rem;
 
-  --md-sys-typescale-display-medium-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-display-medium-size: 2.8125rem;
-  --md-sys-typescale-display-medium-line-height: 3.25rem;
-  --md-sys-typescale-display-medium-weight: 400;
-  --md-sys-typescale-display-medium-tracking: 0px;
+  --lh-display: 0.92;
+  --lh-headline: 1.05;
+  --lh-title: 1.25;
+  --lh-body: 1.45;
+  --lh-tight: 1;
 
-  --md-sys-typescale-display-small-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-display-small-size: 2.25rem;
-  --md-sys-typescale-display-small-line-height: 2.75rem;
-  --md-sys-typescale-display-small-weight: 400;
-  --md-sys-typescale-display-small-tracking: 0px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-black: 900;
 
-  /* headline */
-  --md-sys-typescale-headline-large-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-headline-large-size: 2rem;
-  --md-sys-typescale-headline-large-line-height: 2.5rem;
-  --md-sys-typescale-headline-large-weight: 400;
-  --md-sys-typescale-headline-large-tracking: 0px;
-
-  --md-sys-typescale-headline-medium-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-headline-medium-size: 1.75rem;
-  --md-sys-typescale-headline-medium-line-height: 2.25rem;
-  --md-sys-typescale-headline-medium-weight: 400;
-  --md-sys-typescale-headline-medium-tracking: 0px;
-
-  --md-sys-typescale-headline-small-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-headline-small-size: 1.5rem;
-  --md-sys-typescale-headline-small-line-height: 2rem;
-  --md-sys-typescale-headline-small-weight: 400;
-  --md-sys-typescale-headline-small-tracking: 0px;
-
-  /* title */
-  --md-sys-typescale-title-large-font: var(--md-ref-typeface-brand);
-  --md-sys-typescale-title-large-size: 1.375rem;
-  --md-sys-typescale-title-large-line-height: 1.75rem;
-  --md-sys-typescale-title-large-weight: 400;
-  --md-sys-typescale-title-large-tracking: 0px;
-
-  --md-sys-typescale-title-medium-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-title-medium-size: 1rem;
-  --md-sys-typescale-title-medium-line-height: 1.5rem;
-  --md-sys-typescale-title-medium-weight: 500;
-  --md-sys-typescale-title-medium-tracking: 0.15px;
-
-  --md-sys-typescale-title-small-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-title-small-size: 0.875rem;
-  --md-sys-typescale-title-small-line-height: 1.25rem;
-  --md-sys-typescale-title-small-weight: 500;
-  --md-sys-typescale-title-small-tracking: 0.1px;
-
-  /* body */
-  --md-sys-typescale-body-large-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-body-large-size: 1rem;
-  --md-sys-typescale-body-large-line-height: 1.5rem;
-  --md-sys-typescale-body-large-weight: 400;
-  --md-sys-typescale-body-large-tracking: 0.5px;
-
-  --md-sys-typescale-body-medium-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-body-medium-size: 0.875rem;
-  --md-sys-typescale-body-medium-line-height: 1.25rem;
-  --md-sys-typescale-body-medium-weight: 400;
-  --md-sys-typescale-body-medium-tracking: 0.25px;
-
-  --md-sys-typescale-body-small-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-body-small-size: 0.75rem;
-  --md-sys-typescale-body-small-line-height: 1rem;
-  --md-sys-typescale-body-small-weight: 400;
-  --md-sys-typescale-body-small-tracking: 0.4px;
-
-  /* label */
-  --md-sys-typescale-label-large-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-label-large-size: 0.875rem;
-  --md-sys-typescale-label-large-line-height: 1.25rem;
-  --md-sys-typescale-label-large-weight: 500;
-  --md-sys-typescale-label-large-tracking: 0.1px;
-
-  --md-sys-typescale-label-medium-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-label-medium-size: 0.75rem;
-  --md-sys-typescale-label-medium-line-height: 1rem;
-  --md-sys-typescale-label-medium-weight: 500;
-  --md-sys-typescale-label-medium-tracking: 0.5px;
-
-  --md-sys-typescale-label-small-font: var(--md-ref-typeface-plain);
-  --md-sys-typescale-label-small-size: 0.6875rem;
-  --md-sys-typescale-label-small-line-height: 1rem;
-  --md-sys-typescale-label-small-weight: 500;
-  --md-sys-typescale-label-small-tracking: 0.5px;
-
-  /* --- Roles « emphasized » (Expressive) : meme metrique, graisse accrue --- */
-  --md-sys-typescale-emphasized-display-large-weight: 500;
-  --md-sys-typescale-emphasized-display-medium-weight: 500;
-  --md-sys-typescale-emphasized-display-small-weight: 500;
-  --md-sys-typescale-emphasized-headline-large-weight: 500;
-  --md-sys-typescale-emphasized-headline-medium-weight: 500;
-  --md-sys-typescale-emphasized-headline-small-weight: 500;
-  --md-sys-typescale-emphasized-title-large-weight: 500;
-  --md-sys-typescale-emphasized-title-medium-weight: 700;
-  --md-sys-typescale-emphasized-title-small-weight: 700;
-  --md-sys-typescale-emphasized-body-large-weight: 500;
-  --md-sys-typescale-emphasized-body-medium-weight: 500;
-  --md-sys-typescale-emphasized-body-small-weight: 500;
-  --md-sys-typescale-emphasized-label-large-weight: 700;
-  --md-sys-typescale-emphasized-label-medium-weight: 700;
-  --md-sys-typescale-emphasized-label-small-weight: 700;
+  --tracking-display: -0.01em;
+  --tracking-label: 0.08em;
+  --tracking-body: 0;
 }
 
-/* Classes utilitaires : `.md-type-title-medium`, `.md-type-title-medium.is-emphasized`.
- * Generees a la main plutot qu'en boucle pour rester lisibles dans le devtool. */
-[class*='md-type-'] {
+/* --- Classes de role ---
+ * Le titrage (`display`, `headline`) prend la fonte de titre en capitales ;
+ * `label` est le libelle capitales espace ; le reste est du texte courant. */
+[class*='wu-type-'] {
   margin: 0;
 }
 
-.md-type-display-large,
-.md-type-display-medium,
-.md-type-display-small,
-.md-type-headline-large,
-.md-type-headline-medium,
-.md-type-headline-small,
-.md-type-title-large,
-.md-type-title-medium,
-.md-type-title-small,
-.md-type-body-large,
-.md-type-body-medium,
-.md-type-body-small,
-.md-type-label-large,
-.md-type-label-medium,
-.md-type-label-small {
-  font-family: var(--_font);
-  font-size: var(--_size);
-  line-height: var(--_line-height);
-  font-weight: var(--_weight);
-  letter-spacing: var(--_tracking);
-  font-variation-settings: 'opsz' var(--_opsz, 24);
+.wu-type-display,
+.wu-type-headline {
+  font-family: var(--font-display);
+  font-weight: var(--fw-black);
+  line-height: var(--lh-display);
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  font-style: var(--display-style);
+  font-stretch: var(--display-stretch);
+}
+.wu-type-display {
+  font-size: var(--fs-display-m);
+}
+.wu-type-headline {
+  font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
 }
 
-.md-type-display-large {
-  --_font: var(--md-sys-typescale-display-large-font);
-  --_size: var(--md-sys-typescale-display-large-size);
-  --_line-height: var(--md-sys-typescale-display-large-line-height);
-  --_weight: var(--md-sys-typescale-display-large-weight);
-  --_tracking: var(--md-sys-typescale-display-large-tracking);
-  --_opsz: 57;
+.wu-type-title {
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  font-weight: var(--fw-semibold);
 }
-.md-type-display-large.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-display-large-weight);
-}
-
-.md-type-display-medium {
-  --_font: var(--md-sys-typescale-display-medium-font);
-  --_size: var(--md-sys-typescale-display-medium-size);
-  --_line-height: var(--md-sys-typescale-display-medium-line-height);
-  --_weight: var(--md-sys-typescale-display-medium-weight);
-  --_tracking: var(--md-sys-typescale-display-medium-tracking);
-  --_opsz: 45;
-}
-.md-type-display-medium.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-display-medium-weight);
+.wu-type-title-s {
+  font-size: var(--fs-body);
+  line-height: var(--lh-title);
+  font-weight: var(--fw-semibold);
 }
 
-.md-type-display-small {
-  --_font: var(--md-sys-typescale-display-small-font);
-  --_size: var(--md-sys-typescale-display-small-size);
-  --_line-height: var(--md-sys-typescale-display-small-line-height);
-  --_weight: var(--md-sys-typescale-display-small-weight);
-  --_tracking: var(--md-sys-typescale-display-small-tracking);
-  --_opsz: 36;
+.wu-type-body {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-regular);
 }
-.md-type-display-small.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-display-small-weight);
+.wu-type-body-m {
+  font-size: var(--fs-body-m);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-regular);
 }
-
-.md-type-headline-large {
-  --_font: var(--md-sys-typescale-headline-large-font);
-  --_size: var(--md-sys-typescale-headline-large-size);
-  --_line-height: var(--md-sys-typescale-headline-large-line-height);
-  --_weight: var(--md-sys-typescale-headline-large-weight);
-  --_tracking: var(--md-sys-typescale-headline-large-tracking);
-  --_opsz: 32;
-}
-.md-type-headline-large.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-headline-large-weight);
+.wu-type-body-s {
+  font-size: var(--fs-body-s);
+  line-height: 1.35;
+  font-weight: var(--fw-regular);
 }
 
-.md-type-headline-medium {
-  --_font: var(--md-sys-typescale-headline-medium-font);
-  --_size: var(--md-sys-typescale-headline-medium-size);
-  --_line-height: var(--md-sys-typescale-headline-medium-line-height);
-  --_weight: var(--md-sys-typescale-headline-medium-weight);
-  --_tracking: var(--md-sys-typescale-headline-medium-tracking);
-  --_opsz: 28;
+/* Libelle d'action ou de valeur : fort, sans capitales. */
+.wu-type-strong {
+  font-size: var(--fs-body-s);
+  line-height: var(--lh-title);
+  font-weight: var(--fw-semibold);
 }
-.md-type-headline-medium.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-headline-medium-weight);
+/* Petit libelle courant : resume, legende. */
+.wu-type-caption {
+  font-size: var(--fs-label);
+  line-height: var(--lh-title);
+  font-weight: var(--fw-medium);
 }
-
-.md-type-headline-small {
-  --_font: var(--md-sys-typescale-headline-small-font);
-  --_size: var(--md-sys-typescale-headline-small-size);
-  --_line-height: var(--md-sys-typescale-headline-small-line-height);
-  --_weight: var(--md-sys-typescale-headline-small-weight);
-  --_tracking: var(--md-sys-typescale-headline-small-tracking);
-  --_opsz: 24;
-}
-.md-type-headline-small.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-headline-small-weight);
+/* Le libelle du systeme : capitales, espace. Sur-titres, en-tetes de liste. */
+.wu-type-label {
+  font-size: var(--fs-label);
+  line-height: var(--lh-tight);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-stretch: var(--wdth-label);
 }
 
-.md-type-title-large {
-  --_font: var(--md-sys-typescale-title-large-font);
-  --_size: var(--md-sys-typescale-title-large-size);
-  --_line-height: var(--md-sys-typescale-title-large-line-height);
-  --_weight: var(--md-sys-typescale-title-large-weight);
-  --_tracking: var(--md-sys-typescale-title-large-tracking);
-  --_opsz: 22;
+.wu-type-title.is-emphasized,
+.wu-type-title-s.is-emphasized {
+  font-weight: var(--fw-bold);
 }
-.md-type-title-large.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-title-large-weight);
+.wu-type-body.is-emphasized,
+.wu-type-body-m.is-emphasized,
+.wu-type-body-s.is-emphasized,
+.wu-type-caption.is-emphasized {
+  font-weight: var(--fw-semibold);
 }
-
-.md-type-title-medium {
-  --_font: var(--md-sys-typescale-title-medium-font);
-  --_size: var(--md-sys-typescale-title-medium-size);
-  --_line-height: var(--md-sys-typescale-title-medium-line-height);
-  --_weight: var(--md-sys-typescale-title-medium-weight);
-  --_tracking: var(--md-sys-typescale-title-medium-tracking);
-  --_opsz: 16;
-}
-.md-type-title-medium.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-title-medium-weight);
+.wu-type-strong.is-emphasized,
+.wu-type-label.is-emphasized {
+  font-weight: var(--fw-bold);
 }
 
-.md-type-title-small {
-  --_font: var(--md-sys-typescale-title-small-font);
-  --_size: var(--md-sys-typescale-title-small-size);
-  --_line-height: var(--md-sys-typescale-title-small-line-height);
-  --_weight: var(--md-sys-typescale-title-small-weight);
-  --_tracking: var(--md-sys-typescale-title-small-tracking);
-  --_opsz: 14;
-}
-.md-type-title-small.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-title-small-weight);
-}
-
-.md-type-body-large {
-  --_font: var(--md-sys-typescale-body-large-font);
-  --_size: var(--md-sys-typescale-body-large-size);
-  --_line-height: var(--md-sys-typescale-body-large-line-height);
-  --_weight: var(--md-sys-typescale-body-large-weight);
-  --_tracking: var(--md-sys-typescale-body-large-tracking);
-  --_opsz: 16;
-}
-.md-type-body-large.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-body-large-weight);
-}
-
-.md-type-body-medium {
-  --_font: var(--md-sys-typescale-body-medium-font);
-  --_size: var(--md-sys-typescale-body-medium-size);
-  --_line-height: var(--md-sys-typescale-body-medium-line-height);
-  --_weight: var(--md-sys-typescale-body-medium-weight);
-  --_tracking: var(--md-sys-typescale-body-medium-tracking);
-  --_opsz: 14;
-}
-.md-type-body-medium.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-body-medium-weight);
-}
-
-.md-type-body-small {
-  --_font: var(--md-sys-typescale-body-small-font);
-  --_size: var(--md-sys-typescale-body-small-size);
-  --_line-height: var(--md-sys-typescale-body-small-line-height);
-  --_weight: var(--md-sys-typescale-body-small-weight);
-  --_tracking: var(--md-sys-typescale-body-small-tracking);
-  --_opsz: 12;
-}
-.md-type-body-small.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-body-small-weight);
-}
-
-.md-type-label-large {
-  --_font: var(--md-sys-typescale-label-large-font);
-  --_size: var(--md-sys-typescale-label-large-size);
-  --_line-height: var(--md-sys-typescale-label-large-line-height);
-  --_weight: var(--md-sys-typescale-label-large-weight);
-  --_tracking: var(--md-sys-typescale-label-large-tracking);
-  --_opsz: 14;
-}
-.md-type-label-large.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-label-large-weight);
-}
-
-.md-type-label-medium {
-  --_font: var(--md-sys-typescale-label-medium-font);
-  --_size: var(--md-sys-typescale-label-medium-size);
-  --_line-height: var(--md-sys-typescale-label-medium-line-height);
-  --_weight: var(--md-sys-typescale-label-medium-weight);
-  --_tracking: var(--md-sys-typescale-label-medium-tracking);
-  --_opsz: 12;
-}
-.md-type-label-medium.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-label-medium-weight);
-}
-
-.md-type-label-small {
-  --_font: var(--md-sys-typescale-label-small-font);
-  --_size: var(--md-sys-typescale-label-small-size);
-  --_line-height: var(--md-sys-typescale-label-small-line-height);
-  --_weight: var(--md-sys-typescale-label-small-weight);
-  --_tracking: var(--md-sys-typescale-label-small-tracking);
-  --_opsz: 11;
-}
-.md-type-label-small.is-emphasized {
-  --_weight: var(--md-sys-typescale-emphasized-label-small-weight);
-}
-
-/* Chiffres alignes : indispensable pour les valeurs qui defilent (temps, coordonnees). */
-.md-numeric {
-  font-family: var(--md-ref-typeface-mono);
+/* Donnees : chiffres a chasse fixe, alignes en colonne. */
+.wu-numeric {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
+  font-stretch: normal;
 }

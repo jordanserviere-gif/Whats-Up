@@ -1,23 +1,23 @@
-.md-segmented {
+.wu-segmented {
   display: inline-flex;
-  gap: 0.125rem;
-  padding: 0.125rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-surface-container-high);
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-pill);
 }
 
-.md-segmented--full {
+.wu-segmented--full {
   display: flex;
   width: 100%;
 }
 /* Pleine largeur : les segments se partagent la place a parts egales, et le
  * plancher a zero laisse l'ellipse du libelle absorber ce qui ne tient pas. */
-.md-segmented--full .md-segmented__item {
+.wu-segmented--full .wu-segmented__item {
   flex: 1 1 0;
   min-width: 0;
 }
 
-.md-segmented__item {
+.wu-segmented__item {
   position: relative;
   /* Serie posee dans un flux : chaque segment prend la largeur de son libelle.
    * Un partage a parts egales — `flex: 1`, donc base nulle — ferait dependre la
@@ -26,66 +26,47 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--md-sys-spacing-2);
+  gap: var(--space-3);
   height: var(--_h);
   padding-inline: var(--_px);
   border: none;
-  border-radius: var(--md-sys-shape-corner-full);
+  border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--ink);
   cursor: pointer;
-  overflow: hidden;
   white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
   transition:
-    background-color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
-    color var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast),
-    border-radius var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
-    transform var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
-.md-segmented--s {
-  --_h: 2.25rem;
-  --_px: var(--md-sys-spacing-3);
+.wu-segmented--s {
+  --_h: var(--size-control-s);
+  --_px: 0.875rem;
 }
-.md-segmented--m {
-  --_h: 2.75rem;
-  --_px: var(--md-sys-spacing-4);
-}
-
-.md-segmented__item::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: currentColor;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
-}
-.md-segmented__item:hover::before {
-  opacity: var(--md-sys-state-hover-opacity);
-}
-.md-segmented__item:active {
-  transform: scale(0.95);
+.wu-segmented--m {
+  --_h: var(--size-control-m);
+  --_px: var(--space-5);
 }
 
-.md-segmented__item.is-selected {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-  /* Le segment actif se distingue aussi par une forme plus carree. */
-  border-radius: var(--md-sys-shape-corner-medium);
+.wu-segmented__item:hover {
+  background: var(--accent-soft);
 }
 
-.md-segmented__label {
-  position: relative;
+.wu-segmented__item.is-selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.wu-segmented__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 @media (max-width: 720px) {
-  .md-segmented__label--compact {
+  .wu-segmented__label--compact {
     display: none;
   }
 }

@@ -4,7 +4,7 @@ import { cx } from './utils'
 import './Toolbar.css'
 
 export interface ToolbarProps {
-  /** Barre flottante ancree au-dessus du contenu (docked toolbar Expressive). */
+  /** Barre flottante posee sur la scene : fond plein, trait fort. */
   floating?: boolean
   align?: 'start' | 'center' | 'end'
   vertical?: boolean
@@ -19,7 +19,7 @@ export function Toolbar({ floating = true, align = 'center', vertical = false, c
       level={floating ? 3 : 0}
       shape="full"
       glass={floating}
-      className={cx('md-toolbar', `md-toolbar--${align}`, vertical && 'md-toolbar--vertical', className)}
+      className={cx('wu-toolbar', `wu-toolbar--${align}`, vertical && 'wu-toolbar--vertical', className)}
     >
       {children}
     </Surface>
@@ -27,5 +27,5 @@ export function Toolbar({ floating = true, align = 'center', vertical = false, c
 }
 
 export function ToolbarGroup({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx('md-toolbar__group', className)}>{children}</div>
+  return <div className={cx('wu-toolbar__group', className)}>{children}</div>
 }

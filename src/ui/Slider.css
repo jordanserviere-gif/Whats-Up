@@ -1,130 +1,124 @@
-.md-slider {
-  --_track-height: 1rem;
-  --_handle-width: 0.25rem;
-  --_gap: 0.375rem;
+/* Curseur — piste fine de 4 px, pastille pleine cerclee. */
+.wu-slider {
+  --_track-height: 4px;
+  --_thumb: 1.125rem;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-1);
+  gap: var(--space-2);
   width: 100%;
 }
 
-.md-slider__header {
+.wu-slider__header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--md-sys-spacing-3);
+  gap: var(--space-3);
 }
 
-.md-slider__label {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-slider__label {
+  color: var(--ink-muted);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.md-slider__readout {
+.wu-slider__readout {
   flex: none;
-  color: var(--md-sys-color-primary);
+  color: var(--ink);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-stretch: normal;
 }
 
-.md-slider__track-row {
+.wu-slider__track-row {
   position: relative;
-  height: var(--md-sys-touch-target-min);
+  height: var(--size-control-m);
   display: flex;
   align-items: center;
 }
 
-.md-slider__track {
+.wu-slider__track {
   position: absolute;
   inset-inline: 0;
   height: var(--_track-height);
   pointer-events: none;
 }
 
-.md-slider__track-active,
-.md-slider__track-inactive {
+.wu-slider__track-active,
+.wu-slider__track-inactive {
   position: absolute;
   top: 0;
   height: 100%;
-  border-radius: var(--md-sys-shape-corner-full);
-  transition: inset-inline var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+  border-radius: 2px;
 }
 
-.md-slider__track-active {
+.wu-slider__track-active {
   left: 0;
-  right: calc(100% - var(--_pct) + var(--_gap));
-  background: var(--md-sys-color-primary);
-  border-start-end-radius: var(--md-sys-shape-corner-extra-small);
-  border-end-end-radius: var(--md-sys-shape-corner-extra-small);
+  right: calc(100% - var(--_pct));
+  background: var(--accent);
 }
 
-.md-slider__track-inactive {
-  left: calc(var(--_pct) + var(--_gap));
-  right: 0;
-  background: var(--md-sys-color-secondary-container);
-  border-start-start-radius: var(--md-sys-shape-corner-extra-small);
-  border-end-start-radius: var(--md-sys-shape-corner-extra-small);
-}
-
-/* Poignee en barre : signature Expressive. */
-.md-slider__handle {
-  position: absolute;
-  top: -0.25rem;
+.wu-slider__track-inactive {
   left: var(--_pct);
-  width: var(--_handle-width);
-  height: calc(var(--_track-height) + 0.5rem);
-  margin-left: calc(var(--_handle-width) / -2);
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-primary);
-  transition:
-    left var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast),
-    width var(--md-sys-motion-spring-spatial-fast-duration) var(--md-sys-motion-spring-spatial-fast);
+  right: 0;
+  background: var(--line);
 }
 
-.md-slider__track-row:hover .md-slider__handle,
-.md-slider__track-row:focus-within .md-slider__handle {
-  width: 0.125rem;
-}
-
-.md-slider__anchor {
+.wu-slider__handle {
   position: absolute;
   top: 50%;
-  width: 0.25rem;
-  height: 0.25rem;
-  margin: -0.125rem 0 0 -0.125rem;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-on-secondary-container);
-  opacity: 0.9;
+  left: var(--_pct);
+  width: var(--_thumb);
+  height: var(--_thumb);
+  margin: calc(var(--_thumb) / -2) 0 0 calc(var(--_thumb) / -2);
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
-.md-slider__value {
+.wu-slider__anchor {
   position: absolute;
-  bottom: calc(100% + var(--md-sys-spacing-2));
+  top: 50%;
+  width: 2px;
+  height: 0.625rem;
+  margin: -0.3125rem 0 0 -1px;
+  background: var(--ink-muted);
+}
+
+/* Valeur : ne se montre qu'a la manipulation, sinon elle masquerait le
+ * libelle place juste au-dessus. */
+.wu-slider__value {
+  position: absolute;
+  bottom: calc(100% + var(--space-3));
   left: 50%;
   transform: translateX(-50%);
-  padding: 0.125rem var(--md-sys-spacing-2);
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-inverse-surface);
-  color: var(--md-sys-color-inverse-on-surface);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: var(--on-accent);
   white-space: nowrap;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  /* Indicateur de valeur au sens Material : il ne se montre qu'a la
-   * manipulation, sinon il masquerait le libelle place juste au-dessus. */
+  font-stretch: normal;
   opacity: 0;
-  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
-.md-slider__track-row:hover .md-slider__value,
-.md-slider__track-row:focus-within .md-slider__value {
+.wu-slider__track-row:hover .wu-slider__value,
+.wu-slider__track-row:focus-within .wu-slider__value {
   opacity: 1;
+}
+.wu-slider__track-row:has(.wu-slider__input:focus-visible) .wu-slider__handle {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
 }
 
 /* L'input natif porte l'interaction ; il est invisible mais actif. */
-.md-slider__input {
+.wu-slider__input {
   position: absolute;
-  inset-inline: calc(var(--_handle-width) / -2);
-  width: calc(100% + var(--_handle-width));
+  inset-inline: calc(var(--_thumb) / -2);
+  width: calc(100% + var(--_thumb));
   height: 100%;
   margin: 0;
   opacity: 0;
@@ -132,19 +126,19 @@
   appearance: none;
   background: transparent;
 }
-.md-slider__input::-webkit-slider-thumb {
+.wu-slider__input::-webkit-slider-thumb {
   appearance: none;
-  width: var(--md-sys-touch-target-min);
-  height: var(--md-sys-touch-target-min);
+  width: var(--size-touch);
+  height: var(--size-touch);
 }
-.md-slider__input::-moz-range-thumb {
-  width: var(--md-sys-touch-target-min);
-  height: var(--md-sys-touch-target-min);
+.wu-slider__input::-moz-range-thumb {
+  width: var(--size-touch);
+  height: var(--size-touch);
   border: none;
   background: transparent;
 }
 
-.md-slider.is-disabled {
-  opacity: var(--md-sys-state-disabled-content-opacity);
+.wu-slider.is-disabled {
+  opacity: var(--opacity-disabled);
   pointer-events: none;
 }

@@ -1,19 +1,19 @@
-.md-divider {
+.wu-divider {
   border: none;
   margin: 0;
-  background: var(--md-sys-color-outline-variant);
-  height: 1px;
+  background: var(--line);
+  height: var(--border-hair);
   width: 100%;
   flex: none;
 }
 
-.md-divider--inset {
-  margin-inline: var(--md-sys-spacing-4);
+.wu-divider--inset {
+  margin-inline: var(--space-5);
   width: auto;
 }
 
-.md-divider--vertical {
-  width: 1px;
+.wu-divider--vertical {
+  width: var(--border-hair);
   height: auto;
   align-self: stretch;
 }

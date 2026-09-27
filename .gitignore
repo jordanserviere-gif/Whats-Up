@@ -11,3 +11,6 @@ docs/captures/
 .playwright-mcp/
 shots/
 scripts/.*.mjs
+
+# Fonte de titre commerciale (Helvetica Neue LT 93) : locale, jamais versionnee
+public/fonts/

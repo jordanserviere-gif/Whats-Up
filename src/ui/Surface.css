@@ -1,46 +1,31 @@
-.md-surface {
-  border-radius: var(--_shape, var(--md-sys-shape-corner-large));
+/* Surface — aplats pleins, aucune ombre. La hierarchie tient au trait. */
+.wu-surface {
+  border-radius: var(--_shape, var(--radius-m));
   background: var(--_container);
-  color: var(--md-sys-color-on-surface);
-  box-shadow: var(--_shadow);
+  color: var(--ink);
   transition:
-    background-color var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default),
-    box-shadow var(--md-sys-motion-spring-effects-default-duration) var(--md-sys-motion-spring-effects-default);
+    background-color var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
 }
 
-.md-surface--l0 {
-  --_container: var(--md-sys-color-surface);
-  --_shadow: var(--md-sys-elevation-level0);
+.wu-surface--l0,
+.wu-surface--l1,
+.wu-surface--l2 {
+  --_container: var(--surface);
 }
-.md-surface--l1 {
-  --_container: var(--md-sys-color-surface-container-low);
-  --_shadow: var(--md-sys-elevation-level1);
-}
-.md-surface--l2 {
-  --_container: var(--md-sys-color-surface-container);
-  --_shadow: var(--md-sys-elevation-level2);
-}
-.md-surface--l3 {
-  --_container: var(--md-sys-color-surface-container-high);
-  --_shadow: var(--md-sys-elevation-level3);
-}
-.md-surface--l4 {
-  --_container: var(--md-sys-color-surface-container-high);
-  --_shadow: var(--md-sys-elevation-level4);
-}
-.md-surface--l5 {
-  --_container: var(--md-sys-color-surface-container-highest);
-  --_shadow: var(--md-sys-elevation-level5);
+.wu-surface--l3,
+.wu-surface--l4,
+.wu-surface--l5 {
+  --_container: var(--surface-tint);
 }
 
-.md-surface--outlined {
-  border: var(--md-sys-outline-width-thin) solid var(--md-sys-color-outline-variant);
+.wu-surface--outlined {
+  border: var(--border) solid var(--line);
 }
 
-/* Chrome pose au-dessus de la scene : on laisse transparaitre le ciel. */
-.md-surface--glass {
-  background: color-mix(in srgb, var(--_container) 78%, transparent);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border: var(--md-sys-outline-width-thin) solid color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);
+/* Chrome pose sur le ciel : blanc plein et trait bleu de 2 px. Jamais de
+ * translucidite ni de flou — le ciel ne traverse pas l'interface. */
+.wu-surface--glass {
+  --_container: var(--surface);
+  border: var(--border) solid var(--line-strong);
 }

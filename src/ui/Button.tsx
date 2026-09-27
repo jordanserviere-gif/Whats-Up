@@ -1,13 +1,12 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Icon } from './Icon'
-import { Ripple } from './Ripple'
 import { cx } from './utils'
 import './Button.css'
 
 export type ButtonVariant = 'filled' | 'tonal' | 'elevated' | 'outlined' | 'text'
-/** Expressive introduit cinq tailles de bouton (xs → xl). */
+/** Cinq tailles, de 32 a 72 px de haut. */
 export type ButtonSize = 'xs' | 's' | 'm' | 'l' | 'xl'
-/** Expressive introduit la forme carree-arrondie en alternative au stade « full ». */
+/** Pilule par defaut, ou angles de 4 px. */
 export type ButtonShape = 'round' | 'square'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -16,7 +15,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   shape?: ButtonShape
   icon?: string
   trailingIcon?: string
-  /** Etat selectionne : la forme morphe de « round » a « square » (shape morphing). */
+  /** Etat selectionne : bascule pleine sur l'accent. */
   selected?: boolean
   fullWidth?: boolean
   children?: ReactNode
@@ -46,19 +45,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled}
       aria-pressed={selected === undefined ? undefined : selected}
       className={cx(
-        'md-button',
-        `md-button--${variant}`,
-        `md-button--${size}`,
-        `md-button--${shape}`,
+        'wu-button',
+        `wu-button--${variant}`,
+        `wu-button--${size}`,
+        `wu-button--${shape}`,
         selected && 'is-selected',
-        fullWidth && 'md-button--full',
+        fullWidth && 'wu-button--full',
         className,
       )}
       {...rest}
     >
-      <Ripple disabled={disabled} />
       {icon && <Icon name={icon} size={iconSize} filled={selected} />}
-      {children != null && <span className="md-button__label">{children}</span>}
+      {children != null && <span className="wu-button__label">{children}</span>}
       {trailingIcon && <Icon name={trailingIcon} size={iconSize} />}
     </button>
   )

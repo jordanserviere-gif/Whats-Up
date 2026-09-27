@@ -2,9 +2,9 @@
   position: relative;
   display: flex;
   height: 100%;
-  gap: var(--md-sys-spacing-2);
-  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2) var(--md-sys-spacing-2) 0;
-  background: var(--md-sys-color-background);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) 0;
+  background: var(--bg);
   overflow: hidden;
 }
 
@@ -12,16 +12,15 @@
   position: relative;
   flex: 1;
   min-width: 0;
-  border-radius: var(--md-sys-shape-corner-extra-large);
+  border-radius: var(--radius-l);
   overflow: hidden;
   background: var(--app-sky-zenith);
-  box-shadow: var(--md-sys-elevation-level1);
 }
 
 .app__timeline {
   position: absolute;
-  inset-inline: var(--md-sys-spacing-4);
-  bottom: var(--md-sys-spacing-4);
+  inset-inline: var(--space-5);
+  bottom: var(--space-5);
   z-index: var(--app-z-chrome);
   pointer-events: none;
   display: flex;
@@ -58,7 +57,7 @@
     border-radius: 0;
   }
   .app__timeline {
-    inset-inline: var(--md-sys-spacing-2);
-    bottom: var(--md-sys-spacing-2);
+    inset-inline: var(--space-3);
+    bottom: var(--space-3);
   }
 }

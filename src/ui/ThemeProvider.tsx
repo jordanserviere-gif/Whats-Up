@@ -1,10 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 /**
- * `night` est un theme a part entiere, pas une variante du sombre : noir pur et
- * ambre, pour observer sans perdre l'adaptation de l'oeil a l'obscurite.
+ * Quatre themes : clair (chrome blanc, encre bleue), bleu (l'inverse signature),
+ * sombre (bleu nuit), et night — un theme a part entiere, pas une variante du
+ * sombre : noir pur et ambre, pour observer sans perdre l'adaptation de l'oeil
+ * a l'obscurite.
  */
-export type ThemeMode = 'dark' | 'light' | 'night'
+export type ThemeMode = 'light' | 'blue' | 'dark' | 'night'
+type DayMode = Exclude<ThemeMode, 'night'>
 
 interface ThemeApi {
   mode: ThemeMode
@@ -17,7 +20,8 @@ interface ThemeApi {
 const ThemeContext = createContext<ThemeApi | null>(null)
 const STORAGE_KEY = 'ciel.theme'
 
-const isMode = (v: string | null): v is ThemeMode => v === 'light' || v === 'dark' || v === 'night'
+const isMode = (v: string | null): v is ThemeMode => v === 'light' || v === 'blue' || v === 'dark' || v === 'night'
+const isDayMode = (v: string | null): v is DayMode => v === 'light' || v === 'blue' || v === 'dark'
 
 /**
  * Pose les attributs de theme sur `<html>`, **avant** le rendu qui en depend.
@@ -44,9 +48,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // idempotente, la repeter a chaque rendu ne coute rien.
   applyTheme(mode)
   // Theme vers lequel revenir en quittant night.
-  const [dayMode, setDayMode] = useState<Exclude<ThemeMode, 'night'>>(() =>
-    localStorage.getItem(`${STORAGE_KEY}.day`) === 'light' ? 'light' : 'dark',
-  )
+  const [dayMode, setDayMode] = useState<DayMode>(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY}.day`)
+    return isDayMode(saved) ? saved : 'dark'
+  })
 
   useEffect(() => {
     const root = document.documentElement
@@ -58,7 +63,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     // La barre d'etat du systeme suit le fond : en night, un bandeau gris en
     // haut de l'ecran suffirait a eblouir.
-    const background = getComputedStyle(root).getPropertyValue('--md-sys-color-background').trim()
+    const background = getComputedStyle(root).getPropertyValue('--bg').trim()
     if (background) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background)
     const t = window.setTimeout(() => delete root.dataset.themeTransition, 400)
     return () => window.clearTimeout(t)

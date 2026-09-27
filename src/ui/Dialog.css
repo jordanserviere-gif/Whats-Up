@@ -1,69 +1,75 @@
-.md-dialog {
+.wu-dialog {
   border: none;
   padding: 0;
   background: transparent;
-  max-width: min(560px, calc(100vw - 48px));
+  width: min(27.5rem, calc(100vw - 48px));
+  max-width: none;
   max-height: calc(100dvh - 96px);
   overflow: visible;
-  color: var(--md-sys-color-on-surface);
+  color: var(--ink);
 }
 
-.md-dialog::backdrop {
-  background: color-mix(in srgb, var(--md-sys-color-scrim) 48%, transparent);
-  backdrop-filter: blur(4px);
+/* Le voile est la seule transparence du systeme. */
+.wu-dialog::backdrop {
+  background: var(--scrim);
 }
 
-.md-dialog[open] .md-dialog__panel {
-  animation: md-dialog-in var(--md-sys-motion-spring-spatial-default-duration) var(--md-sys-motion-spring-spatial-default);
+.wu-dialog[open] .wu-dialog__panel {
+  animation: wu-dialog-in var(--dur-base) var(--ease-out);
+}
+.wu-dialog[open]::backdrop {
+  animation: wu-dialog-fade var(--dur-base) var(--ease-out);
 }
 
-@keyframes md-dialog-in {
+@keyframes wu-dialog-in {
   from {
     opacity: 0;
-    transform: scale(0.85);
+    transform: translateY(8px);
   }
-  to {
-    opacity: 1;
-    transform: scale(1);
+}
+@keyframes wu-dialog-fade {
+  from {
+    opacity: 0;
   }
 }
 
-.md-dialog__panel {
+.wu-dialog__panel {
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-4);
-  padding: var(--md-sys-spacing-6);
-  border-radius: var(--md-sys-shape-corner-extra-large-increased);
-  background: var(--md-sys-color-surface-container-high);
-  box-shadow: var(--md-sys-elevation-level3);
+  gap: var(--space-5);
+  padding: var(--space-7);
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-l);
+  background: var(--surface);
   max-height: inherit;
 }
 
-.md-dialog__icon {
+.wu-dialog__icon {
   display: grid;
   place-items: center;
   align-self: center;
-  color: var(--md-sys-color-secondary);
+  color: var(--ink);
 }
 
-.md-dialog__title--centered {
+.wu-dialog__title--centered {
   text-align: center;
 }
 
-.md-dialog__support {
-  color: var(--md-sys-color-on-surface-variant);
+.wu-dialog__support {
+  color: var(--ink-muted);
   margin: 0;
 }
 
-.md-dialog__content {
+.wu-dialog__content {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--md-sys-spacing-3);
+  gap: var(--space-4);
 }
 
-.md-dialog__actions {
+.wu-dialog__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--md-sys-spacing-2);
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }

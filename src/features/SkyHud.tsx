@@ -33,13 +33,13 @@ export function SkyHud() {
       <Surface level={3} shape="extra-large" glass className="sky-hud__compass">
         <div className="sky-hud__compass-dial" style={{ '--_az': `${-viewAzimuth}deg` } as React.CSSProperties}>
           <span className="sky-hud__compass-needle" />
-          <span className="sky-hud__compass-north md-type-label-small is-emphasized">N</span>
+          <span className="sky-hud__compass-north wu-type-label is-emphasized">N</span>
         </div>
         <div className="sky-hud__readout">
-          <span className="md-type-title-medium is-emphasized md-numeric">
+          <span className="wu-type-title is-emphasized wu-numeric">
             {azimuthToCardinal(viewAzimuth)} {Math.round(viewAzimuth)}°
           </span>
-          <span className="md-type-label-medium sky-hud__readout-sub md-numeric">
+          <span className="wu-type-caption sky-hud__readout-sub wu-numeric">
             hauteur {formatDeg(viewAltitude, 0)} · champ {formatFov(fov)}
           </span>
         </div>
@@ -87,11 +87,11 @@ export function SkyHud() {
       </div>
 
       <Surface level={2} shape="full" glass className="sky-hud__conditions">
-        <span className="md-type-label-medium is-emphasized">
+        <span className="wu-type-caption is-emphasized">
           {conditions.twilight}
           {conditions.obscuration > 0.001 && ` · éclipse ${Math.round(conditions.obscuration * 100)} %`}
         </span>
-        <span className="md-type-label-small sky-hud__conditions-sub md-numeric">
+        <span className="wu-type-label sky-hud__conditions-sub wu-numeric">
           Soleil {formatDeg(conditions.sunAltitude, 1)} · magnitude limite{' '}
           {conditions.limitingMagnitude.toFixed(1).replace('.', ',')}
         </span>

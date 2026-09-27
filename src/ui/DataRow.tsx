@@ -17,12 +17,12 @@ export interface DataRowProps {
 /** Ligne « libelle → valeur » pour les fiches d'ephemerides. */
 export function DataRow({ label, value, unit, icon, emphasis = false, hint, className }: DataRowProps) {
   return (
-    <div className={cx('md-data-row', emphasis && 'is-emphasis', className)} title={hint}>
-      {icon && <Icon name={icon} size={18} className="md-data-row__icon" />}
-      <span className="md-type-body-medium md-data-row__label">{label}</span>
-      <span className="md-data-row__value md-numeric md-type-label-large">
+    <div className={cx('wu-data-row', emphasis && 'is-emphasis', className)} title={hint}>
+      {icon && <Icon name={icon} size={18} className="wu-data-row__icon" />}
+      <span className="wu-type-body-m wu-data-row__label">{label}</span>
+      <span className="wu-data-row__value wu-numeric wu-type-strong">
         {value}
-        {unit && <span className="md-data-row__unit"> {unit}</span>}
+        {unit && <span className="wu-data-row__unit"> {unit}</span>}
       </span>
     </div>
   )
@@ -40,14 +40,14 @@ export interface StatTileProps {
 /** Tuile de statistique : grande valeur, libelle discret. */
 export function StatTile({ label, value, unit, icon, tone = 'neutral', className }: StatTileProps) {
   return (
-    <div className={cx('md-stat-tile', `md-stat-tile--${tone}`, className)}>
-      <div className="md-stat-tile__head">
+    <div className={cx('wu-stat-tile', `wu-stat-tile--${tone}`, className)}>
+      <div className="wu-stat-tile__head">
         {icon && <Icon name={icon} size={18} />}
-        <span className="md-type-label-medium">{label}</span>
+        <span className="wu-type-caption">{label}</span>
       </div>
-      <p className="md-stat-tile__value md-numeric">
+      <p className="wu-stat-tile__value wu-numeric">
         {value}
-        {unit && <span className="md-stat-tile__unit"> {unit}</span>}
+        {unit && <span className="wu-stat-tile__unit"> {unit}</span>}
       </p>
     </div>
   )
@@ -55,7 +55,7 @@ export function StatTile({ label, value, unit, icon, tone = 'neutral', className
 
 export function DataGrid({ columns = 2, className, children }: { columns?: number; className?: string; children: ReactNode }) {
   return (
-    <div className={cx('md-data-grid', className)} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+    <div className={cx('wu-data-grid', className)} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
       {children}
     </div>
   )

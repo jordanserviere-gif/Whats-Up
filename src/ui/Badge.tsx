@@ -15,10 +15,10 @@ export interface BadgeProps {
 /** Etiquette compacte : statut, unite, categorie. */
 export function Badge({ children, tone = 'neutral', icon, dot, className }: BadgeProps) {
   return (
-    <span className={cx('md-badge', `md-badge--${tone}`, className)}>
-      {dot && <span className="md-badge__dot" style={{ background: dot }} />}
+    <span className={cx('wu-badge', `wu-badge--${tone}`, className)}>
+      {dot && <span className="wu-badge__dot" style={{ background: dot }} />}
       {icon && <Icon name={icon} size={14} />}
-      <span className="md-type-label-small is-emphasized">{children}</span>
+      <span className="wu-type-label is-emphasized">{children}</span>
     </span>
   )
 }

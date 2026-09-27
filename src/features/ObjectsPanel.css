@@ -1,13 +1,13 @@
 /* Les corps sous l'horizon restent listes, mais en retrait. */
-.objects-panel__below .md-list-item__surface {
+.objects-panel__below .wu-list-item__surface {
   opacity: 0.55;
 }
-.objects-panel__below.is-selected .md-list-item__surface {
+.objects-panel__below.is-selected .wu-list-item__surface {
   opacity: 1;
 }
 
 /* La pastille porte la couleur propre de l'objet — corps ou satellite, telle
  * que la scene la dessine : en night, elle passe par la meme conversion. */
-.md-list-item__dot {
+.wu-list-item__dot {
   filter: var(--app-physical-filter);
 }

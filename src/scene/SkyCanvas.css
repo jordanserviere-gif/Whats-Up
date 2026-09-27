@@ -34,21 +34,21 @@
   left: 0;
   white-space: nowrap;
   will-change: transform, opacity;
-  transition: opacity var(--md-sys-motion-spring-effects-fast-duration) var(--md-sys-motion-spring-effects-fast);
+  transition: opacity var(--dur-fast) var(--ease-out);
   text-shadow: 0 1px 6px rgb(0 0 0 / 0.85);
 }
 
 .sky-label--body {
-  font-family: var(--md-sys-typescale-label-large-font);
-  font-size: var(--md-sys-typescale-label-large-size);
-  font-weight: var(--md-sys-typescale-emphasized-label-large-weight);
-  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  font-family: var(--font-body);
+  font-size: var(--fs-body-s);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-body);
   /* Decale sous l'objet pour ne pas le masquer. */
   margin: 0.875rem 0 0 0.875rem;
 }
 
 .sky-label--satellite {
-  font-family: var(--md-ref-typeface-mono);
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -57,9 +57,9 @@
 }
 
 .sky-label--cardinal {
-  font-family: var(--md-sys-typescale-title-medium-font);
-  font-size: var(--md-sys-typescale-title-medium-size);
-  font-weight: var(--md-sys-typescale-emphasized-title-medium-weight);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
   transform-origin: center;
   translate: -50% -140%;
   opacity: 0.9;
@@ -69,9 +69,9 @@
  * discrets que les corps du systeme solaire : ils sont la pour situer, pas pour
  * attirer l'oeil, et ils peuvent etre une douzaine a l'ecran. */
 .sky-label--fixed {
-  font-family: var(--md-sys-typescale-label-medium-font);
-  font-size: var(--md-sys-typescale-label-medium-size);
-  letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+  font-family: var(--font-body);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-body);
   margin: 0.5rem 0 0 0.5rem;
   opacity: 0.78;
 }
@@ -90,8 +90,8 @@
 }
 
 .sky-label--constellation {
-  font-family: var(--md-sys-typescale-label-medium-font);
-  font-size: var(--md-sys-typescale-label-medium-size);
+  font-family: var(--font-body);
+  font-size: var(--fs-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   translate: -50% -50%;

@@ -12,7 +12,7 @@
 }
 
 .moon-dial__dark {
-  fill: color-mix(in srgb, var(--app-body-moon) 12%, var(--md-sys-color-surface-container-lowest));
+  fill: color-mix(in srgb, var(--app-body-moon) 12%, var(--surface));
 }
 
 .moon-dial__lit {

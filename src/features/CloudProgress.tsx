@@ -15,7 +15,7 @@ export function CloudProgress() {
   const visible = progress != null && !loading
   return (
     <div className={`cloud-progress${visible ? ' is-visible' : ''}`} aria-hidden={!visible}>
-      <span className="cloud-progress__label md-type-label-small">Nuages</span>
+      <span className="cloud-progress__label wu-type-label">Nuages</span>
       <LinearProgress progress={progress ?? 0} className="cloud-progress__bar" />
     </div>
   )
