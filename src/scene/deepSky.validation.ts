@@ -24,10 +24,11 @@ import {
   ZERO_MAGNITUDE_LUX,
   surfaceBrightnessLuminance,
 } from './display/adaptation'
-import { EXTINCTION_COEFFICIENT, airmass } from '@/astro/photometry'
+import { EXTINCTION_COEFFICIENT, airmass, lightPollutionLux } from '@/astro/photometry'
 import { DEEP_SKY_INDEX, findDeepSkyObject } from '@/astro/deepsky'
 import { bvToRgb } from '@/astro/catalog'
 import { colourFor } from './deepSkyColour'
+import { limitShift, skyGlowFor, vanRhijn } from './display/skyGlowGradient'
 import {
   DSO_ATLAS_COUNT,
   DSO_ATLAS_MIN_MAJOR_ARCMIN,
@@ -242,6 +243,27 @@ export function deepSkySuite(): SuiteResult {
       let poleNaN = 0
       for (let bv = -5; bv <= 5; bv += 0.01) if (bvToRgb(bv).some((c) => !Number.isFinite(c))) poleNaN++
       t.check('la conversion B−V reste finie de part et d autre de son pole a −0,674', poleNaN, 0, 0, ' indices')
+
+      // Le fond s'eclaircit vers l'horizon : sans ce gradient, un astre bas
+      // etait juge sur le ciel du zenith, et le Sagittaire restait visible
+      // sous un ciel de banlieue.
+      const noir = skyGlowFor(0, true)
+      const banlieue = skyGlowFor(lightPollutionLux(6), true)
+      t.check('van Rhijn vaut un au zenith', vanRhijn(90), 1, 1e-12)
+      t.checkTrue(
+        'van Rhijn croit vers l horizon, et reste fini a l horizontale',
+        vanRhijn(20) > 2 && vanRhijn(20) < 3.5 && Number.isFinite(vanRhijn(0)) && vanRhijn(0) < 7,
+        `V(20°) = ${vanRhijn(20).toFixed(2)}, V(0°) = ${vanRhijn(0).toFixed(2)}`,
+      )
+      t.check('aucun ecart de limite au zenith', limitShift(90, 1, EXTINCTION_COEFFICIENT, banlieue), 0, 1e-9, ' mag')
+      t.check('aucun ecart sans atmosphere', limitShift(15, airmass(15), EXTINCTION_COEFFICIENT, skyGlowFor(lightPollutionLux(6), false)), 0, 0, ' mag')
+      const basNoir = limitShift(15, airmass(15), EXTINCTION_COEFFICIENT, noir)
+      const basBanlieue = limitShift(15, airmass(15), EXTINCTION_COEFFICIENT, banlieue)
+      t.checkTrue(
+        'a quinze degres, la banlieue perd bien plus de limite que le ciel noir',
+        basBanlieue > basNoir && basBanlieue > 0.5 && basNoir < 0.6,
+        `ecart ${basNoir.toFixed(2)} mag sous un ciel noir, ${basBanlieue.toFixed(2)} a Bortle 6`,
+      )
 
       // Le plafond n'est pas une commodite : sans lui, un objet plus petit que
       // l'aire de sommation rendrait une magnitude **plus brillante que sa

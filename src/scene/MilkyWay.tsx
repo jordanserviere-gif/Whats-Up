@@ -30,6 +30,7 @@ import {
 import { EYE_SUMMATION_SR } from './display/extendedVision'
 import { instrumentGainMag } from './display/instrument'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
+import { applySkyGlow, SKY_GLOW_GLSL, skyGlowUniforms, type SkyGlow } from './display/skyGlowGradient'
 import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
 import { applyRefractionUniforms, refractionUniforms } from './refractionTexture'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
@@ -74,6 +75,13 @@ import type { GeoLocation } from '@/astro/types'
  */
 
 /** Magnitude, en mag/arcsec², portee par l'octet nul et pas d'un octet. */
+/**
+ * Part de la teinte de la carte conservee, de 0 (gris) a 1 (pleine).
+ *
+ * ⚠️ Un choix d'apparence, pas une grandeur : la carte pleine tirait trop sur
+ * l'orange. Le gris scotopique, lui, a ete ecarte — voir le nuanceur.
+ */
+const MILKY_WAY_SATURATION = 0.5
 const MU_BRIGHT = RAW.muBright
 const MU_STEP = RAW.muStep
 /**
@@ -131,6 +139,7 @@ export function MilkyWay({
   limitingMagnitude,
   aerosolTurbidity,
   extinction = true,
+  skyGlow,
 }: {
   date: Date
   location: GeoLocation
@@ -139,6 +148,8 @@ export function MilkyWay({
   aerosolTurbidity: number
   /** Sans atmosphere, rien ne l'eteint. */
   extinction?: boolean
+  /** Fond de ciel au zenith : il s'eclaircit vers l'horizon, et la Voie lactee s'y noie. */
+  skyGlow: SkyGlow
 }) {
   const meshRef = useRef<Mesh>(null)
   const matrix = useRef(new Matrix4())
@@ -169,6 +180,7 @@ export function MilkyWay({
         side: BackSide,
         uniforms: {
           ...refractionUniforms(),
+          ...skyGlowUniforms(),
           uMap: { value: null as Texture | null },
           uLimitMag: { value: limitingMagnitude },
           uInstrumentGain: { value: 0 },
@@ -176,8 +188,11 @@ export function MilkyWay({
         },
         vertexShader: /* glsl */ `
           ${REFRACTION_LUT_GLSL}
+          ${SKY_GLOW_GLSL}
+          uniform float uExtinctionK;
           varying vec3 vEquatorial;
           varying float vAirmass;
+          varying float vLimitShift;
           void main() {
             // La position du sommet **est** une direction equatoriale : x vers
             // l'equinoxe, z vers le pole nord celeste. La sphere n'a pas
@@ -186,6 +201,9 @@ export function MilkyWay({
             vec4 world = modelMatrix * vec4(position, 1.0);
             float trueAltDeg = degrees(asin(clamp(normalize(world.xyz).y, -1.0, 1.0)));
             vAirmass = min(airmassAt(trueAltDeg), 12.0);
+            // Le ciel local : sous un ciel de banlieue, c'est ce qui eteint le
+            // Sagittaire, bas sur l'horizon europeen, avant le Cygne au zenith.
+            vLimitShift = limitShiftAt(trueAltDeg, vAirmass, uExtinctionK);
             world.xyz = refractSceneDirection(world.xyz);
             gl_Position = projectionMatrix * viewMatrix * world;
           }
@@ -199,6 +217,7 @@ export function MilkyWay({
           uniform float uExtinctionK;
           varying vec3 vEquatorial;
           varying float vAirmass;
+          varying float vLimitShift;
 
           void main() {
             vec3 d = normalize(vEquatorial);
@@ -228,7 +247,7 @@ export function MilkyWay({
             // La loi du ciel profond, branche etendue, sans plafond par l'objet.
             float mSeen = sb - ${SPREAD_OFFSET.toFixed(4)};
             float mDetect = sb - ${SUMMATION_OFFSET.toFixed(4)};
-            float limit = uLimitMag + uInstrumentGain;
+            float limit = uLimitMag - vLimitShift + uInstrumentGain;
             float rel = pow(10.0, -0.4 * (mSeen - limit));
             float gate = 1.0 - smoothstep(${POINT_VISIBILITY_FADE_START.toFixed(1)}, ${POINT_VISIBILITY_FADE_END.toFixed(1)}, mDetect - limit);
             float alpha = clamp(${POINT_BRIGHTNESS_SCALE} * log(1.0 + rel) * gate, 0.0, 1.0);
@@ -248,7 +267,11 @@ export function MilkyWay({
             // rouge, intacte.
             float lr = (texel.g * 2.0 - 1.0) * ${RAW.chromaRange.toFixed(2)};
             float lb = (texel.b * 2.0 - 1.0) * ${RAW.chromaRange.toFixed(2)};
-            vec3 base = vec3(exp2(lr), 1.0, exp2(lb));
+            // ⚠️ Saturation ramenee a MILKY_WAY_SATURATION : pleine, la teinte de
+            // la carte — ses couleurs Gaia sont equilibrees « a l'oeil » par la
+            // NASA — tirait trop sur l'orange dans les poussieres. Choix
+            // d'apparence, assume comme tel.
+            vec3 base = vec3(exp2(lr * ${MILKY_WAY_SATURATION.toFixed(2)}), 1.0, exp2(lb * ${MILKY_WAY_SATURATION.toFixed(2)}));
             // Rougissement par l'extinction, la meme loi que les etoiles.
             float xr = max(0.0, vAirmass - 1.0);
             vec3 tinted = base * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));
@@ -279,6 +302,7 @@ export function MilkyWay({
     const fov = ((camera as PerspectiveCamera).fov * Math.PI) / 180
     const pixelsPerRadian = size.height / (2 * Math.tan(fov / 2))
     material.uniforms.uLimitMag.value = limitingMagnitude
+    applySkyGlow(material.uniforms as unknown as ReturnType<typeof skyGlowUniforms>, skyGlow)
     material.uniforms.uInstrumentGain.value = instrumentGainMag(1 / pixelsPerRadian)
     material.uniforms.uExtinctionK.value = extinction ? extinctionCoefficient(aerosolTurbidity) : 0
     applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])

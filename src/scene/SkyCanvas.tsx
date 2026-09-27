@@ -50,6 +50,7 @@ import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
 import { MilkyWay } from './MilkyWay'
+import { skyGlowFor } from './display/skyGlowGradient'
 import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
@@ -181,6 +182,8 @@ export function SkyCanvas() {
   // Sans le calque « atmosphere », on regarde le ciel comme depuis l'espace :
   // magnitude limite fixee au catalogue, aucune diffusion diurne.
   const limitingMagnitude = layers.atmosphere ? sky.limitingMagnitude : 6.6
+  // Le fond au zenith, que les nuanceurs prolongent vers l'horizon.
+  const skyGlow = useMemo(() => skyGlowFor(sky.pollutionLux, layers.atmosphere), [sky.pollutionLux, layers.atmosphere])
 
 /**
    * Attenuation due a une eclipse, partagee par les deux echelles d'exposition.
@@ -654,6 +657,7 @@ export function SkyCanvas() {
             limitingMagnitude={limitingMagnitude}
             aerosolTurbidity={aerosolTurbidity}
             extinction={layers.atmosphere}
+            skyGlow={skyGlow}
           />
         )}
         {layers.stars && (
@@ -664,6 +668,7 @@ export function SkyCanvas() {
             limitingMagnitude={limitingMagnitude}
             aerosolTurbidity={aerosolTurbidity}
             extinction={layers.atmosphere}
+            skyGlow={skyGlow}
           />
         )}
         {layers.constellations && (
@@ -677,6 +682,7 @@ export function SkyCanvas() {
             limitingMagnitude={limitingMagnitude}
             aerosolTurbidity={aerosolTurbidity}
             extinction={layers.atmosphere}
+            skyGlow={skyGlow}
           />
         )}
 

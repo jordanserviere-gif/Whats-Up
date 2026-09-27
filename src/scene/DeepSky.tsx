@@ -35,6 +35,7 @@ import {
 } from './deepSkyAtlas'
 import type { GeoLocation } from '@/astro/types'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
+import { applySkyGlow, SKY_GLOW_GLSL, skyGlowUniforms, type SkyGlow } from './display/skyGlowGradient'
 import { REFRACTION_LUT_GLSL } from '@/atmosphere/refraction/refractionTable'
 import { applyRefractionUniforms, refractionUniforms } from './refractionTexture'
 import { equatorialToSceneMatrix, SKY_RADIUS } from './sceneMath'
@@ -74,6 +75,7 @@ export function DeepSky({
   limitingMagnitude,
   aerosolTurbidity,
   extinction = true,
+  skyGlow,
 }: {
   date: Date
   location: GeoLocation
@@ -96,6 +98,8 @@ export function DeepSky({
   aerosolTurbidity: number
   /** Sans atmosphere, rien n'eteint le ciel profond. */
   extinction?: boolean
+  /** Fond de ciel au zenith, qui s'eclaircit vers l'horizon. */
+  skyGlow: SkyGlow
 }) {
   const meshRef = useRef<InstancedMesh>(null)
   const matrix = useRef(new Matrix4())
@@ -162,6 +166,7 @@ export function DeepSky({
       blending: AdditiveBlending,
       uniforms: {
         ...refractionUniforms(),
+        ...skyGlowUniforms(),
         uLimitMag: { value: limitingMagnitude },
         /** Gain de l'instrument que le champ implique, magnitudes. */
         uInstrumentGain: { value: 0 },
@@ -176,6 +181,9 @@ export function DeepSky({
       },
       vertexShader: /* glsl */ `
         ${REFRACTION_LUT_GLSL}
+        ${SKY_GLOW_GLSL}
+        uniform float uExtinctionK;
+        varying float vLimitShift;
         attribute float aSemiMajor;
         attribute float aSemiMinor;
         attribute float aQuadSemi;
@@ -221,6 +229,8 @@ export function DeepSky({
           // calques s'eteignent ensemble au ras de l'horizon.
           float trueAltDeg = degrees(asin(clamp(normalize(world.xyz).y, -1.0, 1.0)));
           vAirmass = min(airmassAt(trueAltDeg), 12.0);
+          // Le ciel local, plus clair vers l'horizon — display/skyGlowGradient.ts.
+          vLimitShift = limitShiftAt(trueAltDeg, vAirmass, uExtinctionK);
           world.xyz = refractSceneDirection(world.xyz);
           gl_Position = projectionMatrix * viewMatrix * world;
         }
@@ -240,6 +250,7 @@ export function DeepSky({
         varying float vElementOffset;
 
         uniform float uExtinctionK;
+        varying float vLimitShift;
         uniform float uLimitMag;
         uniform float uInstrumentGain;
         uniform float uPixelsPerRadian;
@@ -357,7 +368,7 @@ export function DeepSky({
           // display/instrument.ts. A champ large il est nul, et le rendu est
           // exactement celui de l'oeil ; en zoomant, l'ouverture requise
           // depasse la pupille et l'objet se leve.
-          float limit = uLimitMag + uInstrumentGain;
+          float limit = uLimitMag - vLimitShift + uInstrumentGain;
           float rel = pow(10.0, -0.4 * (mSeen - limit));
           float gate = 1.0 - smoothstep(${POINT_VISIBILITY_FADE_START.toFixed(1)}, ${POINT_VISIBILITY_FADE_END.toFixed(1)}, mDetect - limit);
           float opacity = clamp(${POINT_BRIGHTNESS_SCALE} * log(1.0 + rel) * gate, 0.0, 1.0);
@@ -487,6 +498,7 @@ export function DeepSky({
     const pixelsPerRadian = size.height / (2 * Math.tan(fov / 2))
     material.uniforms.uPixelsPerRadian.value = pixelsPerRadian
     material.uniforms.uLimitMag.value = limitingMagnitude
+    applySkyGlow(material.uniforms as unknown as ReturnType<typeof skyGlowUniforms>, skyGlow)
     // L'ouverture minimale capable de resoudre un pixel affiche — nulle tant
     // que l'oeil y suffit, c'est-a-dire au-dela de cinq degres de champ.
     material.uniforms.uInstrumentGain.value = instrumentGainMag(1 / pixelsPerRadian)

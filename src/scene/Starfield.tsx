@@ -11,6 +11,7 @@ import {
   POINT_VISIBILITY_FADE_START,
 } from '@/astro/photometry'
 import { DISPLAY_TONEMAP_GLSL } from './display/tonemap'
+import { applySkyGlow, SKY_GLOW_GLSL, skyGlowUniforms, type SkyGlow } from './display/skyGlowGradient'
 import {
   EYE_POINT_SPREAD_SR,
   PHOTOPIC_FLOOR,
@@ -55,6 +56,8 @@ export function Starfield({
   aerosolTurbidity = 1,
   /** Sans atmosphere, rien n'eteint les etoiles : ni au zenith, ni a l'horizon. */
   extinction = true,
+  /** Fond de ciel au zenith : c'est lui qui s'eclaircit vers l'horizon. */
+  skyGlow,
 }: {
   date: Date
   location: GeoLocation
@@ -62,6 +65,7 @@ export function Starfield({
   limitingMagnitude: number
   aerosolTurbidity?: number
   extinction?: boolean
+  skyGlow: SkyGlow
 }) {
   const pointsRef = useRef<Points>(null)
   const matrix = useRef(new Matrix4())
@@ -89,6 +93,7 @@ export function Starfield({
         blending: AdditiveBlending,
         uniforms: {
           ...refractionUniforms(),
+          ...skyGlowUniforms(),
           uLimitMag: { value: limitingMagnitude },
           uPixelRatio: { value: Math.min(2, typeof window === 'undefined' ? 1 : window.devicePixelRatio) },
           uBaseSize: { value: POINT_BASE_SIZE_PX },
@@ -110,6 +115,7 @@ export function Starfield({
         },
         vertexShader: /* glsl */ `
           ${REFRACTION_LUT_GLSL}
+          ${SKY_GLOW_GLSL}
           attribute vec3 starColor;
           attribute float starMag;
           varying vec3 vColor;
@@ -181,7 +187,11 @@ export function Starfield({
             // 1 exactement a la limite. La limite contient deja l'extinction du
             // zenith — c'est une mesure d'observateur — : seul l'exces s'y
             // compare. Voir \`visibilityExtinction\`.
-            float delta = starMag + uExtinctionK * (x - 1.0) - uLimitMag;
+            //
+            // Et la limite est celle du ciel **local** : le fond s'eclaircit vers
+            // l'horizon, voir display/skyGlowGradient.ts.
+            float delta = starMag + uExtinctionK * (x - 1.0) -
+                          (uLimitMag - limitShiftAt(trueAltDeg, x, uExtinctionK));
             float rel = pow(10.0, -0.4 * delta);
             float lg = log(1.0 + rel);
 
@@ -283,6 +293,7 @@ export function Starfield({
     p.matrixAutoUpdate = false
     p.matrixWorldNeedsUpdate = true
     material.uniforms.uLimitMag.value = limitingMagnitude
+    applySkyGlow(material.uniforms as unknown as ReturnType<typeof skyGlowUniforms>, skyGlow)
     // Un ciel plus charge en aerosols eteint aussi davantage les etoiles, par
     // le meme phenomene qui blanchit l'horizon -- meme trouble que la
     // diffusion Mie du fond de ciel, voir `atmosphere/mie/aerosol.ts`.
