@@ -167,7 +167,7 @@ tokens. Tous les conteneurs en dérivent.
 - `photometry.ts` — éclairement du ciel, extinction, magnitude limite, éclipses
 - `kepler.ts` — propagation képlérienne + dérives séculaires J2
 - `satellite.ts` — position topocentrique, ombre terrestre, traces, passages
-- `catalog.ts` — catalogue HYG (5 071 étoiles ≤ mag 6,0) et 89 figures
+- `catalog.ts` — catalogue HYG (15 598 étoiles ≤ mag 7,0) et 89 figures
 
 ### Le modèle photométrique
 
@@ -347,7 +347,12 @@ aucun appel réseau.
 
 `src/data/stars.json`, `constellations.json` et `deepsky.json` sont générés par
 `npm run data` depuis la base HYG v4.1, les figures de d3-celestial et OpenNGC,
-puis commités. Les cartes de surface sont récupérées par `npm run textures` dans
+puis commités. La carte de la Voie lactée (`public/textures/milky-way.png`) est
+construite par `node scripts/build-milky-way.mjs` depuis la couche « Milky Way
+background » des Deep Star Maps 2020 : brillance de surface ancrée à
+19,75 mag/arcsec² sur le nuage du Sagittaire, teinte dans les deux autres canaux.
+Elle passe par la même loi que le ciel profond, et s'efface donc d'elle-même
+sous la pollution lumineuse, la Lune ou le crépuscule. Les cartes de surface sont récupérées par `npm run textures` dans
 `public/textures/`. Rien n'est téléchargé à l'exécution.
 
 ## Versions
@@ -368,9 +373,10 @@ Chaque version est un tag annoté `vX.Y.Z`, dont le message reprend le journal. 
 | Donnée | Source | Licence |
 | --- | --- | --- |
 | Éphémérides | [astronomy-engine](https://github.com/cosinekitty/astronomy) (Don Cross) | MIT |
-| Étoiles (5 071) | [HYG Database v4.1](https://github.com/astronexus/HYG-Database) (Astronexus) | CC BY-SA 2.5 |
+| Étoiles (15 598) | [HYG Database v4.1](https://github.com/astronexus/HYG-Database) (Astronexus) | CC BY-SA 2.5 |
 | Figures de constellations | [d3-celestial](https://github.com/ofrohn/d3-celestial) (Olaf Frohn) | BSD 3-Clause |
 | Ciel profond (1 738) | [OpenNGC](https://github.com/mattiaverga/OpenNGC) (Mattia Verga) | CC BY-SA 4.0 |
+| Voie lactée | [Deep Star Maps 2020](https://svs.gsfc.nasa.gov/4851) (NASA/GSFC SVS), d'après Gaia DR2 (ESA/Gaia/DPAC) | domaine public |
 | Cartes de surface | [Solar System Scope](https://www.solarsystemscope.com/textures/) | **CC BY 4.0** |
 | Éléments orbitaux | [CelesTrak](https://celestrak.org/) (Dr T.S. Kelso) | usage libre, mise en cache demandée |
 | Relief mondial | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen, AWS Open Data) | attribution des sources |

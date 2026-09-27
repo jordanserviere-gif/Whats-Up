@@ -9,6 +9,7 @@ import './SkyHud.css'
 /** Calques proposes en acces direct au-dessus de la scene. */
 const QUICK_LAYERS: Array<{ key: keyof LayerVisibility; label: string; icon: string }> = [
   { key: 'constellations', label: 'Constellations', icon: 'star' },
+  { key: 'milkyWay', label: 'Voie lactée', icon: 'auto_awesome' },
   { key: 'deepSky', label: 'Ciel profond', icon: 'blur_on' },
   { key: 'horizonGrid', label: 'Grille horizon', icon: 'grid_on' },
   { key: 'equatorialGrid', label: 'Grille équatoriale', icon: 'public' },

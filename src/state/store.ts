@@ -59,6 +59,8 @@ export interface LayerVisibility {
   bodyLabels: boolean
   /** Objets du ciel profond : galaxies, amas, nebuleuses. */
   deepSky: boolean
+  /** La lueur des etoiles non resolues — voir `scene/MilkyWay.tsx`. */
+  milkyWay: boolean
   horizonGrid: boolean
   equatorialGrid: boolean
   ecliptic: boolean
@@ -302,6 +304,7 @@ const DEFAULT_LAYERS: LayerVisibility = {
   bodies: true,
   bodyLabels: true,
   deepSky: true,
+  milkyWay: true,
   horizonGrid: false,
   equatorialGrid: false,
   ecliptic: false,

@@ -1,0 +1,19 @@
+{
+  "source": "NASA/GSFC Scientific Visualization Studio, Deep Star Maps 2020 (svs.gsfc.nasa.gov/4851) ; Gaia DR2 ESA/Gaia/DPAC",
+  "width": 2048,
+  "height": 1024,
+  "muBright": 19,
+  "muStep": 0.025,
+  "chromaRange": 1.5,
+  "anchorMu": 19.753,
+  "starCut": 8,
+  "landmarks": {
+    "nuage de l Ecu": 20.86,
+    "grand nuage du Sagittaire": 19.85,
+    "Cygne": 22.84,
+    "Carene": 21.18,
+    "Grand Nuage de Magellan": 21.22,
+    "anticentre": 22.93,
+    "poles galactiques (|b| > 70°)": 25.39
+  }
+}

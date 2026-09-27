@@ -49,6 +49,7 @@ import { directSolar, sunDiscTint } from '@/atmosphere/transport/directSolar'
 import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
+import { MilkyWay } from './MilkyWay'
 import './SkyCanvas.css'
 
 const EMPTY_AIRCRAFT: AircraftState[] = []
@@ -646,6 +647,15 @@ export function SkyCanvas() {
           pollutionColor={LIGHT_POLLUTION_TINT ?? NEUTRAL_GLOW}
         />
 
+        {layers.milkyWay && (
+          <MilkyWay
+            date={date}
+            location={location}
+            limitingMagnitude={limitingMagnitude}
+            aerosolTurbidity={aerosolTurbidity}
+            extinction={layers.atmosphere}
+          />
+        )}
         {layers.stars && (
           <Starfield
             date={date}

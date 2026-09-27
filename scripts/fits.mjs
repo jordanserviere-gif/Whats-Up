@@ -104,20 +104,31 @@ function paeth(a, b, c) {
  * dont la somme des valeurs absolues signees est la plus faible.
  */
 export function writeGrayPng(pixels, largeur, hauteur) {
-  const brut = Buffer.alloc(hauteur * (largeur + 1))
-  const essai = Buffer.alloc(largeur)
-  const garde = Buffer.alloc(largeur)
+  return writePng(pixels, largeur, hauteur, 1)
+}
+
+/** Idem en RVB a huit bits par canal, pixels entrelaces. */
+export function writeRgbPng(pixels, largeur, hauteur) {
+  return writePng(pixels, largeur, hauteur, 3)
+}
+
+function writePng(pixels, largeur, hauteur, canaux) {
+  const pas = largeur * canaux
+  const brut = Buffer.alloc(hauteur * (pas + 1))
+  const essai = Buffer.alloc(pas)
+  const garde = Buffer.alloc(pas)
   for (let y = 0; y < hauteur; y++) {
-    const ligne = pixels.subarray(y * largeur, (y + 1) * largeur)
-    const dessus = y > 0 ? pixels.subarray((y - 1) * largeur, y * largeur) : null
+    const ligne = pixels.subarray(y * pas, (y + 1) * pas)
+    const dessus = y > 0 ? pixels.subarray((y - 1) * pas, y * pas) : null
     let meilleur = 0
     let meilleurCout = Infinity
     for (let f = 0; f < 5; f++) {
       let cout = 0
-      for (let x = 0; x < largeur; x++) {
-        const a = x > 0 ? ligne[x - 1] : 0
+      for (let x = 0; x < pas; x++) {
+        // Le voisin de gauche est l'octet du meme canal, un pixel plus tot.
+        const a = x >= canaux ? ligne[x - canaux] : 0
         const b = dessus ? dessus[x] : 0
-        const c = dessus && x > 0 ? dessus[x - 1] : 0
+        const c = dessus && x >= canaux ? dessus[x - canaux] : 0
         const v =
           f === 0 ? ligne[x]
           : f === 1 ? ligne[x] - a
@@ -133,15 +144,15 @@ export function writeGrayPng(pixels, largeur, hauteur) {
         essai.copy(garde)
       }
     }
-    brut[y * (largeur + 1)] = meilleur
-    garde.copy(brut, y * (largeur + 1) + 1)
+    brut[y * (pas + 1)] = meilleur
+    garde.copy(brut, y * (pas + 1) + 1)
   }
 
   const ihdr = Buffer.alloc(13)
   ihdr.writeUInt32BE(largeur, 0)
   ihdr.writeUInt32BE(hauteur, 4)
   ihdr[8] = 8 // huit bits
-  ihdr[9] = 0 // niveaux de gris
+  ihdr[9] = canaux === 3 ? 2 : 0 // RVB ou niveaux de gris
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     bloc('IHDR', ihdr),

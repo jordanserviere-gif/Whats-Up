@@ -398,6 +398,7 @@ function SourcesSection() {
       <DataRow label="Éphémérides" value="astronomy-engine" />
       <DataRow label="Étoiles" value={`HYG v4.1 · ${STAR_COUNT.toLocaleString('fr-FR')}`} />
       <DataRow label="Ciel profond" value={`OpenNGC · ${DEEP_SKY_COUNT.toLocaleString('fr-FR')}`} />
+      <DataRow label="Voie lactée" value="NASA SVS · Gaia DR2" />
       <DataRow label="Figures" value="d3-celestial" />
       <Divider />
       <p className="wu-type-body-s">
@@ -413,6 +414,8 @@ function SourcesSection() {
       </p>
       <p className="wu-type-body-s">
         Catalogue OpenNGC de Mattia Verga, sous CC BY-SA 4.0. Base HYG d’Astronexus, sous CC BY-SA 2.5.
+        Voie lactée : Deep Star Maps 2020, NASA/Goddard Space Flight Center Scientific Visualization Studio,
+        d’après Gaia DR2 (ESA/Gaia/DPAC).
       </p>
       <p className="wu-type-label settings__version">
         What’s Up? v{__APP_VERSION__}
