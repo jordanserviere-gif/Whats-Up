@@ -320,6 +320,18 @@ const DEFAULT_LAYERS: LayerVisibility = {
 let satSeq = 0
 const nextSatId = () => `sat-${Date.now().toString(36)}-${++satSeq}`
 
+/**
+ * Magnitude limite du catalogue d'etoiles affiche par defaut.
+ *
+ * Celle du catalogue lui-meme — `magLimit` de `data/stars.json`, repetee ici
+ * pour ne pas faire charger le catalogue par le magasin. Elle doit depasser la
+ * magnitude limite d'un ciel vierge, 6,6, faute de quoi le catalogue et non le
+ * ciel decide de ce qu'on voit.
+ */
+const DEFAULT_MAGNITUDE_LIMIT = 7
+/** Ancien plafond du catalogue, avant son extension a la magnitude 7. */
+const LEGACY_CATALOGUE_CEILING = 6
+
 export const useSkyStore = create<SkyState>()(
   persist(
     (set, get) => ({
@@ -396,7 +408,7 @@ export const useSkyStore = create<SkyState>()(
       setTerrainProgress: (terrainProgress) => set({ terrainProgress }),
       toggleLayer: (key) => set((s) => ({ layers: { ...s.layers, [key]: !s.layers[key] } })),
       setLayer: (key, value) => set((s) => ({ layers: { ...s.layers, [key]: value } })),
-      magnitudeLimit: 6,
+      magnitudeLimit: DEFAULT_MAGNITUDE_LIMIT,
       setMagnitudeLimit: (magnitudeLimit) => set({ magnitudeLimit }),
       discScale: 1,
       setDiscScale: (discScale) => set({ discScale }),
@@ -479,6 +491,13 @@ export const useSkyStore = create<SkyState>()(
           ...saved,
           layers: { ...DEFAULT_LAYERS, ...(saved.layers ?? {}) },
           celestrakGroups: groups,
+          // Six etait le plafond du catalogue, donc « tout afficher » : un
+          // curseur reste au plafond suit le catalogue quand il s'approfondit,
+          // au lieu de figer le ciel a l'ancienne coupure.
+          magnitudeLimit:
+            saved.magnitudeLimit === undefined || saved.magnitudeLimit >= LEGACY_CATALOGUE_CEILING
+              ? DEFAULT_MAGNITUDE_LIMIT
+              : saved.magnitudeLimit,
         }
       },
     },

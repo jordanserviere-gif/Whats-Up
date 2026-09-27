@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CACHE = join(ROOT, 'scripts', '.cache')
 const OUT = join(ROOT, 'src', 'data')
-const MAG_LIMIT = 6.0
+const MAG_LIMIT = 7.0
 
 const SOURCES = {
   hyg: 'https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv',

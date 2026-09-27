@@ -18,6 +18,7 @@ import { bodyOrientation } from '@/astro/orientation'
 import {
   earthshineRatio,
   extinctionMagnitudes,
+  visibilityExtinction,
   extinctionTint,
   pointIntensity,
   pointSizePixels,
@@ -588,7 +589,10 @@ function Body({
         halo.uniforms.uCore.value = 0
         ;(halo.uniforms.uColor.value as Color).set(glowColor)
       } else {
-        const apparentMag = state.magnitude + extinction
+        // Comparee a la magnitude limite, qui contient deja l'extinction du
+        // zenith : seul l'exces compte — voir \`visibilityExtinction\`.
+        const apparentMag =
+          state.magnitude + visibilityExtinction(state.horizontal.altitude, aerosolTurbidity, location.elevation)
         const px = pointSizePixels(apparentMag, limitingMagnitude)
         const glowWorld = worldSizeForPixels(Math.max(px, 0.5), camera as PerspectiveCamera, size.height, depth)
         // Le halo s'efface des que le disque est resolu : sinon il le noierait.

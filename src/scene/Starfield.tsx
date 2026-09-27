@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { buildStarGeometry } from '@/astro/catalog'
 import {
   EXTINCTION_COEFFICIENT,
+  extinctionCoefficient,
   POINT_BASE_SIZE_PX,
   POINT_BRIGHTNESS_SCALE,
   POINT_VISIBILITY_FADE_END,
@@ -52,12 +53,15 @@ export function Starfield({
   limitingMagnitude,
   /** Trouble atmospherique -- meme reglage que le voile du ciel, voir `atmosphere.ts`. */
   aerosolTurbidity = 1,
+  /** Sans atmosphere, rien n'eteint les etoiles : ni au zenith, ni a l'horizon. */
+  extinction = true,
 }: {
   date: Date
   location: GeoLocation
   magnitudeLimit: number
   limitingMagnitude: number
   aerosolTurbidity?: number
+  extinction?: boolean
 }) {
   const pointsRef = useRef<Points>(null)
   const matrix = useRef(new Matrix4())
@@ -174,8 +178,10 @@ export function Starfield({
             float extinction = uExtinctionK * x;
 
             // Ecart a la magnitude limite, et rapport de flux correspondant :
-            // 1 exactement a la limite.
-            float delta = starMag + extinction - uLimitMag;
+            // 1 exactement a la limite. La limite contient deja l'extinction du
+            // zenith — c'est une mesure d'observateur — : seul l'exces s'y
+            // compare. Voir \`visibilityExtinction\`.
+            float delta = starMag + uExtinctionK * (x - 1.0) - uLimitMag;
             float rel = pow(10.0, -0.4 * delta);
             float lg = log(1.0 + rel);
 
@@ -280,7 +286,7 @@ export function Starfield({
     // Un ciel plus charge en aerosols eteint aussi davantage les etoiles, par
     // le meme phenomene qui blanchit l'horizon -- meme trouble que la
     // diffusion Mie du fond de ciel, voir `atmosphere/mie/aerosol.ts`.
-    material.uniforms.uExtinctionK.value = EXTINCTION_COEFFICIENT * aerosolTurbidity
+    material.uniforms.uExtinctionK.value = extinction ? extinctionCoefficient(aerosolTurbidity) : 0
     // La meme table que les corps du systeme solaire et les constellations.
     applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])
 

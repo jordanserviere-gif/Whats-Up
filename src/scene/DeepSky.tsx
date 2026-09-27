@@ -15,6 +15,7 @@ import { buildDeepSkyGeometry } from '@/astro/deepsky'
 import { colourFor } from './deepSkyColour'
 import {
   EXTINCTION_COEFFICIENT,
+  extinctionCoefficient,
   POINT_BRIGHTNESS_SCALE,
   POINT_VISIBILITY_FADE_END,
   POINT_VISIBILITY_FADE_START,
@@ -75,6 +76,7 @@ export function DeepSky({
   magnitudeLimit,
   limitingMagnitude,
   aerosolTurbidity,
+  extinction = true,
 }: {
   date: Date
   location: GeoLocation
@@ -95,6 +97,8 @@ export function DeepSky({
    * l'horizon.
    */
   aerosolTurbidity: number
+  /** Sans atmosphere, rien n'eteint le ciel profond. */
+  extinction?: boolean
 }) {
   const meshRef = useRef<InstancedMesh>(null)
   const matrix = useRef(new Matrix4())
@@ -280,7 +284,10 @@ export function DeepSky({
           //
           //     mu_observee = mu_intrinseque + k · X
           //
-          float extinction = uExtinctionK * vAirmass;
+          // La comparaison au seuil ne prend que l'exces sur le zenith : la
+          // magnitude limite, mesure d'observateur, contient deja k. Le terme
+          // retranche revient plus bas, pour la luminance retinienne.
+          float extinction = uExtinctionK * (vAirmass - 1.0);
           float sbObserved = vSb + extinction;
 
           // --- Le profil : l'image du releve, ou le modele --------------------
@@ -401,7 +408,7 @@ export function DeepSky({
           // Meme expression que pour une etoile, et pour cause : m_seen ramene
           // les deux cas au flux tombant dans la tache de diffusion.
           float retinal = ${ZERO_MAGNITUDE_LUX.toExponential(6)} *
-                          pow(10.0, -0.4 * mSeen) /
+                          pow(10.0, -0.4 * (mSeen + uExtinctionK)) /
                           ${EYE_POINT_SPREAD_SR.toExponential(6)};
           float mesopic = log2(max(1e-9, retinal) / ${SCOTOPIC_CEILING.toFixed(4)}) /
                           log2(${PHOTOPIC_FLOOR.toFixed(1)} / ${SCOTOPIC_CEILING.toFixed(4)});
@@ -526,7 +533,7 @@ export function DeepSky({
     material.uniforms.uInstrumentGain.value = instrumentGainMag(1 / pixelsPerRadian)
     // Le meme coefficient que les etoiles, trouble compris : les deux calques
     // doivent s'eteindre ensemble.
-    material.uniforms.uExtinctionK.value = EXTINCTION_COEFFICIENT * aerosolTurbidity
+    material.uniforms.uExtinctionK.value = extinction ? extinctionCoefficient(aerosolTurbidity) : 0
     // La meme table que les etoiles : un amas doit rester au milieu des etoiles
     // qui le composent.
     applyRefractionUniforms(material.uniforms as Parameters<typeof applyRefractionUniforms>[0])

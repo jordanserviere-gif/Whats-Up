@@ -653,6 +653,7 @@ export function SkyCanvas() {
             magnitudeLimit={magnitudeLimit}
             limitingMagnitude={limitingMagnitude}
             aerosolTurbidity={aerosolTurbidity}
+            extinction={layers.atmosphere}
           />
         )}
         {layers.constellations && (
@@ -665,6 +666,7 @@ export function SkyCanvas() {
             magnitudeLimit={DEEP_SKY_MAG_LIMIT}
             limitingMagnitude={limitingMagnitude}
             aerosolTurbidity={aerosolTurbidity}
+            extinction={layers.atmosphere}
           />
         )}
 

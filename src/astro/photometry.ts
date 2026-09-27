@@ -371,6 +371,15 @@ const AEROSOL_EXTINCTION = 0.12
 export const EXTINCTION_COEFFICIENT = MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION
 
 /**
+ * Coefficient d'extinction pour un trouble donne, magnitudes par masse d'air.
+ *
+ * Seule la part aerosol suit le trouble — voir `extinctionMagnitudes`. Les
+ * nuanceurs des etoiles et du ciel profond multipliaient tout le coefficient,
+ * l'erreur que la version processeur avait deja corrigee.
+ */
+export const extinctionCoefficient = (turbidity = 1): number => MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION * turbidity
+
+/**
  * Perte de magnitude due a la traversee de l'atmosphere.
  *
  * `turbidity` est le meme trouble atmospherique (charge en aerosols) que celui
@@ -400,7 +409,24 @@ export const EXTINCTION_COEFFICIENT = MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION
  * largement.
  */
 export const extinctionMagnitudes = (altitudeDeg: number, turbidity = 1, observerElevationM = 0) =>
-  (MOLECULAR_EXTINCTION + AEROSOL_EXTINCTION * turbidity) * airmass(altitudeDeg, observerElevationM)
+  extinctionCoefficient(turbidity) * airmass(altitudeDeg, observerElevationM)
+
+/**
+ * Extinction a comparer a la magnitude limite : celle qui s'ajoute a l'extinction
+ * du zenith.
+ *
+ * ⚠️ **La magnitude limite contient deja l'extinction du zenith.** Les paliers
+ * de `LIMIT_MAG_ANCHORS` comme la relation de Schaefer sont des mesures
+ * d'observateurs : 6,6 est la magnitude de **catalogue** de l'etoile la plus
+ * faible vue pres du zenith, a travers l'atmosphere. Y ajouter `k·X` comptait
+ * deux fois les 0,28 magnitude du zenith, et un ciel annonce a 6,6 n'en montrait
+ * que 6,3 — un tiers d'etoiles en moins, a toutes les hauteurs.
+ *
+ * L'extinction absolue reste la bonne pour l'eclairement recu, donc pour la
+ * couleur percue ; c'est la comparaison au seuil qui se refere au zenith.
+ */
+export const visibilityExtinction = (altitudeDeg: number, turbidity = 1, observerElevationM = 0) =>
+  Math.max(0, extinctionMagnitudes(altitudeDeg, turbidity, observerElevationM) - extinctionMagnitudes(90, turbidity, observerElevationM))
 
 export interface SkyLuminance {
   /** Eclairement horizontal total, en lux. */
