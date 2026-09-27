@@ -23,9 +23,6 @@ import {
 import {
   ARCSEC2_STERADIAN,
   EYE_POINT_SPREAD_SR,
-  PHOTOPIC_FLOOR,
-  SCOTOPIC_CEILING,
-  ZERO_MAGNITUDE_LUX,
 } from './display/adaptation'
 import { instrumentGainMag } from './display/instrument'
 import { effectiveSummationSr } from './display/extendedVision'
@@ -385,57 +382,19 @@ export function DeepSky({
           float alpha = falloff * opacity;
           if (alpha < 0.004) discard;
 
-          // --- La couleur, et pourquoi elle doit s'en aller ------------------
+          // --- La couleur : celle de l'objet, comme dans Stellarium ---------
           //
-          // ⚠️ **A l'oeil nu, un objet du ciel profond est gris.** Sa brillance
-          // de surface le place en plein regime scotopique, ou les cones ne
-          // repondent plus : seule une pose longue en revele la teinte. Le
-          // moteur applique deja cette loi aux etoiles et au fond de ciel ; ce
-          // calque y echappait, et rendait la chromaticite pleine d'un jeton
-          // d'interface.
+          // ⚠️ **La desaturation scotopique a ete retiree.** Elle suivait la
+          // physique de l'oeil : a ces brillances de surface les cones
+          // decrochent, et une galaxie est grise a l'oeil nu. Mais appliquee a
+          // tout le ciel profond, elle le rendait en noir et blanc, et ce n'est
+          // pas ce qu'on attend d'une carte du ciel. Comme les planetariums, on
+          // garde la teinte que son indice B−V donne a l'objet.
           //
-          // Contrairement a une etoile, un objet etendu **a** une luminance : sa
-          // brillance de surface en donne une directement, sans passer par la
-          // tache de diffusion de l'oeil.
-          //
-          //     L = E_mag0 · 10^(−0,4·mu) / (1 arcsec² en steradians)
-          //
-          // Verification : 22 mag/arcsec² rend 1,71·10⁻⁴ cd/m², contre 1,7·10⁻⁴
-          // publie pour un ciel tres noir.
-          // C'est la brillance **locale** qui decide : le coeur d'une nebuleuse
-          // peut franchir le plafond scotopique quand ses bords n'y sont pas.
-          //
-          // Meme expression que pour une etoile, et pour cause : m_seen ramene
-          // les deux cas au flux tombant dans la tache de diffusion.
-          float retinal = ${ZERO_MAGNITUDE_LUX.toExponential(6)} *
-                          pow(10.0, -0.4 * (mSeen + uExtinctionK)) /
-                          ${EYE_POINT_SPREAD_SR.toExponential(6)};
-          float mesopic = log2(max(1e-9, retinal) / ${SCOTOPIC_CEILING.toFixed(4)}) /
-                          log2(${PHOTOPIC_FLOOR.toFixed(1)} / ${SCOTOPIC_CEILING.toFixed(4)});
-          float rods = 1.0 - smoothstep(0.0, 1.0, mesopic);
-
-          // --- ⚠️ Un capteur n'a pas de batonnets --------------------------
-          //
-          // Le gris du ciel profond est une propriete de **l'oeil** : sous le
-          // plafond scotopique, les cones ne repondent plus. Un capteur ne
-          // connait pas cette limite, et la loi mesopique cesse donc de
-          // s'appliquer a mesure qu'il prend le relais de la pupille.
-          //
-          // La part qu'il prend se deduit, elle ne se regle pas : c'est la
-          // fraction de la lumiere que l'oeil seul n'aurait pas pu collecter.
-          //
-          //     part = 1 − (D_oeil / D)² = 1 − 10^(−0,4·gain)
-          //
-          // Nulle a champ large — le rendu reste exactement celui de l'oeil, et
-          // une galaxie y est grise comme elle doit l'etre.
-          float sensor = 1.0 - pow(10.0, -0.4 * uInstrumentGain);
-          rods *= 1.0 - sensor;
-
           // Rougissement par l'extinction, normalise sur le rouge — la meme loi
           // que les etoiles.
           float xr = max(0.0, vAirmass - 1.0);
-          vec3 tinted = vColor * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));
-          vec3 seen = mix(tinted, vec3(dot(tinted, vec3(0.2126, 0.7152, 0.0722))), rods);
+          vec3 seen = vColor * vec3(1.0, exp(-0.035 * xr), exp(-0.085 * xr));
 
           // --- ⚠️ La cale de transition ne conserve pas la teinte -----------
           //
