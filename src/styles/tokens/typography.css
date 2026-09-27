@@ -62,7 +62,8 @@
 }
 
 .wu-type-display,
-.wu-type-headline {
+.wu-type-headline,
+.wu-type-display-s {
   font-family: var(--font-display);
   font-weight: var(--fw-black);
   line-height: var(--lh-display);
@@ -76,6 +77,11 @@
 }
 .wu-type-headline {
   font-size: var(--fs-headline);
+  line-height: var(--lh-headline);
+}
+/* Petit titrage : titres de cartes, heures et valeurs courtes. */
+.wu-type-display-s {
+  font-size: var(--fs-title);
   line-height: var(--lh-headline);
 }
 

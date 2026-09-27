@@ -16,6 +16,12 @@
   flex: 1 1 0;
   min-width: 0;
 }
+/* Quatre segments dans un panneau laissent 80 px chacun : la marge et l'ecart
+ * se resserrent pour que le libelle, et non l'air autour, garde la place. */
+.wu-segmented--full .wu-segmented__item {
+  padding-inline: var(--space-3);
+  gap: var(--space-2);
+}
 
 .wu-segmented__item {
   position: relative;

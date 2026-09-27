@@ -19,6 +19,8 @@
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 .wu-fab > * {
+  /* Un `transform` n'agit pas sur un element en ligne : voir Badge.css. */
+  display: inline-block;
   transform: skewX(var(--slant-inv));
 }
 .wu-fab:hover {

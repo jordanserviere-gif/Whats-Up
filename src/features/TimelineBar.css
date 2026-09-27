@@ -39,9 +39,13 @@
 }
 
 .timeline__time {
+  font-family: var(--font-display);
+  font-style: var(--display-style);
+  font-stretch: var(--display-stretch);
   font-size: var(--fs-headline);
   line-height: var(--lh-headline);
   font-weight: var(--fw-black);
+  letter-spacing: var(--tracking-display);
   font-variant-numeric: tabular-nums;
   transition: color var(--dur-fast) var(--ease-out);
 }

@@ -36,7 +36,7 @@ export function SkyHud() {
           <span className="sky-hud__compass-north wu-type-label is-emphasized">N</span>
         </div>
         <div className="sky-hud__readout">
-          <span className="wu-type-title is-emphasized wu-numeric">
+          <span className="wu-type-display-s">
             {azimuthToCardinal(viewAzimuth)} {Math.round(viewAzimuth)}°
           </span>
           <span className="wu-type-caption sky-hud__readout-sub wu-numeric">
@@ -87,7 +87,7 @@ export function SkyHud() {
       </div>
 
       <Surface level={2} shape="full" glass className="sky-hud__conditions">
-        <span className="wu-type-caption is-emphasized">
+        <span className="wu-type-display-s">
           {conditions.twilight}
           {conditions.obscuration > 0.001 && ` · éclipse ${Math.round(conditions.obscuration * 100)} %`}
         </span>

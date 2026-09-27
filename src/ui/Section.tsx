@@ -42,14 +42,14 @@ export function Section({
             onClick={() => setOpen((v) => !v)}
           >
             {icon && <Icon name={icon} size={20} className="wu-section__icon" />}
-            <span className="wu-type-title-s is-emphasized wu-section__title">{title}</span>
+            <span className="wu-type-label wu-section__title">{title}</span>
             {!expanded && summary && <span className="wu-type-caption wu-section__summary">{summary}</span>}
             <Icon name="expand_more" size={20} className="wu-section__chevron" />
           </button>
         ) : (
           <div className="wu-section__toggle wu-section__toggle--static">
             {icon && <Icon name={icon} size={20} className="wu-section__icon" />}
-            <span className="wu-type-title-s is-emphasized wu-section__title">{title}</span>
+            <span className="wu-type-label wu-section__title">{title}</span>
           </div>
         )}
         {actions && <div className="wu-section__actions">{actions}</div>}

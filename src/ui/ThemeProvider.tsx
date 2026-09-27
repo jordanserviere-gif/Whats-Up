@@ -42,7 +42,7 @@ function applyTheme(mode: ThemeMode) {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY}.mode`)
-    return isMode(saved) ? saved : 'dark'
+    return isMode(saved) ? saved : 'blue'
   })
   // Pendant le rendu, et non dans un effet : voir `applyTheme`. L'operation est
   // idempotente, la repeter a chaque rendu ne coute rien.
@@ -50,7 +50,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Theme vers lequel revenir en quittant night.
   const [dayMode, setDayMode] = useState<DayMode>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY}.day`)
-    return isDayMode(saved) ? saved : 'dark'
+    return isDayMode(saved) ? saved : 'blue'
   })
 
   useEffect(() => {

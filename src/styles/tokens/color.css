@@ -59,7 +59,9 @@
   --sky: var(--wu-blue-900);
 }
 
-/* Bleu : l'inverse signature — fond bleu, encre et accent blancs. */
+/* Bleu : l'inverse signature — fond bleu, encre et accent blancs. Le theme par
+ * defaut. Les traits restent dans le bleu : blancs, ceux du chrome flottant
+ * cernaient chaque panneau d'un liseré trop vif. */
 :root[data-theme='blue'] {
   --bg: var(--wu-blue-500);
   --surface: var(--wu-blue-500);
@@ -68,8 +70,8 @@
   --ink: var(--wu-white);
   --ink-strong: var(--wu-white);
   --ink-muted: var(--wu-blue-100);
-  --line: var(--wu-blue-400);
-  --line-strong: var(--wu-white);
+  --line: var(--wu-blue-450);
+  --line-strong: var(--wu-blue-300);
   --accent: var(--wu-white);
   --accent-hover: var(--wu-blue-50);
   --accent-press: var(--wu-blue-100);

@@ -15,6 +15,10 @@
   transform: skewX(var(--slant));
 }
 .wu-badge > * {
+  /* Un `transform` n'agit pas sur un element en ligne : sans ce display, le
+   * libelle restait cisaille avec le fond. */
+  display: inline-flex;
+  align-items: center;
   transform: skewX(var(--slant-inv));
 }
 .wu-badge .wu-type-label {

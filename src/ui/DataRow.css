@@ -1,12 +1,11 @@
-/* Ligne de donnee — libelle a gauche, valeur a chasse fixe a droite, filet
- * fin dessous. */
+/* Ligne de donnee — libelle a gauche, valeur a chasse fixe a droite. Sans
+ * filet : les ecrans les empilent et les separent deja par des `Divider`, un
+ * filet par ligne s'y ajoutait en traits a intervalles irreguliers. */
 .wu-data-row {
   display: flex;
   align-items: baseline;
   gap: var(--space-4);
   min-height: 1.75rem;
-  padding: var(--space-3) 0;
-  border-bottom: var(--border-hair) solid var(--line);
   min-width: 0;
 }
 
@@ -46,7 +45,7 @@
 
 .wu-data-grid {
   display: grid;
-  column-gap: var(--space-7);
+  gap: var(--space-3) var(--space-5);
 }
 
 /* --- Tuile --- */
@@ -95,8 +94,13 @@
   font-style: var(--display-style);
   font-stretch: var(--display-stretch);
   font-weight: var(--fw-black);
-  font-size: var(--fs-display-m);
+  /* 24 px et non 32 : en titrage etendu, un « 384 102 » de 32 px debordait
+   * d'une tuile en demi-largeur de panneau. */
+  font-size: var(--fs-headline);
   line-height: 0.95;
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
   letter-spacing: var(--tracking-display);
   font-variant-numeric: tabular-nums;
 }
