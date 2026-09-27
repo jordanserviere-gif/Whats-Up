@@ -349,6 +349,23 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
        * L'epaisseur optique moyenne du modele est conservee : la densite est
        * divisee par sa moyenne dans le nuage, lue dans la meme table.
        */
+      /**
+       * Champ de l'etage bas pour le rayon en cours : couverture, base, sommet,
+       * τ, et genre. La grille a six kilometres de maille ; la relire a chaque
+       * echantillon — ombres comprises — coutait l'essentiel du rayon, jusqu'a
+       * depasser le delai de garde du pilote graphique. On la relit tous les
+       * kilometres de trajet.
+       */
+      vec4 marchField;
+      float marchGenus;
+      void marchFieldAt(vec3 pos) {
+        vec3 up;
+        float t = length(pos);
+        vec2 en = groundPoint(t > 0.0 ? pos / t : vec3(0.0, 1.0, 0.0), t, up);
+        marchField = fieldAt(en, 0.0);
+        marchGenus = genusAt(en, 0.0);
+      }
+
       float volumeExtinction(vec3 pos, float footprint, bool detail) {
         vec3 up;
         float t = length(pos);
@@ -357,12 +374,12 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         // Hauteur au-dessus de l'oeil, forme stable (pas de difference de rayons).
         float muP = dir.y;
         float hEye = t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
-        vec4 f = fieldAt(en, 0.0);
+        vec4 f = marchField;
         float thickness = max(1.0, f.z - f.y);
         float z = uEyeAltitude + hEye;
         float h = (z - f.y) / thickness;
         if (h < 0.0 || h > 1.0 || f.x <= 0.001 || f.w < 0.0) return 0.0;
-        float code = genusAt(en, 0.0);
+        float code = marchGenus;
         int gi = int(code);
         // Maille de la forme, km : **uniforme** pour la carte, tiree du genre a
         // l'aplomb. Variable d'un point a l'autre, elle divisait une coordonnee
@@ -440,12 +457,18 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         float cosTheta = dot(d, sunDir);
         float phase0 = cloudDropletPhase(uDroplet, cosTheta);
         float t = t0 + jitter * coarse;
+        marchFieldAt(d * t);
+        float fieldT = t;
         bool inCloud = false;
         bool lastEmpty = true;
         int empty = 0;
         for (int s = 0; s < 512; s++) {
           if (t > t1 || T < 0.01) break;
           vec3 pos = d * t;
+          if (abs(t - fieldT) > 1000.0) {
+            marchFieldAt(pos);
+            fieldT = t;
+          }
           if (!inCloud) {
             if (volumeExtinction(pos, footprint, false) > 0.0) {
               inCloud = true;
@@ -499,7 +522,7 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
           // Profondeur jusqu'au sommet et a la base, estimee sur la verticale locale.
           vec3 up;
           vec2 en = groundPoint(normalize(pos), length(pos), up);
-          vec4 f = fieldAt(en, 0.0);
+          vec4 f = marchField;
           float muP = d.y;
           float z = uEyeAltitude + t * muP + t * t * (1.0 - muP * muP) / (2.0 * uObserverRadius);
           float tauUp = sigma * max(0.0, f.z - z);
@@ -738,9 +761,9 @@ const CACHE_MIN_ELEVATION_DEG = -12
 /** Passes accumulees par carte. La premiere seule suffit a l'afficher. */
 const CACHE_PASSES = 6
 /** Lignes par image : bornes de la cadence adaptative, et cadence sous le loader. */
-const ROWS_MIN = 4
-const ROWS_MAX = 64
-const ROWS_LOADING = 384
+const ROWS_MIN = 2
+const ROWS_MAX = 24
+const ROWS_LOADING = 24
 /** Au-dela de cet ecart entre l'instant affiche et l'instant simule, ms, la carte est refaite. */
 const STALE_MS = 30_000
 /** Au-dela de ce saut, ms, la construction en cours est abandonnee pour le nouvel instant. */
@@ -1038,7 +1061,7 @@ export function CloudLayer({
     /** Instant demande au worker, ou null. */
     waitingFor: null as number | null,
     fadeStart: -Infinity,
-    rows: 16,
+    rows: 8,
     opacity: 0,
   })
 
