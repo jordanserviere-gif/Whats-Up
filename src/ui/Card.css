@@ -38,6 +38,11 @@
   flex: 1;
 }
 
+/* Titrage, mais a 16 px : une carte tient dans une demi-hauteur de panneau. */
+.wu-card__title {
+  font-size: 1rem;
+}
+
 .wu-card__overline {
   color: var(--ink-muted);
 }

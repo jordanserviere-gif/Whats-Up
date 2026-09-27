@@ -10,12 +10,12 @@
   justify-content: center;
   gap: var(--space-7);
   padding: var(--space-7);
-  /* Fond a la couleur du logo — le primary, qui est le bleu de la marque —,
-   * et tout le contenu en on-primary. En night, le fond reste noir strict :
-   * seul le contenu est ambre (voir night.css). */
-  --_loader-bg: var(--accent);
-  --_loader-fg: var(--on-accent);
-  --_loader-fg-muted: color-mix(in srgb, var(--on-accent) 72%, transparent);
+  /* Fond au bleu du logo, contenu blanc, quel que soit le theme : l'accent,
+   * lui, passe au blanc sur les themes bleu et sombre. En night, le fond reste
+   * noir strict : seul le contenu est ambre (voir plus bas). */
+  --_loader-bg: var(--app-brand-blue);
+  --_loader-fg: var(--wu-white);
+  --_loader-fg-muted: color-mix(in srgb, var(--wu-white) 72%, transparent);
   background: var(--_loader-bg);
   color: var(--_loader-fg);
   text-align: center;

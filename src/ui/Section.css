@@ -50,9 +50,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-stretch: normal;
 }
 
 .wu-section__chevron {

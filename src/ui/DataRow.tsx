@@ -45,7 +45,7 @@ export function StatTile({ label, value, unit, icon, tone = 'neutral', className
         {icon && <Icon name={icon} size={18} />}
         <span className="wu-type-caption">{label}</span>
       </div>
-      <p className="wu-stat-tile__value wu-numeric">
+      <p className="wu-stat-tile__value">
         {value}
         {unit && <span className="wu-stat-tile__unit"> {unit}</span>}
       </p>

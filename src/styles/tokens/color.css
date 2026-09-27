@@ -96,7 +96,8 @@
   --ink-strong: var(--wu-white);
   --ink-muted: var(--wu-blue-200);
   --line: var(--wu-blue-700);
-  --line-strong: var(--wu-white);
+  /* Comme en bleu : des traits blancs cernaient trop vivement le chrome. */
+  --line-strong: var(--wu-blue-300);
   --accent: var(--wu-white);
   --accent-hover: var(--wu-blue-50);
   --accent-press: var(--wu-blue-100);

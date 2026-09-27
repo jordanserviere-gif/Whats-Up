@@ -164,6 +164,8 @@
   display: flex;
   align-items: center;
   margin-top: var(--space-2);
+  /* Place pour les heures, posees sous la bande. */
+  margin-bottom: 1rem;
   border-radius: var(--radius-pill);
   /* Un filet detache la bande de la barre. */
   box-shadow: inset 0 0 0 var(--border-hair) var(--line);
@@ -179,13 +181,18 @@
   pointer-events: none;
 }
 
+/* Heures sous la bande, a chasse fixe : posees dessus, elles se lisaient mal
+ * sur le bleu clair du jour comme sur le noir de la nuit. */
 .timeline__tick-label {
   position: absolute;
-  top: 0.125rem;
+  top: calc(100% + 0.25rem);
   left: 0.1875rem;
-  color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label-s);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  font-stretch: normal;
   white-space: nowrap;
 }
 

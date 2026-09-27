@@ -240,7 +240,7 @@ export function TimelineBar() {
 
           {ticks.map((t) => (
             <span key={t.left} className="timeline__tick" style={{ left: `${t.left}%` }} aria-hidden="true">
-              <span className="wu-type-label timeline__tick-label">{t.label}</span>
+              <span className="timeline__tick-label">{t.label}</span>
             </span>
           ))}
 

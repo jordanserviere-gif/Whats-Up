@@ -48,7 +48,7 @@ export function CardHeader({ icon, overline, title, subtitle, trailing, classNam
       )}
       <div className="wu-card__header-text">
         {overline && <p className="wu-type-label wu-card__overline">{overline}</p>}
-        <h3 className="wu-type-display-s">{title}</h3>
+        <h3 className="wu-type-display-s wu-card__title">{title}</h3>
         {subtitle && <p className="wu-type-body-s wu-card__subtitle">{subtitle}</p>}
       </div>
       {trailing && <div className="wu-card__header-trailing">{trailing}</div>}

@@ -27,6 +27,9 @@
 .sky-hud__compass {
   grid-column: 1;
   grid-row: 1;
+  /* La colonne est aussi celle des conditions, plus larges : la boussole garde
+   * la largeur de son contenu au lieu de s'etirer a vide. */
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -125,11 +128,21 @@
 .sky-hud__layers {
   grid-column: 1 / -1;
   grid-row: 2;
-  justify-self: end;
+  width: 100%;
   /* La bande defile horizontalement : elle ne deborde donc jamais, quel que
    * soit le nombre de calques proposes. */
   max-width: 100%;
   min-width: 0;
+  /* Etendue sur les trois colonnes, la bande donnerait sa largeur de contenu
+   * aux colonnes « auto » : la boussole s'elargissait a vide. Sans taille
+   * intrinseque, elle prend la place que la grille lui laisse. */
+  contain: inline-size;
+}
+
+/* Calees a droite tant qu'elles tiennent ; une marge automatique tombe a zero
+ * des que la bande deborde, et le defilement reste entier. */
+.sky-hud__layers .wu-chip-set > :first-child {
+  margin-inline-start: auto;
 }
 
 /* Posees sur le ciel : fond plein et trait fort, comme tout le chrome. */

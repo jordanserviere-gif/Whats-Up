@@ -107,6 +107,17 @@
 .wu-side-panel__detail > * {
   flex: none;
 }
+/* La fiche ancree a deja son cadre — le filet qui la separe de la liste, et le
+ * trait du panneau : la carte qu'elle porte n'en ajoute pas un second. */
+.wu-side-panel__detail > .wu-card {
+  border: none;
+  border-radius: 0;
+}
+.wu-side-panel__detail > .wu-card > .wu-card__header,
+.wu-side-panel__detail > .wu-card > .wu-card__body,
+.wu-side-panel__detail > .wu-card > .wu-card__actions {
+  padding-inline: var(--space-4);
+}
 
 .wu-side-panel__footer {
   display: flex;
