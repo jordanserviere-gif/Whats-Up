@@ -190,12 +190,13 @@
   animation: app-wipe var(--wipe-band-ms) cubic-bezier(0.83, 0, 0.17, 1) both;
   will-change: transform;
 }
-/* Du plus sombre au plus clair : la derniere, qui decouvre la vue, est la
- * couleur du logo. */
+/* Du plus sombre au plus clair. Aucune n'a la couleur du fond du loader (le
+ * primary, ton 40 environ) : une bande de cette couleur y serait invisible a
+ * l'arrivee, et l'on croirait a une pause avant elle. */
 .app-wipe__band--0 { background: var(--md-ref-palette-primary-20); }
 .app-wipe__band--1 { background: var(--md-ref-palette-primary-60); }
 .app-wipe__band--2 { background: var(--md-ref-palette-primary-80); }
-.app-wipe__band--3 { background: var(--md-sys-color-primary); }
+.app-wipe__band--3 { background: var(--md-ref-palette-primary-95); }
 
 @keyframes app-wipe {
   0% { transform: translateX(-140%) skewX(-14deg); }
