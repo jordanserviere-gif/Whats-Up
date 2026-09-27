@@ -30,6 +30,10 @@
 .app__timeline > * {
   width: min(1040px, 100%);
 }
+/* L'avancement des nuages se pose au-dessus de la frise, a gauche de la scene. */
+.app__timeline > .cloud-progress {
+  width: auto;
+}
 
 .app__panel {
   margin-block: 0;

@@ -124,6 +124,13 @@ interface SkyState {
    * scenario en sort : ses donnees ne decrivent que l'air au-dessus de lui.
    */
   weatherScenario: WeatherScenarioEntry | null
+  /**
+   * Avancement de la carte des nuages en construction, [0, 1], ou \`null\`
+   * quand aucune ne se construit — voir \`CloudLayer.tsx\`.
+   */
+  cloudProgress: number | null
+  /** Une carte des nuages est-elle a l'ecran ? Le loader l'attend. */
+  cloudsReady: boolean
   setWeatherScenario: (scenario: WeatherScenarioEntry | null) => void
   setSceneLoading: (loading: boolean) => void
   /** Ajoute le lieu aux favoris, ou l'en retire s'il y est deja. */
@@ -336,6 +343,8 @@ export const useSkyStore = create<SkyState>()(
       aircraftSimulated: false,
       setAircraftSimulated: (aircraftSimulated) => set({ aircraftSimulated }),
       weatherScenario: null,
+      cloudProgress: null,
+      cloudsReady: false,
       setWeatherScenario: (weatherScenario) => set({ weatherScenario }),
       setSceneLoading: (sceneLoading) => set({ sceneLoading }),
       favorites: [...PRESET_LOCATIONS],

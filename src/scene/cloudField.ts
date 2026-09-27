@@ -16,16 +16,10 @@ import { centerIndex, scenarioValue, type ScenarioGrid, type WeatherScenario } f
  *
  * Le temps est interpole entre les deux heures qui l'encadrent : le modele est
  * horaire, le ciel ne doit pas sauter d'une heure a l'autre.
+ *
+ * Tout ce calcul — dont un panache convectif par point et par heure — tourne
+ * dans \`cloudWorker.ts\` : le fil principal ne fait que televerser le resultat.
  */
-
-export interface CloudFieldFrame {
-  far: DataTexture
-  near: DataTexture
-  /** Etages vus a l'aplomb de l'observateur : ils calent les tables d'eclairage. */
-  overhead: CloudSlab[]
-  /** Vent au milieu de chaque etage, a l'aplomb, m/s (est, nord). */
-  windMS: [number, number][]
-}
 
 function column(s: WeatherScenario, g: ScenarioGrid, point: number, hour: number): ColumnLevel[] {
   const levels: ColumnLevel[] = []
@@ -38,6 +32,10 @@ function column(s: WeatherScenario, g: ScenarioGrid, point: number, hour: number
   }
   return levels
 }
+
+/** Table du Soleil vu d'un etage : hauteur locale de −10 a 90°, resserree pres de l'horizon. */
+export const SUN_TABLE_WIDTH = 64
+export const sunTableAltitude = (u: number) => -10 + 100 * u * u
 
 const COVER_KEY = { bas: 'ccl', moyen: 'ccm', haut: 'cch' } as const
 
@@ -87,7 +85,8 @@ function slabsBetween(s: WeatherScenario, g: ScenarioGrid, point: number, h0: nu
   })
 }
 
-function writeTexture(texture: DataTexture | null, s: WeatherScenario, g: ScenarioGrid, h0: number, h1: number, f: number) {
+/** Champ d'une grille, en demi-flottants — calcule hors du fil principal. */
+function packField(s: WeatherScenario, g: ScenarioGrid, h0: number, h1: number, f: number): Uint16Array {
   const n = g.n
   const data = new Uint16Array(n * n * 3 * 4)
   for (let point = 0; point < n * n; point++) {
@@ -104,12 +103,17 @@ function writeTexture(texture: DataTexture | null, s: WeatherScenario, g: Scenar
       data[o + 3] = DataUtils.toHalfFloat(slab.ice ? -slab.opticalDepth : slab.opticalDepth)
     })
   }
+  return data
+}
+
+/** Texture d'une grille, reutilisee si elle existe deja. Fil principal uniquement. */
+export function uploadField(texture: DataTexture | null, data: Uint16Array, n: number): DataTexture {
   if (texture) {
     ;(texture.image.data as unknown as Uint16Array).set(data)
     texture.needsUpdate = true
     return texture
   }
-  const t = new DataTexture(data, n, n * 3, RGBAFormat, HalfFloatType)
+  const t = new DataTexture(data.slice(), n, n * 3, RGBAFormat, HalfFloatType)
   t.magFilter = LinearFilter
   t.minFilter = LinearFilter
   t.wrapS = ClampToEdgeWrapping
@@ -143,14 +147,28 @@ export function scenarioHour(s: WeatherScenario, timeMs: number): number {
   return Math.min(s.times.length - 1, Math.max(0, (timeMs - start) / 3_600_000))
 }
 
-export function buildCloudField(s: WeatherScenario, timeMs: number, previous: CloudFieldFrame | null): CloudFieldFrame {
+/** Ce que le worker renvoie : les deux grilles et ce que l'eclairage doit connaitre. */
+export interface CloudFieldData {
+  timeMs: number
+  n: number
+  far: Uint16Array
+  near: Uint16Array
+  overhead: CloudSlab[]
+  windMS: [number, number][]
+}
+
+export function computeCloudField(s: WeatherScenario, timeMs: number): CloudFieldData {
   const hour = scenarioHour(s, timeMs)
   const h0 = Math.floor(hour)
   const h1 = Math.min(s.times.length - 1, h0 + 1)
   const f = hour - h0
-  const far = writeTexture(previous?.far ?? null, s, s.grids.far, h0, h1, f)
-  const near = writeTexture(previous?.near ?? null, s, s.grids.near, h0, h1, f)
   const overhead = slabsBetween(s, s.grids.near, centerIndex(s.grids.near), h0, h1, f)
-  const windMS = overhead.map((slab) => windAt(s, Math.round(hour), (slab.baseM + slab.topM) / 2))
-  return { far, near, overhead, windMS }
+  return {
+    timeMs,
+    n: s.grids.far.n,
+    far: packField(s, s.grids.far, h0, h1, f),
+    near: packField(s, s.grids.near, h0, h1, f),
+    overhead,
+    windMS: overhead.map((slab) => windAt(s, Math.round(hour), (slab.baseM + slab.topM) / 2)),
+  }
 }

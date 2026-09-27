@@ -10,10 +10,10 @@ import {
   Scene,
   Texture,
   WebGLRenderTarget,
+  type WebGLRenderer,
   ClampToEdgeWrapping,
   CustomBlending,
   DataTexture,
-  DataUtils,
   HalfFloatType,
   LinearFilter,
   OneFactor,
@@ -31,9 +31,10 @@ import { EARTH_MEAN_RADIUS_M } from '@/atmosphere/core/units'
 import { SEA_LEVEL_PRESSURE_PA, standardPressure } from '@/atmosphere/thermodynamics/standardAtmosphere'
 import { loadScenario, type WeatherScenario } from '@/data-sources/weatherScenario'
 import { useSkyStore } from '@/state/store'
-import { aerialTextures, aerialUniforms, applyAerialUniforms } from './useAerialLut'
-import { sunIrradianceAtAltitude } from './contrailLighting'
-import { buildCloudField, type CloudFieldFrame } from './cloudField'
+import { aerialSkyReady, aerialTextures, aerialUniforms, applyAerialUniforms } from './useAerialLut'
+import { SUN_TABLE_WIDTH, uploadField } from './cloudField'
+import { requestCloudField } from './cloudWorkerClient'
+import type { CloudSlab } from '@/atmosphere/cloud/cloudLayer'
 import { eyeAltitudeM } from './terrain/elevationField'
 import { GROUND_RADIUS } from './sceneMath'
 import { DETAIL_PERIOD, STRUCTURE_PERIOD, cloudNoiseTextures } from './cloudNoise'
@@ -97,28 +98,14 @@ const GROUND_ALBEDO = 0.15
 /** Diametre des gouttes pour la phase : 2 × 8 µm de rayon effectif. */
 const DROPLET = dropletPhaseParameters(16)
 
-/** Table du Soleil vu d'un etage : hauteur locale de −10 a 90°, resserree pres de l'horizon. */
-const SUN_TABLE_WIDTH = 64
-const sunTableAltitude = (u: number) => -10 + 100 * u * u
-
-function sunTable(heightsM: number[], previous: DataTexture | null): DataTexture {
-  const data = new Uint16Array(SUN_TABLE_WIDTH * 3 * 4)
-  heightsM.forEach((h, k) => {
-    for (let i = 0; i < SUN_TABLE_WIDTH; i++) {
-      const rgb = sunIrradianceAtAltitude(sunTableAltitude(i / (SUN_TABLE_WIDTH - 1)), h)
-      const o = (k * SUN_TABLE_WIDTH + i) * 4
-      data[o] = DataUtils.toHalfFloat(rgb[0])
-      data[o + 1] = DataUtils.toHalfFloat(rgb[1])
-      data[o + 2] = DataUtils.toHalfFloat(rgb[2])
-      data[o + 3] = DataUtils.toHalfFloat(1)
-    }
-  })
+/** Table du Soleil, calculee par le worker : ici, le seul televersement. */
+function uploadSunTable(data: Uint16Array, previous: DataTexture | null): DataTexture {
   if (previous) {
     ;(previous.image.data as unknown as Uint16Array).set(data)
     previous.needsUpdate = true
     return previous
   }
-  const t = new DataTexture(data, SUN_TABLE_WIDTH, 3, RGBAFormat, HalfFloatType)
+  const t = new DataTexture(data.slice(), SUN_TABLE_WIDTH, 3, RGBAFormat, HalfFloatType)
   t.magFilter = LinearFilter
   t.minFilter = LinearFilter
   t.wrapS = ClampToEdgeWrapping
@@ -147,6 +134,7 @@ function cloudUniforms() {
       uDroplet: { value: new Vector4(DROPLET.gHG, DROPLET.gD, DROPLET.alpha, DROPLET.wD) },
       uPixelAngle: { value: 1e-3 },
       uDetailKm: { value: 0.6 },
+      uPass: { value: 0 },
       uStructure: { value: null as Texture | null },
       uDetail: { value: null as Texture | null },
   }
@@ -177,6 +165,8 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       uniform float uPixelAngle;
       /** Echelle du detail 3D, km. */
       uniform float uDetailKm;
+      /** Indice de la passe d'accumulation en cours. */
+      uniform float uPass;
       uniform sampler2D uStructure;
       uniform highp sampler3D uDetail;
 
@@ -352,7 +342,9 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       vec4 volumeMarch(vec3 d, float t0, float t1, vec3 sunDir, vec3 sun, vec3 sky, vec3 atGround, float footprint, float g) {
         const int STEPS = 64;
         float dt = (t1 - t0) / float(STEPS);
-        float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        // Decalage de depart : bruit a gradient entrelace, tourne du nombre d'or
+        // a chaque passe — les passes accumulees couvrent tout le pas.
+        float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + 0.618034 * uPass);
         float T = 1.0;
         vec3 L = vec3(0.0);
         float cosTheta = dot(d, sunDir);
@@ -578,20 +570,45 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
 
 /**
  * Carte des directions : azimut en abscisse (0 au nord, vers l'est), hauteur
- * en ordonnee, de −12° a +90°. 4096 × 1152 texels, soit 0,09° : plus fin que
- * le pixel au champ par defaut. Un observateur immobile qui ne fait que
- * tourner la tete voit toujours les memes directions — c'est ce qui permet de
- * calculer les nuages ici, lentement, et de ne faire a l'ecran qu'une lecture.
+ * en ordonnee, de −12° a +90°. 4096 × 1152 texels, soit 0,09°. Un observateur
+ * immobile qui ne fait que tourner la tete voit toujours les memes directions :
+ * les nuages s'y calculent une fois, et l'ecran ne fait qu'une lecture.
+ *
+ * ## Deux cartes, et une construction silencieuse
+ *
+ * L'une est affichee, l'autre se construit. Changer d'heure lance la
+ * construction d'une carte neuve pour le nouvel instant ; l'ancienne reste a
+ * l'ecran, intacte, jusqu'a ce que la neuve ait sa premiere passe complete,
+ * puis un fondu les echange. Rien ne bloque : le champ est calcule dans un
+ * worker, et la marche sur la carte graphique est decoupee en bandes de
+ * quelques lignes, a un rythme qui s'ajuste a la fluidite mesuree.
+ *
+ * ## L'accumulation
+ *
+ * Chaque texel est calcule en plusieurs passes, chacune avec un decalage de
+ * depart different, et la carte en garde la somme : l'ecran divise par le
+ * nombre de passes. Le bruit d'une marche a pas fixes se moyenne au lieu de
+ * rester fige — c'est ce que les moteurs de jeu obtiennent par reprojection
+ * temporelle, et qu'un observateur immobile obtient gratuitement.
  */
 const CACHE_WIDTH = 4096
 const CACHE_HEIGHT = 1152
 const CACHE_MIN_ELEVATION_DEG = -12
-/**
- * Lignes recalculees par image, au plus : la carte entiere en 18 images. La
- * cadence reelle s'ajuste a la fluidite mesuree, de 4 a 64 lignes.
- */
-const CACHE_ROWS_PER_FRAME = 64
-/** Couleur de fond du rendu, sauvee le temps d'effacer la carte. */
+/** Passes accumulees par carte. La premiere seule suffit a l'afficher. */
+const CACHE_PASSES = 4
+/** Lignes par image : bornes de la cadence adaptative, et cadence sous le loader. */
+const ROWS_MIN = 4
+const ROWS_MAX = 64
+const ROWS_LOADING = 384
+/** Au-dela de cet ecart entre l'instant affiche et l'instant simule, ms, la carte est refaite. */
+const STALE_MS = 30_000
+/** Au-dela de ce saut, ms, la construction en cours est abandonnee pour le nouvel instant. */
+const RESTART_MS = 5 * 60_000
+/** Duree du fondu entre deux cartes, ms. */
+const FADE_MS = 500
+/** Au-dela de cette vitesse du temps, les nuages sont retires : ils ne suivraient pas. */
+const MAX_CLOUD_SPEED = 60
+/** Couleur de fond du rendu, sauvee le temps d'effacer une carte. */
 const clearColor = new Color()
 
 const CACHE_GLSL = /* glsl */ `
@@ -608,11 +625,16 @@ const CACHE_GLSL = /* glsl */ `
   }
 `
 
-/** Remplissage de la carte : un quad plein ecran, une direction par texel. */
+/** Remplissage : un quad plein ecran, une direction par texel, ajoutee a la somme. */
 function cloudFillMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     depthTest: false,
     depthWrite: false,
+    blending: CustomBlending,
+    blendSrc: OneFactor,
+    blendDst: OneFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneFactor,
     uniforms: cloudUniforms(),
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -632,7 +654,7 @@ function cloudFillMaterial(): ShaderMaterial {
   })
 }
 
-/** Affichage : lecture de la carte, profondeur calee sur la premiere nappe. */
+/** Affichage : les deux cartes normalisees et fondues, profondeur calee sur la premiere nappe. */
 function cloudScreenMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     side: BackSide,
@@ -644,7 +666,16 @@ function cloudScreenMaterial(): ShaderMaterial {
     blendDst: OneMinusSrcAlphaFactor,
     blendSrcAlpha: OneFactor,
     blendDstAlpha: OneMinusSrcAlphaFactor,
-    uniforms: { ...cloudUniforms(), uCache: { value: null as Texture | null } },
+    uniforms: {
+      ...cloudUniforms(),
+      uFront: { value: null as Texture | null },
+      uBack: { value: null as Texture | null },
+      uFrontPasses: { value: new Vector2(0, 0) },
+      uBackPasses: { value: 0 },
+      uFade: { value: 1 },
+      uOpacity: { value: 1 },
+      uExposureRatio: { value: new Vector2(1, 1) },
+    },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
       void main() {
@@ -656,11 +687,26 @@ function cloudScreenMaterial(): ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${CLOUD_SHADE_GLSL}
       ${CACHE_GLSL}
-      uniform sampler2D uCache;
+      uniform sampler2D uFront;
+      uniform sampler2D uBack;
+      /** x : passes completes de la carte affichee ; y : fraction des lignes deja faites de la suivante. */
+      uniform vec2 uFrontPasses;
+      uniform float uBackPasses;
+      /** Poids de la carte affichee dans le fondu. */
+      uniform float uFade;
+      uniform float uOpacity;
+      /** Exposition courante rapportee a celle de chaque carte (affichee, ancienne). */
+      uniform vec2 uExposureRatio;
       varying vec3 vDir;
       void main() {
         vec3 d = normalize(vDir);
-        vec4 c = texture2D(uCache, cacheUv(d));
+        vec2 uv = cacheUv(d);
+        float nf = uFrontPasses.x + (uv.y < uFrontPasses.y ? 1.0 : 0.0);
+        vec4 front = nf > 0.0 ? texture2D(uFront, uv) / nf : vec4(0.0);
+        vec4 back = uBackPasses > 0.0 ? texture2D(uBack, uv) / uBackPasses : vec4(0.0);
+        front.rgb *= uExposureRatio.x;
+        back.rgb *= uExposureRatio.y;
+        vec4 c = mix(back, front, uFade) * uOpacity;
         if (c.a < 0.002) discard;
         // Profondeur : la loi du relief, pour que l'un masque l'autre juste.
         float nearest = cloudNearest(d);
@@ -671,6 +717,67 @@ function cloudScreenMaterial(): ShaderMaterial {
       }
     `,
   })
+}
+
+/** Une carte et ce qui a servi a la construire. */
+interface CloudBuffer {
+  target: WebGLRenderTarget
+  far: DataTexture | null
+  near: DataTexture | null
+  sun: DataTexture | null
+  /** Instant decrit, ms. */
+  timeMs: number
+  /**
+   * Exposition de la construction. La carte garde une radiance exposee ;
+   * l'ecran applique le rapport a l'exposition courante, pour que
+   * l'adaptation de l'oeil ne demande pas de recalculer les nuages.
+   */
+  exposure: number
+  /** Passes completes. */
+  passes: number
+  /** Etages a l'aplomb et vent : ce qui cale l'eclairage et la derive. */
+  overhead: CloudSlab[]
+  windMS: [number, number][]
+}
+
+function makeBuffer(): CloudBuffer {
+  return {
+    target: new WebGLRenderTarget(CACHE_WIDTH, CACHE_HEIGHT, {
+      type: HalfFloatType,
+      depthBuffer: false,
+      magFilter: LinearFilter,
+      minFilter: LinearFilter,
+      wrapS: RepeatWrapping,
+      wrapT: ClampToEdgeWrapping,
+    }),
+    far: null,
+    near: null,
+    sun: null,
+    timeMs: Number.NaN,
+    exposure: 1,
+    passes: 0,
+    overhead: [],
+    windMS: [],
+  }
+}
+
+function clearTarget(gl: WebGLRenderer, target: WebGLRenderTarget) {
+  const previous = gl.getRenderTarget()
+  const color = gl.getClearColor(clearColor)
+  const alpha = gl.getClearAlpha()
+  target.scissorTest = false
+  gl.setRenderTarget(target)
+  gl.setClearColor(0x000000, 0)
+  gl.clear(true, false, false)
+  gl.setClearColor(color, alpha)
+  gl.setRenderTarget(previous)
+}
+
+/** Publie l'avancement dans le store, seulement quand il change visiblement. */
+function publishProgress(progress: number | null, ready: boolean) {
+  const s = useSkyStore.getState()
+  const q = progress == null ? null : Math.round(progress * 50) / 50
+  if (s.cloudProgress !== q || s.cloudsReady !== ready) useSkyStore.setState({ cloudProgress: q, cloudsReady: ready })
 }
 
 export function CloudLayer({
@@ -696,24 +803,8 @@ export function CloudLayer({
   }, [scenarioId])
 
   const fill = useMemo(cloudFillMaterial, [])
-  // L'ecran partage les memes objets uniformes : une seule mise a jour par image.
-  const screen = useMemo(() => {
-    const m = cloudScreenMaterial()
-    m.uniforms = { ...fill.uniforms, uCache: m.uniforms.uCache }
-    return m
-  }, [fill])
-  const cache = useMemo(() => {
-    const target = new WebGLRenderTarget(CACHE_WIDTH, CACHE_HEIGHT, {
-      type: HalfFloatType,
-      depthBuffer: false,
-      magFilter: LinearFilter,
-      minFilter: LinearFilter,
-      wrapS: RepeatWrapping,
-      wrapT: ClampToEdgeWrapping,
-    })
-    screen.uniforms.uCache.value = target.texture
-    return target
-  }, [screen])
+  const screen = useMemo(cloudScreenMaterial, [])
+  const buffers = useMemo<[CloudBuffer, CloudBuffer]>(() => [makeBuffer(), makeBuffer()], [])
   const fillPass = useMemo(() => {
     const scene = new Scene()
     const quad = new Mesh(new PlaneGeometry(2, 2), fill)
@@ -723,112 +814,203 @@ export function CloudLayer({
   }, [fill])
   useEffect(
     () => () => {
-      cache.dispose()
+      for (const b of buffers) {
+        b.target.dispose()
+        b.far?.dispose()
+        b.near?.dispose()
+        b.sun?.dispose()
+      }
       fill.dispose()
       screen.dispose()
+      publishProgress(null, false)
     },
-    [cache, fill, screen],
+    [buffers, fill, screen],
   )
-  const nextRow = useRef(0)
-  const rowsPerFrame = useRef(16)
-  const cachedScenario = useRef<string | null>(null)
-  const field = useRef<CloudFieldFrame | null>(null)
-  const fieldKey = useRef('')
-  const tableKey = useRef('')
-  const table = useRef<DataTexture | null>(null)
+
+  const mesh = useRef<Mesh>(null)
+  const state = useRef({
+    scenarioId: null as string | null,
+    front: 0,
+    /** Carte en construction, passe et ligne courantes. */
+    build: null as { buffer: number; pass: number; row: number } | null,
+    /** Instant demande au worker, ou null. */
+    waitingFor: null as number | null,
+    fadeStart: -Infinity,
+    rows: 16,
+    opacity: 0,
+  })
 
   useFrame(({ gl }, delta) => {
-    if (!scenario) return
+    const st = state.current
+    const store = useSkyStore.getState()
     const u = fill.uniforms
+    const su = screen.uniforms
+
+    if (!scenario) {
+      if (mesh.current) mesh.current.visible = false
+      return
+    }
     if (!u.uStructure.value) {
       const noise = cloudNoiseTextures(gl)
       u.uStructure.value = noise.structure
       u.uDetail.value = noise.detail
     }
-    // Cadence adaptative : moins de lignes par image quand l'image rame.
-    if (delta > 1 / 45) rowsPerFrame.current = Math.max(4, Math.floor(rowsPerFrame.current * 0.8))
-    else if (delta < 1 / 58) rowsPerFrame.current = Math.min(CACHE_ROWS_PER_FRAME, rowsPerFrame.current + 1)
-    // Le texel de la carte, pas le pixel de l'ecran : c'est lui que la structure doit resoudre.
-    u.uPixelAngle.value = Math.max((2 * Math.PI) / CACHE_WIDTH, ((90 - CACHE_MIN_ELEVATION_DEG) * Math.PI) / 180 / CACHE_HEIGHT)
-    applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
-    const time = useSkyStore.getState().time
-    // Le champ change a la minute : le modele est horaire, l'interpolation lisse.
-    const key = `${scenario.id}:${Math.floor(time / 60_000)}`
-    if (key !== fieldKey.current) {
-      fieldKey.current = key
-      field.current = buildCloudField(scenario, time, field.current)
-      u.uFar.value = field.current.far
-      u.uNear.value = field.current.near
-      u.uGrid.value.set(scenario.grids.far.n, scenario.grids.far.spacingKm, scenario.grids.near.spacingKm)
-    }
-    const frame = field.current
-    if (!frame) return
 
-    // Tables du Soleil a l'altitude du sommet de chaque etage, a 250 m pres.
-    const tops = frame.overhead.map((s) => Math.round(s.topM / 250) * 250)
-    const tk = tops.join(':')
-    if (tk !== tableKey.current) {
-      tableKey.current = tk
-      table.current = sunTable(tops, table.current)
-      u.uSunTable.value = table.current
+    // Nouveau scenario : les deux cartes repartent de zero.
+    if (st.scenarioId !== scenario.id) {
+      st.scenarioId = scenario.id
+      st.build = null
+      st.waitingFor = null
+      for (const b of buffers) {
+        b.passes = 0
+        b.timeMs = Number.NaN
+        clearTarget(gl, b.target)
+      }
     }
 
-    // Ciel au-dessus de chaque etage : la diffusion du ciel suit l'air qu'il reste au-dessus.
-    const sky = aerialTextures.skyIrradiance
-    frame.overhead.forEach((s, k) => {
-      const f = standardPressure(s.topM) / SEA_LEVEL_PRESSURE_PA
-      ;(u[`uSkyAbove${k}`].value as Vector3).set(sky[0] * f, sky[1] * f, sky[2] * f)
-      // Derive des structures avec le vent de l'etage, depuis minuit du scenario.
-      const seconds = (time - Date.parse(`${scenario.times[0]}Z`)) / 1000
-      const [e, n] = frame.windMS[k]
-      ;(u[`uDrift${k}`].value as Vector2).set((e * seconds) / 1000, (n * seconds) / 1000)
-    })
+    // Avance rapide : les nuages s'effacent et ne se construisent plus.
+    const hidden = store.playing && store.speed > MAX_CLOUD_SPEED
+    st.opacity = Math.min(1, Math.max(0, st.opacity + (hidden ? -delta : delta) * 3))
+    const time = store.time
+    const front = buffers[st.front]
 
-    // Taille des cellules de l'etage bas et de leur detail, tiree de l'epaisseur
-    // a l'aplomb : un cumulus est a peu pres aussi large que haut, et leur
-    // espacement vaut quelques fois leur taille. Une cellule de 4 km sur un
-    // nuage de 300 m ferait une galette.
-    const depthKm = Math.max(0.1, (frame.overhead[0].topM - frame.overhead[0].baseM) / 1000)
-    u.uScale.value.x = Math.min(STRUCTURE_SCALE_KM[0], Math.max(0.8, CELL_TO_DEPTH * depthKm))
-    u.uDetailKm.value = Math.min(0.6, Math.max(0.12, 0.45 * depthKm))
+    if (!hidden) {
+      // --- Faut-il une carte neuve ?
+      const buildingFirstPass = st.build != null && st.build.buffer !== st.front
+      const target = st.waitingFor ?? (buildingFirstPass ? buffers[st.build!.buffer].timeMs : front.timeMs)
+      const stale = front.passes === 0 || !(Math.abs(time - front.timeMs) <= STALE_MS)
+      const jumped = !(Math.abs(time - target) <= RESTART_MS)
+      const fading = performance.now() - st.fadeStart < FADE_MS
+      // Rien avant que l'atmosphere du lieu soit prete : la carte en garderait
+      // un eclairage et une exposition nuls.
+      const atmosphereReady = aerialSkyReady()
+      if (atmosphereReady && (stale && st.waitingFor == null && !buildingFirstPass && !fading) || ((st.waitingFor != null || buildingFirstPass) && jumped)) {
+        if (buildingFirstPass) st.build = null
+        st.waitingFor = time
+        const id = scenario.id
+        void requestCloudField(id, time).then((r) => {
+          if (st.scenarioId !== id) return
+          const b = buffers[1 - st.front]
+          b.far = uploadField(b.far, r.far, r.n)
+          b.near = uploadField(b.near, r.near, r.n)
+          b.sun = uploadSunTable(r.sunTable, b.sun)
+          b.timeMs = r.timeMs
+          b.passes = 0
+          b.overhead = r.overhead
+          b.windMS = r.windMS
+          b.exposure = Number.NaN
+          clearTarget(gl, b.target)
+          st.waitingFor = null
+          st.build = { buffer: 1 - st.front, pass: 0, row: 0 }
+        })
+      }
 
-    const eye = eyeAltitudeM(observerElevationM, extraHeightM)
-    u.uObserverRadius.value = EARTH_MEAN_RADIUS_M + eye
-    u.uEyeAltitude.value = eye
-    // Le sol un peu sous le site : le relief reel le remplace de pres.
-    u.uGroundAltitude.value = observerElevationM - 50
+      // --- Une bande de la carte en construction.
+      if (st.build) {
+        const b = buffers[st.build.buffer]
+        if (delta > 1 / 45) st.rows = Math.max(ROWS_MIN, Math.floor(st.rows * 0.8))
+        else if (delta < 1 / 58) st.rows = Math.min(ROWS_MAX, st.rows + 1)
+        const budget = store.sceneLoading ? ROWS_LOADING : st.rows
+        const rows = Math.min(budget, CACHE_HEIGHT - st.build.row)
 
-    // Une bande de la carte par image, en boucle : le calcul lourd est etale.
-    const rows = Math.min(rowsPerFrame.current, CACHE_HEIGHT - nextRow.current)
-    const previousTarget = gl.getRenderTarget()
-    const previousAutoClear = gl.autoClear
-    // Nouveau scenario : la carte de l'ancien ne doit pas rester visible le temps d'un tour.
-    if (cachedScenario.current !== scenario.id) {
-      cachedScenario.current = scenario.id
-      cache.scissorTest = false
-      gl.setRenderTarget(cache)
-      const color = gl.getClearColor(clearColor)
-      const alpha = gl.getClearAlpha()
-      gl.setClearColor(0x000000, 0)
-      gl.clear(true, false, false)
-      gl.setClearColor(color, alpha)
-      nextRow.current = 0
+        u.uPixelAngle.value = Math.max((2 * Math.PI) / CACHE_WIDTH, ((90 - CACHE_MIN_ELEVATION_DEG) * Math.PI) / 180 / CACHE_HEIGHT)
+        applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
+        // Une seule exposition par carte, celle du debut de sa construction.
+        if (!Number.isFinite(b.exposure)) b.exposure = u.uAerialExposure.value
+        u.uAerialExposure.value = b.exposure
+        applyBufferUniforms(u, b, scenario, observerElevationM, extraHeightM)
+        u.uPass.value = st.build.pass
+
+        const previousTarget = gl.getRenderTarget()
+        const previousAutoClear = gl.autoClear
+        b.target.scissor.set(0, st.build.row, CACHE_WIDTH, rows)
+        b.target.scissorTest = true
+        b.target.viewport.set(0, 0, CACHE_WIDTH, CACHE_HEIGHT)
+        gl.autoClear = false
+        gl.setRenderTarget(b.target)
+        gl.render(fillPass.scene, fillPass.camera)
+        gl.setRenderTarget(previousTarget)
+        gl.autoClear = previousAutoClear
+
+        st.build.row += rows
+        if (st.build.row >= CACHE_HEIGHT) {
+          st.build.pass++
+          st.build.row = 0
+          b.passes = st.build.pass
+          // Premiere passe complete : la carte neuve passe a l'ecran, en fondu,
+          // et la suite de l'accumulation s'y fait en place.
+          if (st.build.buffer !== st.front) {
+            st.front = st.build.buffer
+            st.fadeStart = performance.now()
+          }
+          if (st.build.pass >= CACHE_PASSES) st.build = null
+        }
+      }
     }
-    cache.scissor.set(0, nextRow.current, CACHE_WIDTH, rows)
-    cache.scissorTest = true
-    cache.viewport.set(0, 0, CACHE_WIDTH, CACHE_HEIGHT)
-    gl.autoClear = false
-    gl.setRenderTarget(cache)
-    gl.render(fillPass.scene, fillPass.camera)
-    gl.setRenderTarget(previousTarget)
-    gl.autoClear = previousAutoClear
-    nextRow.current = (nextRow.current + rows) % CACHE_HEIGHT
+
+    // --- Affichage.
+    const shown = buffers[st.front]
+    const old = buffers[1 - st.front]
+    const refining = st.build != null && st.build.buffer === st.front
+    su.uFront.value = shown.target.texture
+    su.uBack.value = old.target.texture
+    ;(su.uFrontPasses.value as Vector2).set(shown.passes, refining ? st.build!.row / CACHE_HEIGHT : 0)
+    su.uFade.value = Math.min(1, (performance.now() - st.fadeStart) / FADE_MS)
+    su.uBackPasses.value = su.uFade.value < 1 ? old.passes : 0
+    su.uOpacity.value = st.opacity
+    applyAerialUniforms(su as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
+    const exposure = su.uAerialExposure.value
+    ;(su.uExposureRatio.value as Vector2).set(exposure / (shown.exposure || 1), exposure / (old.exposure || 1))
+    if (shown.passes > 0) applyBufferUniforms(su, shown, scenario, observerElevationM, extraHeightM)
+    if (mesh.current) mesh.current.visible = st.opacity > 0 && shown.passes > 0
+
+    const firstPass = st.waitingFor != null || (st.build != null && st.build.buffer !== st.front)
+    const progress = hidden || !firstPass ? null : st.build ? st.build.row / CACHE_HEIGHT : 0
+    publishProgress(progress, shown.passes > 0)
   })
 
   if (!scenario) return null
   return (
-    <mesh material={screen} renderOrder={27} frustumCulled={false}>
+    <mesh ref={mesh} material={screen} renderOrder={27} frustumCulled={false} visible={false}>
       <sphereGeometry args={[GROUND_RADIUS * 0.9, 64, 32]} />
     </mesh>
   )
+}
+
+/** Uniformes qui decrivent une carte : son champ, sa table du Soleil, sa derive, son observateur. */
+function applyBufferUniforms(
+  u: ShaderMaterial['uniforms'],
+  b: CloudBuffer,
+  scenario: WeatherScenario,
+  observerElevationM: number,
+  extraHeightM: number,
+) {
+  u.uFar.value = b.far
+  u.uNear.value = b.near
+  u.uSunTable.value = b.sun
+  u.uGrid.value.set(scenario.grids.far.n, scenario.grids.far.spacingKm, scenario.grids.near.spacingKm)
+  if (b.overhead.length === 3) {
+    // Ciel au-dessus de chaque etage : la diffusion du ciel suit l'air qu'il reste au-dessus.
+    const sky = aerialTextures.skyIrradiance
+    const seconds = (b.timeMs - Date.parse(`${scenario.times[0]}Z`)) / 1000
+    b.overhead.forEach((s, k) => {
+      const f = standardPressure(s.topM) / SEA_LEVEL_PRESSURE_PA
+      ;(u[`uSkyAbove${k}`].value as Vector3).set(sky[0] * f, sky[1] * f, sky[2] * f)
+      // Derive des structures avec le vent de l'etage, depuis minuit du scenario.
+      const [e, n] = b.windMS[k]
+      ;(u[`uDrift${k}`].value as Vector2).set((e * seconds) / 1000, (n * seconds) / 1000)
+    })
+    // Taille des cellules de l'etage bas et de leur detail, tiree de l'epaisseur
+    // a l'aplomb : un cumulus est a peu pres aussi large que haut, et leur
+    // espacement vaut quelques fois leur taille. Une cellule de 4 km sur un
+    // nuage de 300 m ferait une galette.
+    const depthKm = Math.max(0.1, (b.overhead[0].topM - b.overhead[0].baseM) / 1000)
+    u.uScale.value.x = Math.min(STRUCTURE_SCALE_KM[0], Math.max(0.8, CELL_TO_DEPTH * depthKm))
+    u.uDetailKm.value = Math.min(0.6, Math.max(0.12, 0.45 * depthKm))
+  }
+  const eye = eyeAltitudeM(observerElevationM, extraHeightM)
+  u.uObserverRadius.value = EARTH_MEAN_RADIUS_M + eye
+  u.uEyeAltitude.value = eye
+  // Le sol un peu sous le site : le relief reel le remplace de pres.
+  u.uGroundAltitude.value = observerElevationM - 50
 }

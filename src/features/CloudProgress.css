@@ -1,0 +1,36 @@
+.cloud-progress {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--md-sys-spacing-2));
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  padding: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: var(--md-sys-outline-width-thin) solid color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0;
+  transform: translateY(0.25rem);
+  transition:
+    opacity var(--md-sys-motion-duration-medium2) ease,
+    transform var(--md-sys-motion-duration-medium2) ease;
+  pointer-events: none;
+}
+.cloud-progress.is-visible {
+  opacity: 1;
+  transform: none;
+}
+.cloud-progress__bar {
+  width: 5rem;
+}
+
+/* Night : fond noir plein, comme tout le chrome — voir night.css. */
+:root[data-theme='night'] .cloud-progress {
+  background: var(--md-sys-color-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: var(--md-sys-color-outline-variant);
+}

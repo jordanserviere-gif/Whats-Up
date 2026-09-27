@@ -3,6 +3,7 @@ import { IconButton, NavigationRail, SidePanel, Tooltip, useTheme, type NavDesti
 import { SkyCanvas } from '@/scene/SkyCanvas'
 import { SkyHud } from '@/features/SkyHud'
 import { TimelineBar } from '@/features/TimelineBar'
+import { CloudProgress } from '@/features/CloudProgress'
 import { ObjectsDetail, ObjectsPanel } from '@/features/ObjectsPanel'
 import { SatelliteDetail, SatellitesPanel } from '@/features/SatellitesPanel'
 import { AircraftDetail } from '@/features/AircraftDetail'
@@ -93,6 +94,7 @@ export function App() {
         <SkyHud />
         <div className="app__timeline">
           <TimelineBar />
+          <CloudProgress />
         </div>
       </main>
 
