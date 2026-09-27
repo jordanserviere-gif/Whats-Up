@@ -2,6 +2,19 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.2.0 — 2026-09-27
+
+### Nouveautes
+
+- **eau** : vagues par transformee de Fourier sur le GPU (Tessendorf) — cascades de 497, 53 et 5,3 m, pentes filtrees LEADR a variance conservee ; eau statistique sur le globe, qui comblait l'horizon en sol mat (b7110e0)
+- **eau** : reflet de la Lune — meme loi que le Soleil, eclairement lunaire au sol (phase comprise) (204ac84)
+- **eau** : vagues en relief — la houle que le maillage resout souleve vraiment la surface (c64bf69)
+- **eau** : ocean et lacs — masque OpenStreetMap sur la pyramide du relief, Fresnel, ciel reflechi, reflet solaire de Cox & Munk, vagues tirees de JONSWAP a variance conservee (Bruneton 2010), etat de mer en un seul appel garde en local (73361a4)
+
+### Corrections
+
+- **eau** : colonnes blanches (reflet solaire au-dela du demi-flottant, etale par le halo), eau limitee aux faces vers le ciel, une seule lecture du ciel de pres (6ac1b07)
+
 ## v0.1.0 — 2026-09-27
 
 ### Nouveautes
