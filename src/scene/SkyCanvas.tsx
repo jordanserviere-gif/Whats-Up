@@ -51,6 +51,7 @@ import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
 import { MilkyWay } from './MilkyWay'
+import { AircraftLights } from './AircraftLights'
 import { skyGlowFor } from './display/skyGlowGradient'
 import './SkyCanvas.css'
 
@@ -263,10 +264,8 @@ export function SkyCanvas() {
   /**
    * Facteur jour/nuit applique au maillage realiste des avions.
    *
-   * Un avion ne reflechit que la lumiere du jour : sans elle, il redevient un
-   * point de navigation clignotant, pas une silhouette grise visible. Le
-   * repere en pixels fixes, lui, reste allume — c'est le seul qui vaille la
-   * nuit, comme les feux de position dans la vraie vie.
+   * Un avion ne reflechit que la lumiere du jour : sans elle, il ne reste que
+   * ses feux, dessines par `AircraftLights`, pas une silhouette grise visible.
    */
   const dayFactor = Math.min(1, Math.max(0.12, (sky.sunAltitude + 6) / 6))
 
@@ -744,6 +743,15 @@ export function SkyCanvas() {
           />
         )}
 
+        {layers.aircraft && aircraftStates.length > 0 && (
+          <AircraftLights
+            states={aircraftStates}
+            location={location}
+            limitingMagnitude={limitingMagnitude}
+            aerosolTurbidity={aerosolTurbidity}
+            skyGlow={skyGlow}
+          />
+        )}
         {layers.aircraft && aircraftStates.length > 0 && (
           <AircraftLayer
             states={aircraftStates}
