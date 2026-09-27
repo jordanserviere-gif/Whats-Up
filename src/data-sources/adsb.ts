@@ -9,7 +9,16 @@ import { fetchJson } from './fetchJson'
 import { relayAttempts } from './corsRelay'
 import type { Sourced } from './types'
 
-const BASE = 'https://opendata.adsb.fi/api/v2/lat'
+/**
+ * Sources essayees dans l'ordre : le relais du serveur de l'appli vers adsb.fi,
+ * puis vers adsb.lol (meme reseau de contributeurs, meme format), et seulement
+ * en dernier recours les relais publics.
+ */
+const LOCAL_SOURCES = [
+  { base: '/relay/adsbfi/api/v2/lat', timeoutMs: 6_000 },
+  { base: '/relay/adsblol/v2/lat', timeoutMs: 6_000 },
+]
+const PUBLIC_BASE = 'https://opendata.adsb.fi/api/v2/lat'
 
 /**
  * Duree de validite de l'instantane en cache.
@@ -27,8 +36,18 @@ const BASE = 'https://opendata.adsb.fi/api/v2/lat'
  */
 const CACHE_TTL_MS = 2_000
 
-/** Age maximal retenu pour une mesure : au-dela, l'horloge du client derive. */
-const MAX_FIX_AGE_MS = 30_000
+/**
+ * Age au-dela duquel une position n'est plus montree : mieux vaut un avion
+ * absent qu'un avion fige a une place qu'il a quittee depuis des kilometres.
+ */
+export const MAX_FIX_AGE_MS = 90_000
+
+/**
+ * Decalage entre l'horloge locale et celle du serveur, transit compris, ms.
+ * Mesure sur les reponses fraiches seulement : une reponse relue du cache,
+ * vieille de minutes, le fausserait.
+ */
+let clockSkewMs = 0
 
 /** Enregistrement brut tel que renvoye par l'API — champs OMM-like du monde ADS-B. */
 interface RawAircraft {
@@ -119,18 +138,22 @@ function cleanFlight(raw: string | undefined): string | null {
  * Instant de la mesure ramene a l'horloge locale.
  *
  * `now` est l'horodatage du serveur et `seen_pos` l'age de la position a cet
- * instant : leur difference date la mesure dans le repere du serveur, et
- * l'ecart au temps local absorbe du meme coup le transit par le relais.
- * L'age resultant est borne, faute de quoi une horloge client mal reglee
- * lancerait l'extrapolation a des minutes de distance.
+ * instant : leur difference date la mesure **sur l'horloge du serveur**, qu'on
+ * ramene a la locale par le decalage mesure sur les reponses fraiches.
+ *
+ * ⚠️ La version precedente datait la mesure par rapport a l'instant ou l'on
+ * interpretait la reponse, age plafonne a 30 s. Or une reponse relue du cache
+ * apres une panne des relais est reinterpretee a chaque tour : un avion vu il
+ * y a trois minutes repartait alors de sa vieille position, avance de 30 s
+ * seulement — fige, ou en recul. La date vient maintenant du serveur, et une
+ * mesure trop vieille n'est plus affichee du tout.
  */
-function measurementTime(raw: RawAircraft, serverNowMs: number, receivedAtMs: number): number {
+function measurementTime(raw: RawAircraft, serverNowMs: number): number {
   const fixedAtServerMs = serverNowMs - (raw.seen_pos ?? 0) * 1000
-  const ageMs = Math.min(Math.max(receivedAtMs - fixedAtServerMs, 0), MAX_FIX_AGE_MS)
-  return receivedAtMs - ageMs
+  return fixedAtServerMs + clockSkewMs
 }
 
-function normalize(raw: RawAircraft, serverNowMs: number, receivedAtMs: number): AdsbAircraft | null {
+function normalize(raw: RawAircraft, serverNowMs: number): AdsbAircraft | null {
   if (typeof raw.lat !== 'number' || typeof raw.lon !== 'number') return null
   const onGround = raw.alt_baro === 'ground'
   return {
@@ -156,7 +179,7 @@ function normalize(raw: RawAircraft, serverNowMs: number, receivedAtMs: number):
     emergency: raw.emergency ?? null,
     latitude: raw.lat,
     longitude: raw.lon,
-    measuredAtMs: measurementTime(raw, serverNowMs, receivedAtMs),
+    measuredAtMs: measurementTime(raw, serverNowMs),
   }
 }
 
@@ -177,9 +200,13 @@ export async function fetchNearbyAircraft(
   // Cle arrondie : un deplacement d'observateur de quelques metres ne doit pas
   // invalider un cache vieux de trois secondes.
   const key = `adsb:${latitude.toFixed(2)}:${longitude.toFixed(2)}:${radiusNm}`
-  const target = `${BASE}/${latitude}/lon/${longitude}/dist/${radiusNm}`
+  const path = `/${latitude}/lon/${longitude}/dist/${radiusNm}`
+  const attempts = [
+    ...LOCAL_SOURCES.map((s) => ({ url: `${s.base}${path}`, timeoutMs: s.timeoutMs })),
+    ...relayAttempts(`${PUBLIC_BASE}${path}`),
+  ]
 
-  for (const attempt of relayAttempts(target)) {
+  for (const attempt of attempts) {
     const result = await fetchJson<{ now?: number; aircraft?: RawAircraft[] }, AdsbAircraft[]>(
       attempt.url,
       { key, ttlMs: CACHE_TTL_MS, timeoutMs: attempt.timeoutMs, attempts: 1 },
@@ -188,10 +215,17 @@ export async function fetchNearbyAircraft(
         // entree de cache relue apres panne : on date donc la mesure au moment
         // ou l'on interprete, jamais a une constante figee a l'ecriture.
         const receivedAtMs = Date.now()
-        const serverNowMs = typeof raw.now === 'number' ? raw.now * 1000 : receivedAtMs
-        return (raw.aircraft ?? [])
-          .map((a) => normalize(a, serverNowMs, receivedAtMs))
-          .filter((a): a is AdsbAircraft => a !== null)
+        // adsb.fi donne \`now\` en secondes, adsb.lol en millisecondes.
+        const serverNowMs = typeof raw.now === 'number' ? (raw.now > 1e11 ? raw.now : raw.now * 1000) : receivedAtMs
+        // Reponse fraiche (moins de 20 s d'ecart) : elle recale l'horloge. Une
+        // reponse relue du cache, plus vieille, ne touche pas au decalage.
+        const gap = receivedAtMs - serverNowMs
+        if (Math.abs(gap) < 20_000) clockSkewMs = 0.7 * clockSkewMs + 0.3 * gap
+        // adsb.lol nomme la liste \`ac\`, adsb.fi \`aircraft\`.
+        const list = raw.aircraft ?? (raw as { ac?: RawAircraft[] }).ac ?? []
+        return list
+          .map((a) => normalize(a, serverNowMs))
+          .filter((a): a is AdsbAircraft => a !== null && receivedAtMs - a.measuredAtMs <= MAX_FIX_AGE_MS)
       },
     )
     if (result) return result

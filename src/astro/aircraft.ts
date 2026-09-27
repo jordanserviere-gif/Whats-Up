@@ -11,7 +11,7 @@
  */
 import type { ContrailEnvironment } from '@/atmosphere/cloud/contrail'
 import { DEG, EARTH_FLATTENING, EARTH_RADIUS_KM, RAD } from './coords'
-import type { AdsbAircraft } from '@/data-sources/adsb'
+import { MAX_FIX_AGE_MS, type AdsbAircraft } from '@/data-sources/adsb'
 import type { GeoLocation, Horizontal } from './types'
 
 const E2 = EARTH_FLATTENING * (2 - EARTH_FLATTENING)
@@ -105,7 +105,13 @@ export interface AircraftState extends AdsbAircraft {
  */
 export function computeAircraftState(aircraft: AdsbAircraft, observer: GeoLocation): AircraftState | null {
   if (aircraft.onGround || aircraft.altitudeFt === null) return null
-  const altitudeKm = aircraft.altitudeFt * 0.0003048
+  // Une mesure trop vieille ne se montre plus : l'extrapolation s'arrete a une
+  // minute, et au-dela l'avion resterait fige a une place qu'il a quittee.
+  if (Date.now() - aircraft.measuredAtMs > MAX_FIX_AGE_MS) return null
+  // Altitude GNSS quand elle existe : c'est une hauteur geometrique. L'altitude
+  // barometrique suppose l'atmosphere standard, et s'en ecarte de centaines de
+  // metres selon la temperature — autant d'erreur sur la hauteur dans le ciel.
+  const altitudeKm = (aircraft.altitudeGeomFt ?? aircraft.altitudeFt) * 0.0003048
   const { horizontal, rangeKm } = geodeticToHorizontal(aircraft.latitude, aircraft.longitude, altitudeKm, observer)
   return { ...aircraft, horizontal, rangeKm, altitudeKm, contrailLikelihood: contrailLikelihood(altitudeKm), contrailEnvironment: null }
 }

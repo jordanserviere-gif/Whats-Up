@@ -2,8 +2,32 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 
+/**
+ * Relais ADS-B servi par Vite lui-meme, en developpement comme en `preview`.
+ *
+ * Aucune source ADS-B n'ouvre son CORS a un autre site, et les relais publics
+ * sont tombes un a un (allorigins en 522, corsproxy.io derriere une cle,
+ * codetabs muet). Le serveur de l'appli relaie donc directement : meme
+ * origine pour le navigateur, aucun tiers au milieu. Un deploiement statique
+ * devra fournir le meme chemin (fonction serverless).
+ */
+const ADSB_RELAY = {
+  '/relay/adsbfi': {
+    target: 'https://opendata.adsb.fi',
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/relay\/adsbfi/, ''),
+  },
+  '/relay/adsblol': {
+    target: 'https://api.adsb.lol',
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/relay\/adsblol/, ''),
+  },
+}
+
 export default defineConfig({
   plugins: [react()],
+  server: { proxy: ADSB_RELAY },
+  preview: { proxy: ADSB_RELAY },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

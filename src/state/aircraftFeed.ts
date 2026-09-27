@@ -20,7 +20,7 @@ import type { SourceStatus } from '@/data-sources/types'
 
 export const AIRCRAFT_RADIUS_KM = 75
 /** Cadence d'interrogation du relais. */
-const POLL_MS = 12_000
+const POLL_MS = 6_000
 /**
  * Cadence de la flotte simulee. Rien a menager : une mise a jour par seconde
  * garde l'extrapolation tres courte, donc exacte.
