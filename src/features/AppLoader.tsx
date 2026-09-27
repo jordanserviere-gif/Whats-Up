@@ -35,9 +35,9 @@ const LOADING_BUILD_BUDGET_MS = 10
  */
 const WIPE_BANDS = 4
 /** Duree de la traversee d'une bande, ms. */
-const WIPE_BAND_MS = 900
+const WIPE_BAND_MS = 1150
 /** Decalage entre deux bandes, ms. */
-const WIPE_STAGGER_MS = 110
+const WIPE_STAGGER_MS = 135
 /**
  * Instant ou la derniere bande couvre l'ecran : sa traversee y est a mi-course
  * (voir `@keyframes app-wipe`). Le loader est retire la, sous elle.

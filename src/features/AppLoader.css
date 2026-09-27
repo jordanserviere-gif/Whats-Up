@@ -186,7 +186,8 @@
   left: -30%;
   width: 160%;
   transform: translateX(-140%) skewX(-14deg);
-  animation: app-wipe var(--wipe-band-ms) cubic-bezier(0.65, 0, 0.35, 1) both;
+  /* Entree et sortie en quintique : un depart plus appuye. */
+  animation: app-wipe var(--wipe-band-ms) cubic-bezier(0.83, 0, 0.17, 1) both;
   will-change: transform;
 }
 /* Du plus sombre au plus clair : la derniere, qui decouvre la vue, est la
