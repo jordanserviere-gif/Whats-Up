@@ -44,7 +44,7 @@ import { eyeAltitudeM } from './terrain/elevationField'
 import { GROUND_RADIUS } from './sceneMath'
 import { STRUCTURE_PERIOD, cloudNoiseTextures } from './cloudNoise'
 import { receivedCloudNoise } from './cloudWorkerClient'
-import { COVERAGE_TABLE_SIZE, BASE_NOISE_SIZE, DETAIL_NOISE_SIZE } from '@/atmosphere/cloud/cloudNoise3d'
+import { COVERAGE_TABLE_SIZE, BASE_NOISE_SIZE, CURL_NOISE_SIZE, DETAIL_NOISE_SIZE } from '@/atmosphere/cloud/cloudNoise3d'
 import { GENUS_CODE, GENUS_PROFILE_SAMPLES, GENUS_SHAPE, genusProfileTable, type CloudGenus } from '@/atmosphere/cloud/cloudType'
 
 /** Genres dans l'ordre de leur code. */
@@ -150,6 +150,7 @@ function cloudUniforms() {
       uDetail: { value: null as Texture | null },
       uBase: { value: null as Texture | null },
       uErode: { value: null as Texture | null },
+      uCurl: { value: null as Texture | null },
       uCellKm: { value: 1 },
       uCoverThreshold: { value: new Float32Array(COVERAGE_TABLE_SIZE) },
       uCoverMean: { value: new Float32Array(COVERAGE_TABLE_SIZE).fill(1) },
@@ -190,6 +191,7 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
       uniform highp sampler3D uDetail;
       uniform highp sampler3D uBase;
       uniform highp sampler3D uErode;
+      uniform highp sampler3D uCurl;
       /** Maille de la forme des nuages proches, km. */
       uniform float uCellKm;
       uniform float uCoverThreshold[${COVERAGE_TABLE_SIZE}];
@@ -390,7 +392,14 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         // la hauteur relative dans le nuage, pour que le bruit change de la base
         // au sommet — sinon un nuage plus mince que sa maille serait un prisme
         // extrude, aux flancs verticaux.
-        vec2 qh = (en - drift(0.0)) / (4.0 * cellKm);
+        // Position dans le repere qui derive avec le vent, km.
+        vec3 wp = vec3(en.x - drift(0.0).x, z * 1e-3, en.y - drift(0.0).y);
+        // Turbulence (champ sans divergence, voir \`bakeCurlNoise\`) : elle
+        // brasse la forme de base sans changer la fraction couverte — un champ
+        // incompressible deplace le nuage sans le comprimer ni le diluer.
+        vec3 swirl = textureLod(uCurl, fract(wp / (2.0 * cellKm)), 0.0).xyz;
+        wp += swirl * (0.12 * cellKm);
+        vec2 qh = wp.xz / (4.0 * cellKm);
         // Ramenee dans [0, 1[ : la texture est periodique, et la derive du vent
         // porte la coordonnee a des dizaines de periodes, ou l'unite de texture
         // perd la precision sous le texel et n'interpole plus.
@@ -405,8 +414,14 @@ const CLOUD_SHADE_GLSL = /* glsl */ `
         float d = clamp((n - threshold) / max(1e-3, 1.0 - threshold), 0.0, 1.0);
         if (d <= 0.0) return 0.0;
         if (detail) {
-          // Erosion isotrope : une periode par maille, dans les trois directions.
-          float e = textureLod(uErode, fract(vec3(en.x - drift(0.0).x, z * 1e-3, en.y - drift(0.0).y) / cellKm), 0.0).r;
+          // Erosion isotrope, tordue par une turbulence plus fine et plus forte
+          // vers le sommet, ou la convection brasse le plus ; deux echelles, la
+          // seconde trois fois plus serree, pour le detail sous le pixel voisin.
+          vec3 swirlFine = textureLod(uCurl, fract(wp / (0.5 * cellKm) + 0.31), 0.0).xyz;
+          vec3 we = wp + swirlFine * (0.25 * cellKm * (0.5 + h));
+          float e1 = textureLod(uErode, fract(we / cellKm), 0.0).r;
+          float e2 = textureLod(uErode, fract(we * 3.1 / cellKm + 0.37), 0.0).r;
+          float e = 0.65 * e1 + 0.35 * e2;
           // Bourgeons (convectifs) ou filaments (stratiformes) : le meme bruit,
           // retourne. Pas de filaments sous un cumulus : sa base est la surface
           // de condensation, nette et plate.
@@ -766,17 +781,16 @@ const ROWS_MAX = 24
 const ROWS_LOADING = 24
 /** Au-dela de cet ecart entre l'instant affiche et l'instant simule, ms, la carte est refaite. */
 const STALE_MS = 30_000
+/** Au-dela de cet ecart d'altitude de l'oeil, m, la carte est refaite. */
+const EYE_STALE_M = 5
 /** Au-dela de ce saut, ms, la construction en cours est abandonnee pour le nouvel instant. */
 const RESTART_MS = 5 * 60_000
 /** Duree du fondu entre deux cartes, ms. */
 const FADE_MS = 500
 /** Au-dela de cette vitesse du temps, les nuages sont retires : ils ne suivraient pas. */
 const MAX_CLOUD_SPEED = 60
-/**
- * Sous ce champ de vue, degres, le pixel de l'ecran devient plus fin que la
- * carte des directions (0,09°) : une carte alignee sur la vue prend le relais.
- */
-const VIEW_MAX_FOV = 60
+/** Angle d'un texel de la carte des directions, rad (0,09°). */
+const CACHE_TEXEL_ANGLE = Math.max((2 * Math.PI) / CACHE_WIDTH, ((90 - CACHE_MIN_ELEVATION_DEG) * Math.PI) / 180 / CACHE_HEIGHT)
 const drawingSize = new Vector2()
 const rotationOnly = new Matrix4()
 /** Couleur de fond du rendu, sauvee le temps d'effacer une carte. */
@@ -945,6 +959,13 @@ interface CloudBuffer {
   exposure: number
   /** Passes completes. */
   passes: number
+  /**
+   * Altitude de l'oeil pour laquelle la carte a ete calculee, m. La carte
+   * decrit ce que voit un oeil a une place donnee : elle ne vaut plus des que
+   * l'oeil monte ou descend, et doit etre refaite — sinon les nuages suivent
+   * la camera au lieu de rester au-dessus du relief.
+   */
+  eyeM: number
   /** Etages a l'aplomb et vent : ce qui cale l'eclairage et la derive. */
   overhead: CloudSlab[]
   windMS: [number, number][]
@@ -966,6 +987,7 @@ function makeBuffer(): CloudBuffer {
     timeMs: Number.NaN,
     exposure: 1,
     passes: 0,
+    eyeM: Number.NaN,
     overhead: [],
     windMS: [],
   }
@@ -1101,9 +1123,20 @@ export function CloudLayer({
       }
       const base = volume(noise3d.base, BASE_NOISE_SIZE)
       const erode = volume(noise3d.detail, DETAIL_NOISE_SIZE)
+      const curlData = new Uint16Array(noise3d.curl.length)
+      for (let i = 0; i < curlData.length; i++) curlData[i] = DataUtils.toHalfFloat(noise3d.curl[i])
+      const curl = new Data3DTexture(curlData as Uint16Array<ArrayBuffer>, CURL_NOISE_SIZE, CURL_NOISE_SIZE, CURL_NOISE_SIZE)
+      curl.format = RGBAFormat
+      curl.type = HalfFloatType
+      curl.magFilter = LinearFilter
+      curl.minFilter = LinearFilter
+      curl.wrapS = curl.wrapT = curl.wrapR = RepeatWrapping
+      curl.unpackAlignment = 1
+      curl.needsUpdate = true
       for (const m of [fill, viewFill]) {
         m.uniforms.uBase.value = base
         m.uniforms.uErode.value = erode
+        m.uniforms.uCurl.value = curl
         ;(m.uniforms.uCoverThreshold.value as Float32Array).set(noise3d.threshold)
         ;(m.uniforms.uCoverMean.value as Float32Array).set(noise3d.meanDensity)
       }
@@ -1133,8 +1166,14 @@ export function CloudLayer({
       // --- Faut-il une carte neuve ?
       const buildingFirstPass = st.build != null && st.build.buffer !== st.front
       const target = st.waitingFor ?? (buildingFirstPass ? buffers[st.build!.buffer].timeMs : front.timeMs)
-      const stale = front.passes === 0 || !(Math.abs(time - front.timeMs) <= STALE_MS)
-      const jumped = !(Math.abs(time - target) <= RESTART_MS)
+      const eyeNow = eyeAltitudeM(observerElevationM, extraHeightM)
+      const stale =
+        front.passes === 0 ||
+        !(Math.abs(time - front.timeMs) <= STALE_MS) ||
+        !(Math.abs(eyeNow - front.eyeM) <= EYE_STALE_M)
+      const building = buildingFirstPass ? buffers[st.build!.buffer] : null
+      const jumped =
+        !(Math.abs(time - target) <= RESTART_MS) || (building != null && !(Math.abs(eyeNow - building.eyeM) <= EYE_STALE_M))
       const fading = performance.now() - st.fadeStart < FADE_MS
       // Rien avant que l'atmosphere du lieu soit prete : la carte en garderait
       // un eclairage et une exposition nuls.
@@ -1154,6 +1193,7 @@ export function CloudLayer({
           b.overhead = r.overhead
           b.windMS = r.windMS
           b.exposure = Number.NaN
+          b.eyeM = eyeAltitudeM(observerElevationM, extraHeightM)
           clearTarget(gl, b.target)
           st.waitingFor = null
           st.build = { buffer: 1 - st.front, pass: 0, row: 0 }
@@ -1207,7 +1247,11 @@ export function CloudLayer({
     const shownBuffer = buffers[st.front]
     const fov = (camera as PerspectiveCamera).fov ?? 90
     const size = gl.getDrawingBufferSize(drawingSize)
-    const zoomed = fov < VIEW_MAX_FOV && shownBuffer.passes > 0 && !hidden
+    // La carte fine prend le relais des qu'un pixel de l'ecran est plus fin
+    // qu'un texel de la carte des directions — seuil qui depend de l'ecran
+    // (un ecran a haute densite y est deja a 90° de champ).
+    const pixelAngle = (fov * Math.PI) / 180 / Math.max(1, size.y)
+    const zoomed = pixelAngle < CACHE_TEXEL_ANGLE && shownBuffer.passes > 0 && !hidden
     if (zoomed) {
       camera.updateMatrixWorld()
       const q = camera.quaternion
@@ -1349,7 +1393,9 @@ function applyBufferUniforms(
     u.uScale.value.x = Math.min(STRUCTURE_SCALE_KM[0], Math.max(0.8, CELL_TO_DEPTH * depthKm))
     u.uDetailKm.value = Math.min(0.6, Math.max(0.12, 0.45 * depthKm))
   }
-  const eye = eyeAltitudeM(observerElevationM, extraHeightM)
+  // L'oeil de la carte, pas celui du moment : toutes ses bandes doivent
+  // decrire la meme place, et l'ecran la meme que la carte qu'il affiche.
+  const eye = Number.isFinite(b.eyeM) ? b.eyeM : eyeAltitudeM(observerElevationM, extraHeightM)
   u.uObserverRadius.value = EARTH_MEAN_RADIUS_M + eye
   u.uEyeAltitude.value = eye
   // Le sol un peu sous le site : le relief reel le remplace de pres.

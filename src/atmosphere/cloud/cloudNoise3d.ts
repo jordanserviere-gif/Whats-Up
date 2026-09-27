@@ -204,3 +204,47 @@ export function coverageTable(base: Uint8Array): { threshold: Float32Array; mean
   }
   return { threshold, meanDensity }
 }
+
+/** Taille du champ de turbulence. */
+export const CURL_NOISE_SIZE = 32
+
+/**
+ * Turbulence : le rotationnel d'un potentiel vecteur de Perlin (Bridson,
+ * Hourihan & Nordenstam 2007). Un tel champ est **sans divergence** — il
+ * brasse sans comprimer ni diluer, comme un ecoulement incompressible — et
+ * c'est lui qu'Horizon utilise pour tordre les bords des nuages. Trois
+ * composantes par voxel, dans [−1, 1] environ, periodiques.
+ */
+export function bakeCurlNoise(size = CURL_NOISE_SIZE): Float32Array {
+  const f = 4
+  const potential = (x: number, y: number, z: number, seed: number) =>
+    perlin(x * f, y * f, z * f, f, seed) + 0.5 * perlin(x * 2 * f, y * 2 * f, z * 2 * f, 2 * f, seed + 50)
+  const e = 0.5 / size
+  const out = new Float32Array(size * size * size * 4)
+  let i = 0
+  let peak = 1e-6
+  for (let z = 0; z < size; z++)
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const px = (x + 0.5) / size
+        const py = (y + 0.5) / size
+        const pz = (z + 0.5) / size
+        const d = (seed: number, ax: number) => {
+          const dx = ax === 0 ? e : 0
+          const dy = ax === 1 ? e : 0
+          const dz = ax === 2 ? e : 0
+          return (potential(px + dx, py + dy, pz + dz, seed) - potential(px - dx, py - dy, pz - dz, seed)) / (2 * e)
+        }
+        // Potentiel (A, B, C) : rotationnel = (∂C/∂y − ∂B/∂z, ∂A/∂z − ∂C/∂x, ∂B/∂x − ∂A/∂y).
+        const cx = d(300, 1) - d(200, 2)
+        const cy = d(100, 2) - d(300, 0)
+        const cz = d(200, 0) - d(100, 1)
+        out[i++] = cx
+        out[i++] = cy
+        out[i++] = cz
+        out[i++] = 0
+        peak = Math.max(peak, Math.abs(cx), Math.abs(cy), Math.abs(cz))
+      }
+  for (let k = 0; k < out.length; k++) out[k] /= peak
+  return out
+}

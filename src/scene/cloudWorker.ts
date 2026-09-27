@@ -3,7 +3,7 @@ import { DataUtils } from 'three'
 import { loadScenario } from '@/data-sources/weatherScenario'
 import { SUN_TABLE_WIDTH, computeCloudField, sunTableAltitude, type CloudFieldData } from './cloudField'
 import { sunIrradianceAtAltitude } from './contrailLighting'
-import { bakeBaseNoise, bakeDetailNoise, coverageTable } from '@/atmosphere/cloud/cloudNoise3d'
+import { bakeBaseNoise, bakeCurlNoise, bakeDetailNoise, coverageTable } from '@/atmosphere/cloud/cloudNoise3d'
 
 /**
  * Le calcul des nuages cote processeur, hors du fil principal.
@@ -36,6 +36,8 @@ export interface CloudNoise {
   detail: Uint8Array
   threshold: Float32Array
   meanDensity: Float32Array
+  /** Turbulence, RGBA flottants, CURL_NOISE_SIZE³. */
+  curl: Float32Array
 }
 
 /** Genere une fois : une seconde environ, hors du fil principal. */
@@ -43,7 +45,7 @@ let noiseSent = false
 function bakeNoise(): CloudNoise {
   const base = bakeBaseNoise()
   const { threshold, meanDensity } = coverageTable(base)
-  return { base, detail: bakeDetailNoise(), threshold, meanDensity }
+  return { base, detail: bakeDetailNoise(), threshold, meanDensity, curl: bakeCurlNoise() }
 }
 
 function sunTable(topsM: number[]): Uint16Array {
@@ -72,7 +74,7 @@ scope.onmessage = async (event: MessageEvent<CloudWorkRequest>) => {
   const transfer: ArrayBuffer[] = [result.far.buffer as ArrayBuffer, result.near.buffer as ArrayBuffer, result.sunTable.buffer as ArrayBuffer]
   if (!noiseSent) {
     result.noise = bakeNoise()
-    transfer.push(result.noise.base.buffer as ArrayBuffer, result.noise.detail.buffer as ArrayBuffer)
+    transfer.push(result.noise.base.buffer as ArrayBuffer, result.noise.detail.buffer as ArrayBuffer, result.noise.curl.buffer as ArrayBuffer)
     noiseSent = true
   }
   scope.postMessage(result, transfer)
