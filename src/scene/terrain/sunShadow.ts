@@ -191,38 +191,69 @@ export function buildSunShadowMap(
     return { height, sunAltitudeDeg, sunAzimuthDeg }
   }
 
-  // Direction **horizontale** vers le Soleil, dans le plan local.
+  castSunShadow(height, SHADOW_SIZE, SHADOW_HALF_SPAN_M, sunAltitudeDeg, sunAzimuthDeg, effectiveRadiusM)
+  return { height, sunAltitudeDeg, sunAzimuthDeg }
+}
+
+/**
+ * La recurrence de l'ombre, sur une grille quelconque — ecrite sur place dans
+ * `height`, qui porte au depart le relief.
+ *
+ * La carte courante l'applique a 512 cases sur 120 km ; le mode photo, qui n'a
+ * pas de cadence a tenir, a 4 096 — trente metres par case au lieu de 234.
+ * Meme physique, autre budget. Sous la depression de l'horizon du plus haut
+ * sommet terrestre, tout est a l'ombre.
+ */
+export function castSunShadow(
+  height: Float32Array,
+  size: number,
+  halfSpanM: number,
+  sunAltitudeDeg: number,
+  sunAzimuthDeg: number,
+  effectiveRadiusM: number,
+): void {
+  if (sunAltitudeDeg <= -HIGHEST_TERRAIN_DIP_DEG) {
+    height.fill(Number.POSITIVE_INFINITY)
+    return
+  }
+  const stepM = (2 * halfSpanM) / (size - 1)
+  const at = (eastM: number, northM: number): number => {
+    const fx = (eastM + halfSpanM) / stepM
+    const fz = (northM + halfSpanM) / stepM
+    if (fx < 0 || fz < 0 || fx > size - 1 || fz > size - 1) return -Infinity
+    const ix = Math.min(size - 2, Math.floor(fx))
+    const iz = Math.min(size - 2, Math.floor(fz))
+    const tx = fx - ix
+    const tz = fz - iz
+    const k = iz * size + ix
+    return (height[k] * (1 - tx) + height[k + 1] * tx) * (1 - tz) + (height[k + size] * (1 - tx) + height[k + size + 1] * tx) * tz
+  }
   const az = (sunAzimuthDeg * Math.PI) / 180
   const lEast = Math.sin(az)
   const lNorth = Math.cos(az)
   const tanAlt = Math.tan((sunAltitudeDeg * Math.PI) / 180)
-
-  // Un pas de la recurrence : la longueur d'un texel projetee sur la direction
+  // Un pas de la recurrence : la longueur d'une case projetee sur la direction
   // dominante, pour que le voisin interpole reste voisin.
-  const step = SHADOW_STEP_M / Math.max(Math.abs(lEast), Math.abs(lNorth))
+  const step = stepM / Math.max(Math.abs(lEast), Math.abs(lNorth))
   // Ce que l'ombre perd en montant d'un pas vers le Soleil, courbure comprise.
   const drop = step * tanAlt + (step * step) / (2 * effectiveRadiusM)
-
-  // Ordre de parcours : on remonte **vers** le Soleil, pour que le voisin
-  // interroge soit toujours deja resolu.
-  const xFrom = lEast > 0 ? SHADOW_SIZE - 1 : 0
-  const xTo = lEast > 0 ? -1 : SHADOW_SIZE
+  // On remonte **vers** le Soleil : le voisin interroge est toujours deja resolu.
+  const xFrom = lEast > 0 ? size - 1 : 0
+  const xTo = lEast > 0 ? -1 : size
   const xStep = lEast > 0 ? -1 : 1
-  const zFrom = lNorth > 0 ? SHADOW_SIZE - 1 : 0
-  const zTo = lNorth > 0 ? -1 : SHADOW_SIZE
+  const zFrom = lNorth > 0 ? size - 1 : 0
+  const zTo = lNorth > 0 ? -1 : size
   const zStep = lNorth > 0 ? -1 : 1
-
   for (let iz = zFrom; iz !== zTo; iz += zStep) {
+    const n = iz * stepM - halfSpanM
     for (let ix = xFrom; ix !== xTo; ix += xStep) {
-      const upstream = sample(height, east(ix) + lEast * step, north(iz) + lNorth * step)
+      const upstream = at(ix * stepM - halfSpanM + lEast * step, n + lNorth * step)
       if (upstream === -Infinity) continue
       const cast = upstream - drop
-      const i = iz * SHADOW_SIZE + ix
+      const i = iz * size + ix
       if (cast > height[i]) height[i] = cast
     }
   }
-
-  return { height, sunAltitudeDeg, sunAzimuthDeg }
 }
 
 /** Le point voit-il le Soleil ? */

@@ -1,41 +1,171 @@
 /**
- * Le maillage du mode photo, tel que le terrain l'affiche.
+ * Le relief du mode photo, tel que le terrain l'affiche.
  *
- * Un simple porteur : le controleur du mode photo y depose la geometrie que le
- * worker a construite, et `Terrain` l'affiche a la place de son maillage
- * courant le temps du rendu haute definition. Hors de ce moment, il est vide.
+ * Plus de maillage : le relief arrive des workers deja rendu, pixel par pixel,
+ * dans une grille angulaire — distance, altitude, part du Soleil, couverture,
+ * normale, part du ciel. Un materiau plein ecran relit cette grille pour chaque
+ * pixel de l'image et l'eclaire avec **le meme nuanceur** que le maillage
+ * courant, `shadeTerrain`. Il ecrit aussi la profondeur du point, si bien que
+ * les avions, les nuages et les astres s'ordonnent avec lui comme avec le relief
+ * courant.
  */
-import { BufferAttribute, BufferGeometry } from 'three'
-import type { PhotoWorkerMessage } from './photoWorker'
+import {
+  ClampToEdgeWrapping,
+  DataTexture,
+  FloatType,
+  HalfFloatType,
+  LinearFilter,
+  Matrix4,
+  NearestFilter,
+  PlaneGeometry,
+  RedFormat,
+  RGBAFormat,
+  ShaderMaterial,
+  Vector2,
+  Vector4,
+} from 'three'
+import { NEAR_M, TERRAIN_DEPTH_SLOPE, TERRAIN_NEAR_DEPTH } from '../terrain/meshSampling'
+import type { PhotoFrame } from './photoRaster'
 
-type Done = Extract<PhotoWorkerMessage, { type: 'done' }>
+export interface PhotoRender {
+  frame: PhotoFrame
+  /**
+   * Deux texels par pixel, demi-flottants : distance (km), altitude, part du
+   * Soleil, couverture ; puis normale de scene et part du ciel.
+   */
+  g: DataTexture
+  /** Carte d'ombre fine, pour le voile atmospherique. */
+  shadow: DataTexture
+  shadowHalfSpanM: number
+  shadowSize: number
+}
 
-let current: BufferGeometry | null = null
+let current: PhotoRender | null = null
 const listeners = new Set<() => void>()
 
-export const photoGeometry = (): BufferGeometry | null => current
+export const photoRender = (): PhotoRender | null => current
 
-export function subscribePhotoGeometry(fn: () => void): () => void {
+export function subscribePhotoRender(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
 }
 
-/** Geometrie three a partir du resultat du worker — memes attributs que le maillage courant. */
-export function geometryFromResult(result: Done): BufferGeometry {
-  const g = new BufferGeometry()
-  g.setAttribute('position', new BufferAttribute(result.positions, 3))
-  g.setAttribute('normal', new BufferAttribute(result.normals, 3))
-  g.setAttribute('range', new BufferAttribute(result.ranges, 1))
-  g.setAttribute('altitude', new BufferAttribute(result.altitudes, 1))
-  // La visibilite du Soleil, calculee par un rayon par sommet : elle remplace
-  // la carte d'ombre a 234 m pour la surface. Voir `sunVisibility`.
-  g.setAttribute('sunVisibility', new BufferAttribute(result.sunVisibility, 1))
-  g.setIndex(new BufferAttribute(result.index, 1))
-  return g
-}
-
-export function setPhotoGeometry(next: BufferGeometry | null): void {
-  if (current && current !== next) current.dispose()
+export function setPhotoRender(next: PhotoRender | null): void {
+  if (current && current !== next) {
+    current.g.dispose()
+    current.shadow.dispose()
+  }
   current = next
   listeners.forEach((fn) => fn())
+}
+
+function gTexture(data: Float32Array | Uint16Array, width: number, height: number, half: boolean): DataTexture {
+  const t = new DataTexture(data as Float32Array<ArrayBuffer>, width, height, RGBAFormat, half ? HalfFloatType : FloatType)
+  t.minFilter = NearestFilter
+  t.magFilter = NearestFilter
+  t.wrapS = ClampToEdgeWrapping
+  t.wrapT = ClampToEdgeWrapping
+  t.generateMipmaps = false
+  t.needsUpdate = true
+  return t
+}
+
+export function makePhotoRender(
+  frame: PhotoFrame,
+  g: Uint16Array,
+  shadow: { size: number; halfSpanM: number; height: Float32Array },
+): PhotoRender {
+  const s = new DataTexture(shadow.height as Float32Array<ArrayBuffer>, shadow.size, shadow.size, RedFormat, FloatType)
+  s.minFilter = LinearFilter
+  s.magFilter = LinearFilter
+  s.wrapS = ClampToEdgeWrapping
+  s.wrapT = ClampToEdgeWrapping
+  s.generateMipmaps = false
+  s.needsUpdate = true
+  return {
+    frame,
+    g: gTexture(g, frame.cols * 2, frame.rows, true),
+    shadow: s,
+    shadowHalfSpanM: shadow.halfSpanM,
+    shadowSize: shadow.size,
+  }
+}
+
+/** Un triangle... deux, en fait : le plein ecran, en coordonnees de decoupe. */
+export const FULLSCREEN = new PlaneGeometry(2, 2)
+
+/**
+ * Materiau du relief au pixel.
+ *
+ * Il partage les uniformes du materiau courant — eclairage, eau, lampes,
+ * atmosphere — et n'ajoute que la grille et les matrices de la camera. Le
+ * micro-relief invente est coupe : ici, les normales sont vraies jusqu'au pixel.
+ */
+export function photoTerrainMaterial(base: ShaderMaterial, shadeGlsl: string): ShaderMaterial {
+  return new ShaderMaterial({
+    transparent: true,
+    depthTest: true,
+    depthWrite: true,
+    uniforms: {
+      ...base.uniforms,
+      uMicroRelief: { value: 0 },
+      uG: { value: null as DataTexture | null },
+      /** azimut minimal, hauteur minimale, pas — radians. */
+      uFrame: { value: new Vector4() },
+      uGrid: { value: new Vector2(1, 1) },
+      uProjInv: { value: new Matrix4() },
+      uCamWorld: { value: new Matrix4() },
+      uViewProj: { value: new Matrix4() },
+      uResolution: { value: new Vector2(1, 1) },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vNdc;
+      void main() {
+        // Les coordonnees normalisees du pixel viennent du triangle plein ecran
+        // lui-meme : elles restent justes quelle que soit la taille du tampon
+        // dans lequel le compositeur rend.
+        vNdc = position.xy;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${shadeGlsl}
+      uniform sampler2D uG;
+      uniform vec4 uFrame;
+      uniform vec2 uGrid;
+      uniform mat4 uProjInv;
+      uniform mat4 uCamWorld;
+      uniform mat4 uViewProj;
+      uniform vec2 uResolution;
+      varying vec2 vNdc;
+
+      void main() {
+        // Le rayon de ce pixel, dans le repere de la scene.
+        vec4 v = uProjInv * vec4(vNdc, 1.0, 1.0);
+        vec3 dir = normalize(mat3(uCamWorld) * (v.xyz / v.w));
+        // Sa case dans la grille angulaire.
+        float az = atan(dir.x, -dir.z);
+        float da = az - uFrame.x;
+        da -= 6.28318530718 * floor(da / 6.28318530718);
+        vec2 cell = vec2(da, asin(clamp(dir.y, -1.0, 1.0)) - uFrame.y) / uFrame.z;
+        if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= uGrid.x || cell.y >= uGrid.y) discard;
+        ivec2 ij = ivec2(cell);
+        vec4 g1 = texelFetch(uG, ivec2(ij.x * 2, ij.y), 0);
+        if (g1.x <= 0.0) discard;
+        vec4 g2 = texelFetch(uG, ivec2(ij.x * 2 + 1, ij.y), 0);
+        float range = g1.x * 1000.0;
+
+        vec3 radiance = shadeTerrain(dir, range, g1.y, normalize(g2.xyz), g1.z, g2.w);
+        float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+        vec3 color = mix(radiance, luma * uNightTint, uNight);
+
+        // La profondeur du point, par la meme loi que le maillage courant.
+        float depth = ${TERRAIN_DEPTH_SLOPE.toFixed(3)} * log(max(${NEAR_M.toFixed(3)}, range) / ${NEAR_M.toFixed(3)}) / log(10.0) + ${TERRAIN_NEAR_DEPTH.toFixed(3)};
+        vec4 clip = uViewProj * vec4(dir * depth, 1.0);
+        gl_FragDepth = clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
+        // La couverture fait l'anticrenelage des cretes contre le ciel.
+        gl_FragColor = vec4(color, g1.w);
+      }
+    `,
+  })
 }

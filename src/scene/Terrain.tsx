@@ -85,12 +85,14 @@ import {
   FloatType,
   LinearFilter,
   LinearMipmapLinearFilter,
+  Matrix4,
   RedFormat,
   type PerspectiveCamera,
   SRGBColorSpace,
   ShaderMaterial,
   Vector2,
   Vector3,
+  Vector4,
 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import { AERIAL_LUT_GLSL } from '@/atmosphere/lut/aerialPerspectiveLut'
@@ -128,7 +130,7 @@ import {
 } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
-import { photoGeometry, subscribePhotoGeometry } from './photo/photoTerrain'
+import { FULLSCREEN, photoRender, photoTerrainMaterial, subscribePhotoRender, type PhotoRender } from './photo/photoTerrain'
 import { zoomForResolution } from './terrain/geodesy'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
 import { loadWaterAround, refreshWaterLevels, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
@@ -567,6 +569,264 @@ function sealBuild(build: MeshBuild): BufferGeometry {
   return geometry
 }
 
+/**
+ * Nuanceur de surface du relief, partage par le maillage courant et le rendu au
+ * pixel du mode photo — voir `shadeTerrain`.
+ */
+export const TERRAIN_SHADE_GLSL = /* glsl */ `
+      ${DISPLAY_TONEMAP_GLSL}
+      ${AERIAL_LUT_GLSL}
+      ${MICRO_RELIEF_GLSL}
+      ${ORTHO_GLSL}
+      ${CITY_LIGHTS_GLSL}
+      ${WATER_GLSL}
+      // Pas de la sommation par segments. Huit suffisent : la table ne porte que
+      // seize tranches de distance, et un pas plus fin qu'elles ne ferait
+      // qu'interpoler du vide.
+      const int SHADOW_STEPS = 8;
+      /** Cote d'une case de la carte d'ombre, metres — 234 m courante, 30 m en photo. */
+      uniform float uShadowTexel;
+      /** Un : micro-relief invente sur les normales ; zero en photo, ou les normales sont vraies. */
+      uniform float uMicroRelief;
+      uniform vec3 uSunDirection;
+      uniform vec3 uSunIrradiance;
+      uniform vec3 uSkyIrradiance;
+      uniform float uSnowLine;
+      uniform float uNight;
+      uniform vec3 uNightTint;
+      uniform sampler2D uShadowMap;
+      uniform float uShadowHalfSpan;
+      uniform float uObserverAltitude;
+      uniform float uEffectiveRadius;
+
+      /**
+       * Altitude, en un point du plan, sous laquelle le Soleil est masque par le
+       * relief. Hors du domaine cartographie, rien n'ombre.
+       */
+      float shadowHeightAt(float eastM, float northM) {
+        vec2 uv = vec2(eastM, northM) / (2.0 * uShadowHalfSpan) + 0.5;
+        if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return -1e9;
+        return texture2D(uShadowMap, uv).r;
+      }
+
+      /**
+       * Le point situe a t metres le long de la visee voit-il le Soleil ?
+       *
+       * Sa position se reconstruit exactement comme le maillage a ete construit :
+       * l'azimut porte par la direction, l'altitude par la hauteur apparente
+       * moins la chute due a la courbure. Les deux doivent se correspondre, sans
+       * quoi l'ombre glisserait sur le relief.
+       */
+      bool sunlitAt(vec3 dir, float t, float biasM) {
+        float eastM = t * dir.x;
+        float northM = -t * dir.z;
+        float altitudeM = uObserverAltitude + t * dir.y - (t * t) / (2.0 * uEffectiveRadius);
+        return altitudeM + biasM > shadowHeightAt(eastM, northM);
+      }
+
+      /**
+       * Ce que renvoie un point du relief vers l'oeil : albedo, Soleil, ciel,
+       * eau, lampes, puis le trajet dans l'air jusqu'a l'oeil.
+       *
+       * Une fonction et non le corps du nuanceur : le maillage courant et le
+       * rendu au pixel du mode photo l'appellent tous deux, et ils doivent rendre
+       * exactement la meme lumiere — seules changent la provenance de la
+       * geometrie, la part du Soleil et la part du ciel.
+       */
+      vec3 shadeTerrain(vec3 sView, float sRange, float sAltitude, vec3 sNormal, float sunFraction, float skyOcclusion) {
+        // ⚠️ Le micro-relief est une **texture inventee**, appliquee aux seules
+        // normales. Sans elle, une plaine lointaine rend un aplat de lumiere
+        // uniforme sur des centaines de pixels, sa normale y etant rigoureusement
+        // constante. Son amplitude est prise dans l'intervalle mesure des
+        // plaines francaises ; son motif ne decrit rien. Voir microRelief.ts.
+        vec3 N = uMicroRelief > 0.5 ? microRelief(normalize(sNormal), normalize(sView), sRange) : normalize(sNormal);
+
+        // --- Albedo ---------------------------------------------------------
+        //
+        // Trois valeurs mesurees, pas trois couleurs choisies : vegetation
+        // basse 0,12, roche nue 0,20, neige fraiche 0,80. Ce sont des albedos
+        // de manuel, et c'est leur **rapport** qui fait l'image — une crete
+        // enneigee est quatre fois plus claire que la roche qui la porte.
+        //
+        float altitudeM = sAltitude;
+        float slope = 1.0 - N.y;
+
+        vec3 grass = vec3(0.09, 0.13, 0.07);
+        vec3 rock  = vec3(0.21, 0.19, 0.17);
+        vec3 snow  = vec3(0.80, 0.81, 0.85);
+
+        vec3 albedo = mix(grass, rock, smoothstep(400.0, 1500.0, altitudeM));
+        // La limite des neiges est **franche** dans la nature : quelques
+        // dizaines de metres separent le versant enneige du versant nu, parce
+        // que c'est une isotherme. L'etaler sur neuf cents metres, comme le
+        // faisait la premiere version, noyait toute la chaine dans du blanc.
+        //
+        // Elle ne tient pas non plus sur les parois raides : au-dela d'environ
+        // quarante degres, la neige glisse et laisse la roche a nu. C'est ce qui
+        // dessine les aretes sombres d'un sommet enneige.
+        float snowCover = smoothstep(uSnowLine - 150.0, uSnowLine + 150.0, altitudeM)
+                        * (1.0 - smoothstep(0.18, 0.38, slope));
+        albedo = mix(albedo, snow, snowCover);
+
+        // --- La teinte du sol reel -----------------------------------------
+        //
+        // ⚠️ **Sa teinte, pas sa clarte.** Une orthophoto est deja eclairee : sa
+        // luminance porte le Soleil du jour de la prise de vue et ses ombres
+        // portees. La garder ferait compter la lumiere deux fois, et l'on
+        // verrait des ombres de midi sous un Soleil couchant. On ne prend donc
+        // que ses rapports de couleur, et le moteur garde toute la brillance.
+        //
+        // Ce qu'on perd avec la luminance : les vrais ecarts d'albedo, une foret
+        // a 0,08 contre un calcaire a 0,35. Au registre.
+        albedo *= orthoTint(sRange * sView.x, -sRange * sView.z);
+
+        // --- Eclairement ----------------------------------------------------
+        //
+        // Direct : le cosinus de l'angle d'incidence, et rien de plus. Diffus :
+        // la part du ciel que voit la surface, approchee par son inclinaison.
+        // Ombre **portee** : une vallee peut etre tournee vers le Soleil et
+        // rester dans l'ombre de la crete qui la domine. Le biais vaut un demi
+        // texel de la carte, sans quoi la surface s'ombrerait elle-meme.
+        float cosIncidence = max(0.0, dot(N, normalize(uSunDirection)));
+        bool sunLit = sunFraction > 0.5;
+        cosIncidence *= sunFraction;
+        // En photo, la part de ciel que le relief laisse au point — un fond de
+        // vallee en perd la moitie. Un hors photo : la pente locale seule.
+        float skyView = 0.5 * (1.0 + N.y) * skyOcclusion;
+        vec3 irradiance = uSunIrradiance * cosIncidence + uSkyIrradiance * skyView;
+
+        // Surface lambertienne : la radiance sortante vaut l'eclairement recu
+        // divise par pi, quelle que soit la direction de sortie.
+        vec3 outgoing = albedo * irradiance / 3.14159265;
+
+        // --- Ce que le sol **emet** -----------------------------------------
+        //
+        // Jusqu'ici il ne faisait que renvoyer. La nuit, les hommes en mettent,
+        // et le terme s'ajoute ici pour qu'il subisse ensuite le meme trajet que
+        // le reste : attenue par l'air, occulte par les cretes, expose comme
+        // tout le reste. Sa valeur vient de la norme EN 13201 et d'un spectre de
+        // Planck, pas d'une couleur choisie. Voir terrain/cityLights.ts.
+        // --- L'eau -----------------------------------------------------------
+        //
+        // Ocean et lacs, d'apres le masque trace sur la couche \`water\`
+        // d'OpenStreetMap (voir terrain/waterMask.ts). La surface y est deja au
+        // niveau de l'eau ; seul change son eclairage — voir waterShading.ts.
+        vec2 groundEn = vec2(sRange * sView.x, -sRange * sView.z);
+        vec3 waterSample = waterAt(groundEn);
+        float waterCoverage = waterCover(waterSample, sAltitude);
+        vec2 waterMask = vec2(waterCoverage, waterCoverage * (waterSample.x > 0.0 ? waterSample.y / waterSample.x : 0.0));
+        vec3 skyReflection = vec3(0.0);
+        // L'eau ne couvre que les faces tournees vers le ciel : les parois
+        // verticales du maillage, qui bouchent les fentes entre anneaux, restent
+        // du sol — eclairees en eau, elles se dressaient en lames claires.
+        waterMask *= smoothstep(0.6, 0.9, normalize(sNormal).y);
+        if (waterMask.x > 0.004) {
+          vec3 upLocal = normalize(sView * sRange + vec3(0.0, uEffectiveRadius + uObserverAltitude, 0.0));
+          vec3 reflected;
+          vec3 waterOut = waterShade(normalize(sView), upLocal, groundEn, sRange, waterMask.y > 0.5 * waterMask.x,
+            uSunIrradiance, uSkyIrradiance, normalize(uSunDirection), sunLit, reflected);
+          outgoing = mix(outgoing, waterOut, waterMask.x);
+          skyReflection = waterMask.x * reflected;
+        }
+
+        // Les lampes sont a terre : l'eau n'en emet pas.
+        outgoing += cityEmission(sRange * sView.x, -sRange * sView.z) * (1.0 - waterMask.x);
+
+        // --- Le trajet jusqu'a l'oeil ---------------------------------------
+        //
+        // L'equation du transfert, la meme que partout ailleurs dans le moteur :
+        // ce que la surface emet, attenue par l'air, plus ce que l'air ajoute.
+        //
+        // ## L'air aussi est dans l'ombre de la montagne
+        //
+        // La table est construite pour une atmosphere **sans relief** : chaque
+        // point d'air y est eclaire par un Soleil que rien ne masque. Soleil
+        // levant derriere une chaine, la brume situee devant elle brillait donc
+        // comme si la montagne n'existait pas.
+        //
+        // On ne corrige pas cela par un facteur : **c'est le domaine
+        // d'integration qui change**. La diffusion etant lineaire le long du
+        // rayon, la table donne d'elle-meme la contribution d'un segment :
+        //
+        //     L(a→b) vue de l'oeil  =  L(0→b) − L(0→a)
+        //
+        // Il suffit donc de **sommer les segments eclaires**, et de sauter les
+        // autres. Aucune ombre n'est peinte : elle emerge de ce que le relief
+        // retire a l'integrale.
+        //
+        // ## Un segment ombre n'est pas un segment absent
+        //
+        // Sauter purement les segments ombres serait sur-corriger : un point
+        // prive de Soleil recoit encore la lumiere du **reste du ciel**, et
+        // c'est elle qui rend les ombres bleues plutot que noires. Le solveur
+        // publie donc, a cote du voile total, la meme integrale **privee de sa
+        // source solaire** — voir \`aerialAmbient\`.
+        //
+        // Chaque segment prend alors l'une ou l'autre : ce n'est pas un facteur
+        // d'attenuation, c'est un **changement de terme source**.
+        vec3 transmittance;
+        aerialPerspective(sView, sRange, transmittance);
+
+        vec3 haze = vec3(0.0);
+        vec3 previousTotal = vec3(0.0);
+        vec3 previousAmbient = vec3(0.0);
+        vec3 previousT = vec3(1.0);
+        vec3 stepT;
+        for (int i = 1; i <= SHADOW_STEPS; i++) {
+          float t = sRange * float(i) / float(SHADOW_STEPS);
+          vec3 total = aerialPerspective(sView, t, stepT);
+          vec3 ambient = aerialAmbient(sView, t);
+          // Le milieu du segment decide pour lui : c'est la quadrature du point
+          // milieu, la meme que celle du solveur.
+          float middle = sRange * (float(i) - 0.5) / float(SHADOW_STEPS);
+          haze += sunlitAt(sView, middle, 0.0)
+            ? total - previousTotal
+            : ambient - previousAmbient;
+
+          // --- La lueur des villes dans l'air --------------------------------
+          //
+          // ⚠️ **Les lampes n'eclairent pas que le sol : elles eclairent l'air
+          // au-dessus.** C'est ce qui fait le halo qu'on voit d'une ville a
+          // distance, et il ne vient pas de ses pixels mais de l'atmosphere
+          // entre elle et l'oeil.
+          //
+          // Le compte se boucle sans constante libre. Un sol lambertien de
+          // radiance L emet une exitance πL ; au-dessus d'un plan emetteur
+          // etendu, l'eclairement ne depend pas de la hauteur. L'air en diffuse
+          // une part vers l'oeil, et cette part vaut ce qu'il **eteint** : la
+          // chute de transmittance du segment. En diffusion isotrope, le
+          // quatrieme de 1/4π compense le π de l'exitance, et il reste
+          //
+          //     lueur = L × (T_avant − T_apres) / 4
+          //
+          // ⚠️ Trois approximations, toutes assumees : diffusion **isotrope**
+          // — vraie pour Rayleigh, fausse pour le pic avant de Mie ; albedo de
+          // diffusion suppose **unite**, donc pas d'absorption ; et **plan
+          // emetteur infini**, ce qui surestime pres du bord d'une ville.
+          vec3 lueur = cityEmissionCoarse(middle * sView.x, -middle * sView.z);
+          haze += lueur * (previousT - stepT) * 0.25;
+
+          previousTotal = total;
+          previousAmbient = ambient;
+          previousT = stepT;
+        }
+
+        // Le ciel reflechi est deja expose, comme la table dont il vient.
+        vec3 radiance = outgoing * transmittance * uAerialExposure + skyReflection * transmittance + haze;
+        // Borne sous le maximum d'un demi-flottant (65 504) : un reflet solaire
+        // plus intense y deviendrait infini, et le halo lumineux, flou separable,
+        // l'etalerait en colonnes. Rien de reel ne s'affiche au-dela.
+        radiance = min(radiance, vec3(3.0e4));
+        if (any(isnan(radiance))) radiance = vec3(0.0);
+        // Theme night : la radiance est reduite a sa luminance puis portee par
+        // l'ambre. Le blanc devient ambre, le noir reste noir, et l'ecart de
+        // luminance entre une ville et la campagne survit intact. Seul le sol
+        // est converti : c'est lui qui, eclaire par l'orthophoto et les
+        // lumieres des villes, porte des couleurs vives sous un ciel noir.
+        return radiance;
+      }
+`
+
 function terrainMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     // Opaque par son alpha, transparent par sa file de rendu : le sol plat est
@@ -628,12 +888,10 @@ function terrainMaterial(): ShaderMaterial {
       uShadowMap: { value: null as DataTexture | null },
       /** Demi-etendue de la carte, metres. */
       uShadowHalfSpan: { value: SHADOW_HALF_SPAN_M },
-      /**
-       * Un quand la geometrie affichee est celle du mode photo : la surface lit
-       * alors sa visibilite du Soleil dans l'attribut `sunVisibility`, calcule
-       * par un rayon par sommet, au lieu de la carte d'ombre.
-       */
-      uPhotoShadow: { value: 0 },
+      /** Cote d'une case de la carte d'ombre, metres. */
+      uShadowTexel: { value: (2 * SHADOW_HALF_SPAN_M) / (SHADOW_SIZE - 1) },
+      /** Micro-relief invente sur les normales — coupe en photo. */
+      uMicroRelief: { value: 1 },
       /** Altitude de l'observateur, metres. */
       uObserverAltitude: { value: 0 },
       /** Rayon terrestre effectif sous refraction, metres. */
@@ -661,8 +919,6 @@ function terrainMaterial(): ShaderMaterial {
       ${WATER_VERTEX_GLSL}
       attribute float range;
       attribute float altitude;
-      attribute float sunVisibility;
-      varying float vSunVisibility;
       varying vec3 vNormal;
       varying vec3 vView;
       varying float vRange;
@@ -672,7 +928,6 @@ function terrainMaterial(): ShaderMaterial {
         vNormal = normalize(mat3(modelMatrix) * normal);
         vView = normalize(world.xyz);
         vRange = range;
-        vSunVisibility = sunVisibility;
 
         // --- Vagues en relief ---------------------------------------------------
         // Position metrique du point depuis l'oeil, soulevee par les vagues que la
@@ -705,257 +960,20 @@ function terrainMaterial(): ShaderMaterial {
       }
     `,
     fragmentShader: /* glsl */ `
-      ${DISPLAY_TONEMAP_GLSL}
-      ${AERIAL_LUT_GLSL}
-      ${MICRO_RELIEF_GLSL}
-      ${ORTHO_GLSL}
-      ${CITY_LIGHTS_GLSL}
-      ${WATER_GLSL}
-      // Pas de la sommation par segments. Huit suffisent : la table ne porte que
-      // seize tranches de distance, et un pas plus fin qu'elles ne ferait
-      // qu'interpoler du vide.
-      const int SHADOW_STEPS = 8;
-      const int SHADOW_SIZE = 512;
+      ${TERRAIN_SHADE_GLSL}
       varying vec3 vNormal;
       varying vec3 vView;
       varying float vRange;
       varying float vAltitude;
-      varying float vSunVisibility;
-      uniform float uPhotoShadow;
-      uniform vec3 uSunDirection;
-      uniform vec3 uSunIrradiance;
-      uniform vec3 uSkyIrradiance;
-      uniform float uSnowLine;
-      uniform float uNight;
-      uniform vec3 uNightTint;
-      uniform sampler2D uShadowMap;
-      uniform float uShadowHalfSpan;
-      uniform float uObserverAltitude;
-      uniform float uEffectiveRadius;
-
-      /**
-       * Altitude, en un point du plan, sous laquelle le Soleil est masque par le
-       * relief. Hors du domaine cartographie, rien n'ombre.
-       */
-      float shadowHeightAt(float eastM, float northM) {
-        vec2 uv = vec2(eastM, northM) / (2.0 * uShadowHalfSpan) + 0.5;
-        if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return -1e9;
-        return texture2D(uShadowMap, uv).r;
-      }
-
-      /**
-       * Le point situe a t metres le long de la visee voit-il le Soleil ?
-       *
-       * Sa position se reconstruit exactement comme le maillage a ete construit :
-       * l'azimut porte par la direction, l'altitude par la hauteur apparente
-       * moins la chute due a la courbure. Les deux doivent se correspondre, sans
-       * quoi l'ombre glisserait sur le relief.
-       */
-      bool sunlitAt(vec3 dir, float t, float biasM) {
-        float eastM = t * dir.x;
-        float northM = -t * dir.z;
-        float altitudeM = uObserverAltitude + t * dir.y - (t * t) / (2.0 * uEffectiveRadius);
-        return altitudeM + biasM > shadowHeightAt(eastM, northM);
-      }
-
       void main() {
-        // ⚠️ Le micro-relief est une **texture inventee**, appliquee aux seules
-        // normales. Sans elle, une plaine lointaine rend un aplat de lumiere
-        // uniforme sur des centaines de pixels, sa normale y etant rigoureusement
-        // constante. Son amplitude est prise dans l'intervalle mesure des
-        // plaines francaises ; son motif ne decrit rien. Voir microRelief.ts.
-        vec3 N = microRelief(normalize(vNormal), normalize(vView), vRange);
-
-        // --- Albedo ---------------------------------------------------------
-        //
-        // Trois valeurs mesurees, pas trois couleurs choisies : vegetation
-        // basse 0,12, roche nue 0,20, neige fraiche 0,80. Ce sont des albedos
-        // de manuel, et c'est leur **rapport** qui fait l'image — une crete
-        // enneigee est quatre fois plus claire que la roche qui la porte.
-        //
-        float altitudeM = vAltitude;
-        float slope = 1.0 - N.y;
-
-        vec3 grass = vec3(0.09, 0.13, 0.07);
-        vec3 rock  = vec3(0.21, 0.19, 0.17);
-        vec3 snow  = vec3(0.80, 0.81, 0.85);
-
-        vec3 albedo = mix(grass, rock, smoothstep(400.0, 1500.0, altitudeM));
-        // La limite des neiges est **franche** dans la nature : quelques
-        // dizaines de metres separent le versant enneige du versant nu, parce
-        // que c'est une isotherme. L'etaler sur neuf cents metres, comme le
-        // faisait la premiere version, noyait toute la chaine dans du blanc.
-        //
-        // Elle ne tient pas non plus sur les parois raides : au-dela d'environ
-        // quarante degres, la neige glisse et laisse la roche a nu. C'est ce qui
-        // dessine les aretes sombres d'un sommet enneige.
-        float snowCover = smoothstep(uSnowLine - 150.0, uSnowLine + 150.0, altitudeM)
-                        * (1.0 - smoothstep(0.18, 0.38, slope));
-        albedo = mix(albedo, snow, snowCover);
-
-        // --- La teinte du sol reel -----------------------------------------
-        //
-        // ⚠️ **Sa teinte, pas sa clarte.** Une orthophoto est deja eclairee : sa
-        // luminance porte le Soleil du jour de la prise de vue et ses ombres
-        // portees. La garder ferait compter la lumiere deux fois, et l'on
-        // verrait des ombres de midi sous un Soleil couchant. On ne prend donc
-        // que ses rapports de couleur, et le moteur garde toute la brillance.
-        //
-        // Ce qu'on perd avec la luminance : les vrais ecarts d'albedo, une foret
-        // a 0,08 contre un calcaire a 0,35. Au registre.
-        albedo *= orthoTint(vRange * vView.x, -vRange * vView.z);
-
-        // --- Eclairement ----------------------------------------------------
-        //
-        // Direct : le cosinus de l'angle d'incidence, et rien de plus. Diffus :
-        // la part du ciel que voit la surface, approchee par son inclinaison.
-        // Ombre **portee** : une vallee peut etre tournee vers le Soleil et
-        // rester dans l'ombre de la crete qui la domine. Le biais vaut un demi
-        // texel de la carte, sans quoi la surface s'ombrerait elle-meme.
-        float cosIncidence = max(0.0, dot(N, normalize(uSunDirection)));
         // Le biais est **un demi-texel de la carte**, et il se deduit d'elle
         // plutot que d'etre pose : sans lui, la hauteur d'ombre interpolee
         // depasse localement le sol et la surface s'ombre elle-meme.
-        //
-        // ⚠️ Il valait 300 m en dur, soit deux fois et demie ce qu'il fallait.
-        bool mapLit = sunlitAt(vView, vRange, uShadowHalfSpan / float(SHADOW_SIZE - 1));
-        // En mode photo, la part du disque solaire visible, penombre comprise :
-        // un rayon par sommet sur le relief le plus fin, au lieu d'une carte a
-        // 234 m qui ne sait dire que oui ou non.
-        float sunFraction = uPhotoShadow > 0.5 ? vSunVisibility : (mapLit ? 1.0 : 0.0);
-        bool sunLit = sunFraction > 0.5;
-        cosIncidence *= sunFraction;
-        float skyView = 0.5 * (1.0 + N.y);
-        vec3 irradiance = uSunIrradiance * cosIncidence + uSkyIrradiance * skyView;
-
-        // Surface lambertienne : la radiance sortante vaut l'eclairement recu
-        // divise par pi, quelle que soit la direction de sortie.
-        vec3 outgoing = albedo * irradiance / 3.14159265;
-
-        // --- Ce que le sol **emet** -----------------------------------------
-        //
-        // Jusqu'ici il ne faisait que renvoyer. La nuit, les hommes en mettent,
-        // et le terme s'ajoute ici pour qu'il subisse ensuite le meme trajet que
-        // le reste : attenue par l'air, occulte par les cretes, expose comme
-        // tout le reste. Sa valeur vient de la norme EN 13201 et d'un spectre de
-        // Planck, pas d'une couleur choisie. Voir terrain/cityLights.ts.
-        // --- L'eau -----------------------------------------------------------
-        //
-        // Ocean et lacs, d'apres le masque trace sur la couche \`water\`
-        // d'OpenStreetMap (voir terrain/waterMask.ts). La surface y est deja au
-        // niveau de l'eau ; seul change son eclairage — voir waterShading.ts.
-        vec2 groundEn = vec2(vRange * vView.x, -vRange * vView.z);
-        vec3 waterSample = waterAt(groundEn);
-        float waterCoverage = waterCover(waterSample, vAltitude);
-        vec2 waterMask = vec2(waterCoverage, waterCoverage * (waterSample.x > 0.0 ? waterSample.y / waterSample.x : 0.0));
-        vec3 skyReflection = vec3(0.0);
-        // L'eau ne couvre que les faces tournees vers le ciel : les parois
-        // verticales du maillage, qui bouchent les fentes entre anneaux, restent
-        // du sol — eclairees en eau, elles se dressaient en lames claires.
-        waterMask *= smoothstep(0.6, 0.9, normalize(vNormal).y);
-        if (waterMask.x > 0.004) {
-          vec3 upLocal = normalize(vView * vRange + vec3(0.0, uEffectiveRadius + uObserverAltitude, 0.0));
-          vec3 reflected;
-          vec3 waterOut = waterShade(normalize(vView), upLocal, groundEn, vRange, waterMask.y > 0.5 * waterMask.x,
-            uSunIrradiance, uSkyIrradiance, normalize(uSunDirection), sunLit, reflected);
-          outgoing = mix(outgoing, waterOut, waterMask.x);
-          skyReflection = waterMask.x * reflected;
-        }
-
-        // Les lampes sont a terre : l'eau n'en emet pas.
-        outgoing += cityEmission(vRange * vView.x, -vRange * vView.z) * (1.0 - waterMask.x);
-
-        // --- Le trajet jusqu'a l'oeil ---------------------------------------
-        //
-        // L'equation du transfert, la meme que partout ailleurs dans le moteur :
-        // ce que la surface emet, attenue par l'air, plus ce que l'air ajoute.
-        //
-        // ## L'air aussi est dans l'ombre de la montagne
-        //
-        // La table est construite pour une atmosphere **sans relief** : chaque
-        // point d'air y est eclaire par un Soleil que rien ne masque. Soleil
-        // levant derriere une chaine, la brume situee devant elle brillait donc
-        // comme si la montagne n'existait pas.
-        //
-        // On ne corrige pas cela par un facteur : **c'est le domaine
-        // d'integration qui change**. La diffusion etant lineaire le long du
-        // rayon, la table donne d'elle-meme la contribution d'un segment :
-        //
-        //     L(a→b) vue de l'oeil  =  L(0→b) − L(0→a)
-        //
-        // Il suffit donc de **sommer les segments eclaires**, et de sauter les
-        // autres. Aucune ombre n'est peinte : elle emerge de ce que le relief
-        // retire a l'integrale.
-        //
-        // ## Un segment ombre n'est pas un segment absent
-        //
-        // Sauter purement les segments ombres serait sur-corriger : un point
-        // prive de Soleil recoit encore la lumiere du **reste du ciel**, et
-        // c'est elle qui rend les ombres bleues plutot que noires. Le solveur
-        // publie donc, a cote du voile total, la meme integrale **privee de sa
-        // source solaire** — voir \`aerialAmbient\`.
-        //
-        // Chaque segment prend alors l'une ou l'autre : ce n'est pas un facteur
-        // d'attenuation, c'est un **changement de terme source**.
-        vec3 transmittance;
-        aerialPerspective(vView, vRange, transmittance);
-
-        vec3 haze = vec3(0.0);
-        vec3 previousTotal = vec3(0.0);
-        vec3 previousAmbient = vec3(0.0);
-        vec3 previousT = vec3(1.0);
-        vec3 stepT;
-        for (int i = 1; i <= SHADOW_STEPS; i++) {
-          float t = vRange * float(i) / float(SHADOW_STEPS);
-          vec3 total = aerialPerspective(vView, t, stepT);
-          vec3 ambient = aerialAmbient(vView, t);
-          // Le milieu du segment decide pour lui : c'est la quadrature du point
-          // milieu, la meme que celle du solveur.
-          float middle = vRange * (float(i) - 0.5) / float(SHADOW_STEPS);
-          haze += sunlitAt(vView, middle, 0.0)
-            ? total - previousTotal
-            : ambient - previousAmbient;
-
-          // --- La lueur des villes dans l'air --------------------------------
-          //
-          // ⚠️ **Les lampes n'eclairent pas que le sol : elles eclairent l'air
-          // au-dessus.** C'est ce qui fait le halo qu'on voit d'une ville a
-          // distance, et il ne vient pas de ses pixels mais de l'atmosphere
-          // entre elle et l'oeil.
-          //
-          // Le compte se boucle sans constante libre. Un sol lambertien de
-          // radiance L emet une exitance πL ; au-dessus d'un plan emetteur
-          // etendu, l'eclairement ne depend pas de la hauteur. L'air en diffuse
-          // une part vers l'oeil, et cette part vaut ce qu'il **eteint** : la
-          // chute de transmittance du segment. En diffusion isotrope, le
-          // quatrieme de 1/4π compense le π de l'exitance, et il reste
-          //
-          //     lueur = L × (T_avant − T_apres) / 4
-          //
-          // ⚠️ Trois approximations, toutes assumees : diffusion **isotrope**
-          // — vraie pour Rayleigh, fausse pour le pic avant de Mie ; albedo de
-          // diffusion suppose **unite**, donc pas d'absorption ; et **plan
-          // emetteur infini**, ce qui surestime pres du bord d'une ville.
-          vec3 lueur = cityEmissionCoarse(middle * vView.x, -middle * vView.z);
-          haze += lueur * (previousT - stepT) * 0.25;
-
-          previousTotal = total;
-          previousAmbient = ambient;
-          previousT = stepT;
-        }
-
-        // Le ciel reflechi est deja expose, comme la table dont il vient.
-        vec3 radiance = outgoing * transmittance * uAerialExposure + skyReflection * transmittance + haze;
-        // Borne sous le maximum d'un demi-flottant (65 504) : un reflet solaire
-        // plus intense y deviendrait infini, et le halo lumineux, flou separable,
-        // l'etalerait en colonnes. Rien de reel ne s'affiche au-dela.
-        radiance = min(radiance, vec3(3.0e4));
-        if (any(isnan(radiance))) radiance = vec3(0.0);
+        float sunFraction = sunlitAt(vView, vRange, 0.5 * uShadowTexel) ? 1.0 : 0.0;
+        vec3 radiance = shadeTerrain(vView, vRange, vAltitude, vNormal, sunFraction, 1.0);
         // Theme night : la radiance est reduite a sa luminance puis portee par
         // l'ambre. Le blanc devient ambre, le noir reste noir, et l'ecart de
-        // luminance entre une ville et la campagne survit intact. Seul le sol
-        // est converti : c'est lui qui, eclaire par l'orthophoto et les
-        // lumieres des villes, porte des couleurs vives sous un ciel noir.
+        // luminance entre une ville et la campagne survit intact.
         float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
         gl_FragColor = vec4(mix(radiance, luma * uNightTint, uNight), 1.0);
       }
@@ -1202,8 +1220,10 @@ export function Terrain({
 
   // Le maillage du mode photo, quand il existe, remplace le maillage courant le
   // temps du rendu haute definition.
-  const [photo, setPhoto] = useState<BufferGeometry | null>(photoGeometry)
-  useEffect(() => subscribePhotoGeometry(() => setPhoto(photoGeometry())), [])
+  const [photo, setPhoto] = useState<PhotoRender | null>(photoRender)
+  useEffect(() => subscribePhotoRender(() => setPhoto(photoRender())), [])
+  const photoMaterial = useMemo(() => photoTerrainMaterial(material, TERRAIN_SHADE_GLSL), [material])
+  useEffect(() => () => photoMaterial.dispose(), [photoMaterial])
 
   /**
    * L'orthophoto, publiee des qu'elle arrive.
@@ -1259,8 +1279,23 @@ export function Terrain({
     applyAerialUniforms(u as unknown as ReturnType<typeof aerialUniforms>, sunDirection, skyExposure)
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     ;(u.uSunIrradiance.value as Vector3).set(sunIrradiance[0], sunIrradiance[1], sunIrradiance[2])
-    u.uShadowMap.value = shadowTexture
-    u.uPhotoShadow.value = photo ? 1 : 0
+    // En photo, la carte d'ombre fine du worker remplace la courante : c'est
+    // elle que lit le voile atmospherique.
+    u.uShadowMap.value = photo ? photo.shadow : shadowTexture
+    u.uShadowHalfSpan.value = photo ? photo.shadowHalfSpanM : SHADOW_HALF_SPAN_M
+    u.uShadowTexel.value = photo
+      ? (2 * photo.shadowHalfSpanM) / (photo.shadowSize - 1)
+      : (2 * SHADOW_HALF_SPAN_M) / (SHADOW_SIZE - 1)
+    if (photo) {
+      const p = photoMaterial.uniforms
+      p.uG.value = photo.g
+      ;(p.uFrame.value as Vector4).set(photo.frame.azMin, photo.frame.elMin, photo.frame.step, 0)
+      ;(p.uGrid.value as Vector2).set(photo.frame.cols, photo.frame.rows)
+      ;(p.uProjInv.value as Matrix4).copy(camera.projectionMatrixInverse)
+      ;(p.uCamWorld.value as Matrix4).copy(camera.matrixWorld)
+      ;(p.uViewProj.value as Matrix4).multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+      gl.getDrawingBufferSize(p.uResolution.value as Vector2)
+    }
     u.uNight.value = nightTint ? 1 : 0
     if (nightTint) (u.uNightTint.value as Vector3).set(nightTint[0], nightTint[1], nightTint[2])
     u.uOrtho.value = ortho
@@ -1327,8 +1362,8 @@ export function Terrain({
   // a trier.
   // Tant que le premier maillage n'est pas pose, il n'y a rien a dessiner : le
   // globe tient le sol.
-  const shown = photo ?? geometry
-  if (!shown) return null
+  if (photo) return <mesh geometry={FULLSCREEN} material={photoMaterial} renderOrder={26} frustumCulled={false} />
+  if (!geometry) return null
 
-  return <mesh geometry={shown} material={material} renderOrder={26} frustumCulled={false} />
+  return <mesh geometry={geometry} material={material} renderOrder={26} frustumCulled={false} />
 }
