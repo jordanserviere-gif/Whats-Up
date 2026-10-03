@@ -84,6 +84,22 @@ export const NEAR_M = 0.5
  * longue que quatre images, et l'on aurait echange un defaut visible contre un
  * a-coup a chaque mouvement de camera.
  */
+/** Profondeur de scene du premier anneau — au-dela du plan rapproche de 0,1. */
+export const TERRAIN_NEAR_DEPTH = 0.3
+/** Meme pente que `sceneDepth` : une decade de distance vaut 7,375 de profondeur. */
+export const TERRAIN_DEPTH_SLOPE = 7.375
+
+/**
+ * Profondeur de scene d'un point du relief a une distance donnee.
+ *
+ * Ici et non dans `Terrain.tsx` : le maillage du mode photo se construit dans un
+ * worker, qui doit poser ses sommets exactement a la meme profondeur que le
+ * maillage courant — sans quoi l'eau et l'air, qui reconstruisent la distance
+ * depuis la scene, ne retomberaient pas sur le relief.
+ */
+export const terrainDepth = (distanceM: number): number =>
+  TERRAIN_DEPTH_SLOPE * Math.log10(Math.max(NEAR_M, distanceM) / NEAR_M) + TERRAIN_NEAR_DEPTH
+
 export const MESH_VERTEX_BUDGET = AZIMUTH_STEPS * RANGE_STEPS
 
 /**

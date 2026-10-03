@@ -114,6 +114,9 @@ import {
 import { CLIPMAP_HALF_SPANS_M, CLIPMAP_SIZE } from './terrain/elevationClipmap'
 import {
   AZIMUTH_STEPS,
+  TERRAIN_DEPTH_SLOPE,
+  TERRAIN_NEAR_DEPTH,
+  terrainDepth,
   NEAR_M,
   RANGE_STEPS,
   SLAB_MAX_SAMPLES,
@@ -125,6 +128,7 @@ import {
 } from './terrain/meshSampling'
 import { loadElevationAround } from './terrain/elevationSource'
 import { loadNearField } from './terrain/nearField'
+import { photoGeometry, subscribePhotoGeometry } from './photo/photoTerrain'
 import { zoomForResolution } from './terrain/geodesy'
 import { MICRO_RELIEF_GLSL } from './terrain/microRelief'
 import { loadWaterAround, refreshWaterLevels, siteHasWater, waterHalfSpans, waterTextures } from './terrain/waterMask'
@@ -177,7 +181,7 @@ import {
  * maille pas du terrain dont on ignore tout ; le globe prend le relais, et il y
  * est justement au niveau de la mer, comme la pyramide hors de son domaine.
  */
-const farRangeM = (observerElevationM: number, effectiveRadiusM: number): number =>
+export const farRangeM = (observerElevationM: number, effectiveRadiusM: number): number =>
   Math.min(
     horizonRangeM(terrainPeakM() * 1.05, observerElevationM, effectiveRadiusM) * 1.15,
     CLIPMAP_HALF_SPANS_M[CLIPMAP_HALF_SPANS_M.length - 1],
@@ -214,13 +218,6 @@ const CITY_EMISSION = (() => {
 /** Vecteur de travail pour lire la direction de la camera, sans allouer par image. */
 const viewForward = new Vector3()
 
-/** Profondeur de scene du premier anneau — au-dela du plan rapproche de 0,1. */
-const TERRAIN_NEAR_DEPTH = 0.3
-/** Meme pente que `sceneDepth` : une decade de distance vaut 7,375 de profondeur. */
-const TERRAIN_DEPTH_SLOPE = 7.375
-
-const terrainDepth = (distanceM: number): number =>
-  TERRAIN_DEPTH_SLOPE * Math.log10(Math.max(NEAR_M, distanceM) / NEAR_M) + TERRAIN_NEAR_DEPTH
 
 /**
  * Maillage radial centre sur l'observateur.
@@ -631,6 +628,12 @@ function terrainMaterial(): ShaderMaterial {
       uShadowMap: { value: null as DataTexture | null },
       /** Demi-etendue de la carte, metres. */
       uShadowHalfSpan: { value: SHADOW_HALF_SPAN_M },
+      /**
+       * Un quand la geometrie affichee est celle du mode photo : la surface lit
+       * alors sa visibilite du Soleil dans l'attribut `sunVisibility`, calcule
+       * par un rayon par sommet, au lieu de la carte d'ombre.
+       */
+      uPhotoShadow: { value: 0 },
       /** Altitude de l'observateur, metres. */
       uObserverAltitude: { value: 0 },
       /** Rayon terrestre effectif sous refraction, metres. */
@@ -658,6 +661,8 @@ function terrainMaterial(): ShaderMaterial {
       ${WATER_VERTEX_GLSL}
       attribute float range;
       attribute float altitude;
+      attribute float sunVisibility;
+      varying float vSunVisibility;
       varying vec3 vNormal;
       varying vec3 vView;
       varying float vRange;
@@ -667,6 +672,7 @@ function terrainMaterial(): ShaderMaterial {
         vNormal = normalize(mat3(modelMatrix) * normal);
         vView = normalize(world.xyz);
         vRange = range;
+        vSunVisibility = sunVisibility;
 
         // --- Vagues en relief ---------------------------------------------------
         // Position metrique du point depuis l'oeil, soulevee par les vagues que la
@@ -714,6 +720,8 @@ function terrainMaterial(): ShaderMaterial {
       varying vec3 vView;
       varying float vRange;
       varying float vAltitude;
+      varying float vSunVisibility;
+      uniform float uPhotoShadow;
       uniform vec3 uSunDirection;
       uniform vec3 uSunIrradiance;
       uniform vec3 uSkyIrradiance;
@@ -810,8 +818,13 @@ function terrainMaterial(): ShaderMaterial {
         // depasse localement le sol et la surface s'ombre elle-meme.
         //
         // ⚠️ Il valait 300 m en dur, soit deux fois et demie ce qu'il fallait.
-        bool sunLit = sunlitAt(vView, vRange, uShadowHalfSpan / float(SHADOW_SIZE - 1));
-        if (!sunLit) cosIncidence = 0.0;
+        bool mapLit = sunlitAt(vView, vRange, uShadowHalfSpan / float(SHADOW_SIZE - 1));
+        // En mode photo, la part du disque solaire visible, penombre comprise :
+        // un rayon par sommet sur le relief le plus fin, au lieu d'une carte a
+        // 234 m qui ne sait dire que oui ou non.
+        float sunFraction = uPhotoShadow > 0.5 ? vSunVisibility : (mapLit ? 1.0 : 0.0);
+        bool sunLit = sunFraction > 0.5;
+        cosIncidence *= sunFraction;
         float skyView = 0.5 * (1.0 + N.y);
         vec3 irradiance = uSunIrradiance * cosIncidence + uSkyIrradiance * skyView;
 
@@ -1187,6 +1200,11 @@ export function Terrain({
   })
   const material = useMemo(() => terrainMaterial(), [])
 
+  // Le maillage du mode photo, quand il existe, remplace le maillage courant le
+  // temps du rendu haute definition.
+  const [photo, setPhoto] = useState<BufferGeometry | null>(photoGeometry)
+  useEffect(() => subscribePhotoGeometry(() => setPhoto(photoGeometry())), [])
+
   /**
    * L'orthophoto, publiee des qu'elle arrive.
    *
@@ -1242,6 +1260,7 @@ export function Terrain({
     ;(u.uSunDirection.value as Vector3).set(sunDirection[0], sunDirection[1], sunDirection[2])
     ;(u.uSunIrradiance.value as Vector3).set(sunIrradiance[0], sunIrradiance[1], sunIrradiance[2])
     u.uShadowMap.value = shadowTexture
+    u.uPhotoShadow.value = photo ? 1 : 0
     u.uNight.value = nightTint ? 1 : 0
     if (nightTint) (u.uNightTint.value as Vector3).set(nightTint[0], nightTint[1], nightTint[2])
     u.uOrtho.value = ortho
@@ -1308,7 +1327,8 @@ export function Terrain({
   // a trier.
   // Tant que le premier maillage n'est pas pose, il n'y a rien a dessiner : le
   // globe tient le sol.
-  if (!geometry) return null
+  const shown = photo ?? geometry
+  if (!shown) return null
 
-  return <mesh geometry={geometry} material={material} renderOrder={26} frustumCulled={false} />
+  return <mesh geometry={shown} material={material} renderOrder={26} frustumCulled={false} />
 }

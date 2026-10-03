@@ -1,0 +1,70 @@
+/* Barre du mode photo — posee en bas de la scene, a la place de la frise. */
+.photo-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-5);
+  translate: -50% 0;
+  z-index: var(--app-z-chrome);
+  width: min(760px, calc(100% - 2 * var(--space-5)));
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+  background: var(--surface);
+  border: var(--border) solid var(--line-strong);
+}
+
+.photo-bar__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.photo-bar__detail {
+  color: var(--ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-bar__progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.photo-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+/* ⚠️ L'apercu doit etre la photo : tout ce qui ne sera pas dans l'image
+ * s'efface — l'interface, et les etiquettes, qui vivent hors du canevas. Le
+ * rail et le panneau partent aussi, pour que la scene ait deja sa taille
+ * finale : le cadre vu est le cadre enregistre. */
+body[data-photo] .sky-hud,
+body[data-photo] .app__timeline,
+body[data-photo] .wu-nav-rail,
+body[data-photo] .app__panel,
+body[data-photo] .sky-labels {
+  display: none !important;
+}
+
+/* Pendant le calcul, le cadrage est fige : la camera ne repond plus. */
+body[data-photo='calcul'] .sky-canvas {
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .photo-bar {
+    bottom: var(--space-3);
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+}

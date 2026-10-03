@@ -104,6 +104,8 @@ interface SkyState {
   nudgeTime: (deltaMs: number) => void
   goLive: () => void
   setPlaying: (p: boolean) => void
+  photo: PhotoState
+  setPhoto: (patch: Partial<PhotoState>) => void
   setSpeed: (s: number) => void
 
   // --- Lieu ---
@@ -335,6 +337,28 @@ const DEFAULT_MAGNITUDE_LIMIT = 7
 /** Ancien plafond du catalogue, avant son extension a la magnitude 7. */
 const LEGACY_CATALOGUE_CEILING = 6
 
+/**
+ * Mode photo — voir `scene/photo/`.
+ *
+ * `preview` : la vue courante sert de pre-rendu, le temps est fige et l'on
+ * cadre. `working` : le worker charge le relief fin, maille et calcule les
+ * ombres. `capturing` : le rendu haute definition et son enregistrement.
+ */
+export type PhotoPhase = 'off' | 'preview' | 'working' | 'capturing'
+
+export interface PhotoState {
+  phase: PhotoPhase
+  /** Definition de la photo, en multiple de celle de l'ecran. */
+  scale: 1 | 2 | 3
+  progress: { step: string; fraction: number; detail?: string } | null
+  /** Dernier resultat ou erreur, a afficher dans la barre. */
+  message: string | null
+  /** Le temps tournait-il avant l'entree en mode photo ? Il reprendra a la sortie. */
+  resumePlaying: boolean
+}
+
+const PHOTO_OFF: PhotoState = { phase: 'off', scale: 2, progress: null, message: null, resumePlaying: false }
+
 export const useSkyStore = create<SkyState>()(
   persist(
     (set, get) => ({
@@ -346,6 +370,8 @@ export const useSkyStore = create<SkyState>()(
       nudgeTime: (deltaMs) => set((s) => ({ time: s.time + deltaMs, live: false })),
       goLive: () => set({ time: Date.now(), live: true, playing: true, speed: 1 }),
       setPlaying: (playing) => set({ playing }),
+      photo: PHOTO_OFF,
+      setPhoto: (patch) => set((s) => ({ photo: { ...s.photo, ...patch } })),
       setSpeed: (speed) => set({ speed, live: speed === 1 ? get().live : false }),
 
       location: PRESET_LOCATIONS[0],

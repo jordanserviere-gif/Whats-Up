@@ -291,6 +291,24 @@ photopique / scotopique). La documentation module par module est dans
 - **Au loin** : au-delà du relief chargé, un globe physique prend le relais.
   Il n'y a qu'un seul horizon.
 
+## Mode photo
+
+Le bouton appareil photo du HUD fige le temps et efface l'interface : ce qu'on
+voit devient le pré-rendu. « Prendre la photo » lance, dans un worker
+(`src/scene/photo/`) :
+
+- **le relief le plus fin du cadre** : le MNT LiDAR HD de l'IGN par WMS (50 cm,
+  repli RGE ALTI), chargé en tranches de distance dont le pas suit la taille du
+  pixel — du demi-mètre au pied de l'observateur à quelques centaines de mètres
+  à 400 km. Hors de France, le relief courant ;
+- **un maillage limité au cadre**, un sommet tous les 1,5 pixel ;
+- **les ombres par rayon**, un par sommet vers le Soleil, pénombre du disque
+  solaire comprise, au lieu de la carte à 234 m.
+
+Le rendu monte ensuite à ×1, ×2 ou ×3 la définition de l'écran (8 192 px au
+plus) et s'enregistre en PNG. Au Ventoux, en ×2 : 3,6 millions de sommets,
+environ une minute, dont les deux tiers de téléchargement.
+
 ## Eau
 
 Océans et lacs, sur le relief comme sur le globe.

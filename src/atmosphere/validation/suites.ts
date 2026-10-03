@@ -49,6 +49,7 @@ import { microReliefSuite } from '@/scene/terrain/microRelief.validation'
 import { orthophotoSuite } from '@/scene/terrain/orthophoto.validation'
 import { waterLevelsSuite } from '@/scene/terrain/waterLevels.validation'
 import { cityLightsSuite } from '@/scene/terrain/cityLights.validation'
+import { photoSuite } from '@/scene/photo/photoPlan.validation'
 import type { SuiteResult } from './harness'
 import { cloudSuite } from '../cloud/cloud.validation'
 import { cloudLayerSuite } from '../cloud/cloudLayer.validation'
@@ -129,6 +130,7 @@ export function allSuites(): SuiteResult[] {
     waterLevelsSuite(),
     // Dette : le sol emet — les lumieres urbaines, en unites photometriques.
     cityLightsSuite(),
+    photoSuite(),
     // Chantier : milieu nuageux — l'eau condensee, commune aux nuages et aux trainees.
     cloudSuite(),
     cloudLayerSuite(),

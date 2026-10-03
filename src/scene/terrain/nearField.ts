@@ -72,6 +72,9 @@ let field: NearField | null = null
 let loading: Promise<boolean> | null = null
 let loadedKey = ''
 
+/** Hauteurs du champ proche, en quarts de metre — copiees par le mode photo. */
+export const nearFieldHeights = (): Int16Array | null => (field?.ready ? field.heights : null)
+
 /** Vrai quand un champ proche est disponible pour le site courant. */
 export const nearFieldReady = (): boolean => field?.ready === true
 

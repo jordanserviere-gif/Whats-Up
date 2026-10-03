@@ -9,6 +9,7 @@ import { SatelliteDetail, SatellitesPanel } from '@/features/SatellitesPanel'
 import { AircraftDetail } from '@/features/AircraftDetail'
 import { SettingsPanel } from '@/features/SettingsPanel'
 import { NightFilter } from '@/features/NightFilter'
+import { PhotoBar } from '@/features/PhotoBar'
 import { Logo } from '@/brand/Logo'
 import { AppLoader } from '@/features/AppLoader'
 import { useSkyStore, type ViewTab } from '@/state/store'
@@ -92,6 +93,7 @@ export function App() {
       <main className="app__stage">
         <SkyCanvas />
         <SkyHud />
+        <PhotoBar />
         <div className="app__timeline">
           <TimelineBar />
           <CloudProgress />

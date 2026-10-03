@@ -51,6 +51,7 @@ import { uniformSpectralGrid } from '@/atmosphere/spectral/SpectralGrid'
 import { ATMOSPHERE_TOP_M } from '@/atmosphere/transport/slantPath'
 import { SKY_DISPLAY_EXPOSURE } from './display/exposure'
 import { MilkyWay } from './MilkyWay'
+import { PhotoController } from './photo/PhotoController'
 import { AircraftLights } from './AircraftLights'
 import { skyGlowFor } from './display/skyGlowGradient'
 import './SkyCanvas.css'
@@ -648,6 +649,7 @@ export function SkyCanvas() {
         dpr={sceneLoading ? 0.5 : [1, 2]}
       >
         <CameraRig canvas={host} onPick={onPick} />
+        <PhotoController sunAltitudeDeg={sky.sunAltitude} sunAzimuthDeg={sky.sunAzimuth} />
 
         <SkyBackground
           skyExposure={skyExposure}

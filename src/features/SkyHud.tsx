@@ -4,6 +4,7 @@ import { AIRCRAFT_RADIUS_KM, useCelestrakSatellites, useNearbyAircraft, useSkyCo
 import { azimuthToCardinal, formatDeg } from '@/astro/coords'
 import { MAX_FOV, MIN_FOV } from '@/scene/CameraRig'
 import { SkySearch } from './SkySearch'
+import { PhotoToggle } from './PhotoBar'
 import './SkyHud.css'
 
 /** Calques proposes en acces direct au-dessus de la scene. */
@@ -51,6 +52,9 @@ export function SkyHud() {
       <div className="sky-hud__live-layers">
         <SatelliteToggle />
         <AircraftToggle />
+        <Toolbar className="sky-hud__photo">
+          <PhotoToggle />
+        </Toolbar>
       </div>
 
       <Toolbar className="sky-hud__view-tools" vertical>
