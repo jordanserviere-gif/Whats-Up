@@ -3,8 +3,8 @@
  *
  * ## Pourquoi une pyramide, et pas une grille
  *
- * Quatre cent cinquante kilometres de rayon a trente metres feraient neuf cents
- * millions de points — trois gigaoctets et demi. Impossible, et surtout inutile :
+ * Cinq cent soixante kilometres de rayon a trente metres feraient un milliard
+ * quatre cents millions de points — cinq gigaoctets et demi. Impossible, et surtout inutile :
  * ce que l'oeil resout n'est pas une longueur mais un **angle**. A cinquante
  * degres de champ sur mille quatre cent quarante pixels, un pixel vaut 0,0347°,
  * donc un echantillon utile mesure `distance x 6,06e-4` :
@@ -12,6 +12,7 @@
  *     a  25 km :  15 m
  *     a 100 km :  61 m
  *     a 450 km : 273 m
+ *     a 560 km : 339 m
  *
  * Trois niveaux de meme taille en memoire suffisent donc a couvrir toute la
  * portee en restant partout autour de deux pixels par cellule :
@@ -19,7 +20,20 @@
  *     niveau  demi-etendue    pas     source
  *     L2         28 km       27 m     z=12
  *     L1        112 km      110 m     z=10
- *     L0        450 km      440 m     z=8
+ *     L0        560 km      547 m     z=8
+ *
+ * ## ⚠️ Pourquoi 560 et non plus 450 kilometres
+ *
+ * La portee etait de 450 km, et c'est la visee record photographiee qui l'a
+ * mise en defaut : Finestrelles → pic Gaspard, 443 km, y tenait de justesse.
+ * Les plus longues lignes de vue connues depassent cinq cents kilometres —
+ * Alto Mora → pic Cristobal Colon, 502 km ; pic Dankova → Hindu Tagh, 538 km.
+ * Le niveau grossier couvre donc 560 km : la plus longue d'entre elles, et une
+ * marge pour la frange.
+ *
+ * Il reste au zoom 8, le pas de sa cellule passe de 440 a 547 m et il demande
+ * environ une fois et demie plus de tuiles. A 560 km, un pixel couvre deja
+ * 339 m : la cellule reste sous deux pixels.
  *
  * La memoire est **fixe** — trois fois 2048 en Int16, soit 25 Mo — et ne depend
  * ni du rayon demande ni du nombre de tuiles telechargees.
@@ -79,7 +93,7 @@ export interface ElevationClipmap {
 }
 
 /** Demi-etendues des trois niveaux, du plus fin au plus grossier, m. */
-export const CLIPMAP_HALF_SPANS_M = [28_000, 112_500, 450_000] as const
+export const CLIPMAP_HALF_SPANS_M = [28_000, 112_500, 560_000] as const
 
 /**
  * Alloue une pyramide vide pour un site.

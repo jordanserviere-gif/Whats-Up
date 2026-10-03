@@ -280,7 +280,9 @@ photopique / scotopique). La documentation module par module est dans
 `src/scene/terrain/` pose l'observateur sur le vrai sol du lieu.
 
 - **Données** : les tuiles *terrarium* mondiales (AWS Open Data), assemblées en
-  une pyramide de trois niveaux dans un plan local azimutal équidistant. En
+  une pyramide de trois niveaux dans un plan local azimutal équidistant :
+  27 m sur 28 km, 110 m sur 112 km, 547 m sur 560 km — de quoi tenir les plus
+  longues lignes de vue connues (Alto Mora → pic Cristóbal Colón, 502 km). En
   France, le relief proche passe à 3 m avec le RGE ALTI de l'IGN.
 - **Maillage** : un maillage radial en anneaux logarithmiques, réglé sur une
   erreur d'espace écran. Son azimut suit la caméra, à budget constant.
