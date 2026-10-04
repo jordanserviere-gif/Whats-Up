@@ -390,6 +390,10 @@ Chaque version est un tag annoté `vX.Y.Z`, dont le message reprend le journal. 
 
 ## Crédits et licences
 
+Le code, les shaders et la documentation de ce dépôt sont sous **tous droits
+réservés** (voir [LICENSE](LICENSE)). Les données et bibliothèques de tiers
+ci-dessous restent soumises à leurs propres licences.
+
 | Donnée | Source | Licence |
 | --- | --- | --- |
 | Éphémérides | [astronomy-engine](https://github.com/cosinekitty/astronomy) (Don Cross) | MIT |

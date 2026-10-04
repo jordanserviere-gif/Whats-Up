@@ -1,6 +1,7 @@
 {
   "name": "space-everything",
   "private": true,
+  "license": "UNLICENSED",
   "version": "0.5.0",
   "type": "module",
   "description": "Observation du ciel en direct — corps du systeme solaire et traces satellites",
