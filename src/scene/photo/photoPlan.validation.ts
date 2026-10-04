@@ -10,7 +10,7 @@ import { suite, type SuiteResult } from '@/atmosphere/validation/harness'
 import { enuToGeodetic } from '../terrain/geodesy'
 import { apparentElevationRad } from '../terrain/ridgeField'
 import { SUN_SEMI_DIAMETER_DEG, sunVisibility, type PhotoView } from './photoPlan'
-import { buildMaxGrid, colDa, fromHalf, marchColumns, photoFrame, rowEl, toHalf, type PhotoFrame } from './photoRaster'
+import { buildMaxGrid, colDa, fromHalf, marchColumns, photoFrame, reuseShading, rowEl, toHalf, type PhotoFrame } from './photoRaster'
 import { LocalProjector, quantizeTile, TileStore, TILE_POINTS, tileCellM, tileKey, tileLevelFor, tileSpanDeg } from './photoTiles'
 
 const R = 7_500_000
@@ -78,6 +78,27 @@ export function photoSuite(): SuiteResult {
     let diff = 0
     for (let i = 0; i < tight.range.length; i++) if (Math.abs(tight.range[i] - loose.range[i]) > 1e-3 * Math.max(1, loose.range[i])) diff++
     t.check('les majorants ne changent aucun pixel', diff, 0, 0, ' pixels')
+
+    // --- La reprise d'une passe a l'autre : sur un relief continu, l'ombre et
+    // le ciel se relisent ; au bord d'un mur, ils se recalculent.
+    {
+      const ref = { range: gw.range, sun: new Float32Array(gw.range.length), sky: new Float32Array(gw.range.length) }
+      for (let k = 0; k < gw.range.length; k++) {
+        const r = Math.floor(k / frame.cols)
+        ref.sun[k] = 0.5 + 0.001 * r
+        ref.sky[k] = 0.8
+      }
+      const sun = new Float32Array(gw.range.length)
+      const sky = new Float32Array(gw.range.length)
+      const mask = reuseShading(ref, gw, 0.25, 0.5, sun, sky)
+      const k = 20 * frame.cols + c
+      const kTop = rowTop * frame.cols + c
+      t.checkTrue(
+        'la reprise relit le continu et recalcule les bords',
+        mask[k] === 0 && Math.abs(sun[k] - (0.5 + 0.001 * 20.5)) < 1e-6 && mask[kTop] + mask[kTop - frame.cols] + mask[kTop + frame.cols] > 0,
+        `sol ${mask[k] ? 'recalcule' : 'relu'}, crete ${mask[kTop] + mask[kTop - frame.cols] + mask[kTop + frame.cols] > 0 ? 'recalculee' : 'relue'}`,
+      )
+    }
 
     // --- Tuiles.
     const heights = new Float32Array(TILE_POINTS * TILE_POINTS)

@@ -93,16 +93,24 @@ export function sunVisibility(
   const lx = Math.sin(sunAzimuthDeg * DEG)
   const ly = Math.cos(sunAzimuthDeg * DEG)
   const low = Math.tan((sunAltitudeDeg - SUN_SEMI_DIAMETER_DEG) * DEG)
+  const high = Math.tan((sunAltitudeDeg + SUN_SEMI_DIAMETER_DEG) * DEG)
   let maxTan = -Infinity
   let t = Math.max(1, startM)
   while (t < SHADOW_REACH_M) {
     const drop = (t * t) / (2 * effectiveRadiusM)
     const h = (t < farFromM ? sample : far)(eastM + t * lx, northM + t * ly) - drop
     const tanH = (h - altitudeM) / t
-    if (tanH > maxTan) maxTan = tanH
-    // Plus rien ne peut masquer le disque, meme le plus haut sommet.
+    if (tanH > maxTan) {
+      maxTan = tanH
+      // Le disque est deja cache tout entier : rien plus loin n'y changera rien.
+      if (maxTan >= high) return 0
+    }
+    // Plus loin, meme le plus haut sommet ne depasserait ni l'horizon deja
+    // trouve, ni le bas du disque : la reponse ne peut plus changer.
+    // ⚠️ Il fallait les **deux** jusqu'ici — un rayon deja assez masque, ou deja
+    // assez libre, courait pour rien jusqu'a soixante kilometres.
     const bound = (peakM - drop - altitudeM) / t
-    if (bound < low && bound < maxTan) break
+    if (bound < Math.max(low, maxTan)) break
     // Au-dela de deux kilometres, le pas s'allonge : une crete qui ombre de
     // loin est grande, et un pas de 5 % ne la manque plus.
     t = t * (t < 2000 ? SHADOW_STEP_RATIO : 1.05) + 0.5

@@ -58,8 +58,10 @@ const JITTERS: Array<[number, number]> = [
   [0.125, 0.375],
   [-0.375, 0.125],
 ]
-/** Bandes de colonnes par worker et par passe : les colonnes de ciel ne coutent rien, il faut de quoi equilibrer. */
-const BANDS_PER_WORKER = 4
+/** Immobilite de la camera avant le prechargement des tuiles, secondes. */
+const PREFETCH_STILL_S = 1.5
+/** Bandes de colonnes par worker, chacune avec toutes ses passes : les colonnes de ciel ne coutent rien, il faut de quoi equilibrer. */
+const BANDS_PER_WORKER = 12
 
 const STEP_LABELS: Record<PhotoPhase, string> = {
   visibilite: 'Visibilité',
@@ -118,37 +120,16 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
   }
 
   const session = useRef<Session | null>(null)
-  const sun = useRef({ sunAltitudeDeg, sunAzimuthDeg })
-  sun.current = { sunAltitudeDeg, sunAzimuthDeg }
 
-  // --- Fin de session : annulation, ou photo enregistree ------------------------------
-  const endSession = (restore: boolean) => {
-    const s = session.current
-    if (!s) return
-    session.current = null
-    s.dispose()
-    if (restore && s.raised) applyDpr(s.previousDpr)
-    setPhotoRender(null)
-    s.shadow?.dispose()
-  }
-
-  // --- working : preparer, puis rendre les passes en parallele -----------------------
-  useEffect(() => {
-    if (phase === 'off' || phase === 'preview') {
-      endSession(true)
-      return
-    }
-    if (phase !== 'working' || session.current) return
+  /** La tache de preparation, pour le cadrage courant : la photo et le prechargement la construisent pareil. */
+  const buildJob = () => {
     const store = useSkyStore.getState()
-    const setPhoto = store.setPhoto
     const forward = new Vector3()
     camera.getWorldDirection(forward)
     const cam = camera as PerspectiveCamera
-
     const previousDpr = gl.getPixelRatio()
     const maxSide = Math.min(MAX_SIDE_PX, gl.capabilities.maxTextureSize - 64)
     const dpr = Math.min(previousDpr * store.photo.scale, maxSide / Math.max(size.width, size.height))
-
     const clipmap = currentClipmap()
     const eyeM = eyeAltitudeM(store.location.elevation, store.elevationOffsetM)
     const effectiveRadiusM = effectiveEarthRadiusM(eyeM, cachedHorizonDipDeg(eyeM))
@@ -175,6 +156,74 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
       sunAltitudeDeg: sun.current.sunAltitudeDeg,
       sunAzimuthDeg: sun.current.sunAzimuthDeg,
     }
+    return { job, relief, dpr, previousDpr }
+  }
+
+  // --- preview : precharger les tuiles du cadre ---------------------------------------
+  //
+  // Le telechargement des tuiles est le plus long de la photo, et il ne depend
+  // que du cadrage. Des que la camera s'arrete, un worker charge les tuiles du
+  // cadre dans le cache ; au declic, la preparation les y retrouve. Si la camera
+  // repart, il s'arrete — les tuiles deja venues restent en cache.
+  const prefetch = useRef<{ worker: Worker | null; key: string; still: number; done: string }>({ worker: null, key: '', still: 0, done: '' })
+  const stopPrefetch = () => {
+    prefetch.current.worker?.terminate()
+    prefetch.current.worker = null
+  }
+  useFrame((state) => {
+    const p = prefetch.current
+    const store = useSkyStore.getState()
+    if (store.photo.phase !== 'preview') {
+      if (p.worker && store.photo.phase !== 'working') stopPrefetch()
+      return
+    }
+    const cam = camera as PerspectiveCamera
+    const e = camera.matrixWorld.elements
+    const key = `${e[8].toFixed(4)},${e[9].toFixed(4)},${e[10].toFixed(4)},${cam.fov.toFixed(3)},${size.width}x${size.height},${store.photo.scale},${store.location.latitude},${store.location.longitude}`
+    const now = state.clock.elapsedTime
+    if (key !== p.key) {
+      p.key = key
+      p.still = now
+      stopPrefetch()
+      return
+    }
+    if (p.worker || p.done === key || now - p.still < PREFETCH_STILL_S) return
+    const worker = newWorker()
+    p.worker = worker
+    worker.onmessage = (event: MessageEvent<PhotoWorkerMessage>) => {
+      if (event.data.type !== 'prefetched' && event.data.type !== 'error') return
+      if (prefetch.current.worker === worker) {
+        prefetch.current.done = key
+        stopPrefetch()
+      }
+    }
+    worker.postMessage({ type: 'prepare', job: { ...buildJob().job, prefetch: true } })
+  })
+  const sun = useRef({ sunAltitudeDeg, sunAzimuthDeg })
+  sun.current = { sunAltitudeDeg, sunAzimuthDeg }
+
+  // --- Fin de session : annulation, ou photo enregistree ------------------------------
+  const endSession = (restore: boolean) => {
+    const s = session.current
+    if (!s) return
+    session.current = null
+    s.dispose()
+    if (restore && s.raised) applyDpr(s.previousDpr)
+    setPhotoRender(null)
+    s.shadow?.dispose()
+  }
+
+  // --- working : preparer, puis rendre les passes en parallele -----------------------
+  useEffect(() => {
+    if (phase === 'off' || phase === 'preview') {
+      endSession(true)
+      return
+    }
+    if (phase !== 'working' || session.current) return
+    stopPrefetch()
+    const store = useSkyStore.getState()
+    const setPhoto = store.setPhoto
+    const { job, relief, dpr, previousDpr } = buildJob()
 
     const poolSize = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 1))
     let alive = true
@@ -206,18 +255,16 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
     const render = (init: RenderInit) => {
       const { frame } = init
       while (s.pool.length < poolSize) s.pool.push(newWorker())
-      // Les bandes, passe apres passe : la premiere passe sort tot, et la
-      // capture commence pendant que les suivantes se calculent.
+      // Une bande porte toutes ses passes : la premiere y fait reference, et les
+      // suivantes en reprennent l'ombre et le ciel hors des bords.
       const bandCount = s.pool.length * BANDS_PER_WORKER
       const per = Math.ceil(frame.cols / bandCount)
       const queue: BandJob[] = []
-      JITTERS.forEach(([jx, jy], pass) => {
-        for (let c = 0; c < frame.cols; c += per) queue.push({ pass, jitterAz: jx, jitterEl: jy, colStart: c, colEnd: Math.min(frame.cols, c + per) })
-      })
-      const total = queue.length
-      const passes = JITTERS.map(() => ({ g: new Uint16Array(0), left: 0 }))
-      queue.forEach((b) => passes[b.pass].left++)
+      for (let c = 0; c < frame.cols; c += per) queue.push({ jitters: JITTERS, colStart: c, colEnd: Math.min(frame.cols, c + per) })
+      const total = queue.length * JITTERS.length
+      const passes = JITTERS.map(() => ({ g: new Uint16Array(0), left: queue.length }))
       let done = 0
+      let exact = 0
       let first = true
 
       const feed = (w: Worker) => {
@@ -230,7 +277,8 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
           const msg = event.data
           if (msg.type === 'error') return fail(msg.message)
           if (msg.type !== 'band') return
-          feed(w)
+          if (msg.pass === JITTERS.length - 1) feed(w)
+          if (msg.pass > 0) exact += msg.exact
           const p = passes[msg.pass]
           if (p.g.length === 0) p.g = new Uint16Array(frame.cols * frame.rows * 8)
           // La bande arrive en lignes de sa propre largeur : on la range ligne
@@ -253,6 +301,9 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
               g: p.g,
             })
             p.g = new Uint16Array(0)
+            if (import.meta.env.DEV && done === total) {
+              console.info('[photo] calcul exact sur', `${((100 * exact) / ((total / JITTERS.length) * (JITTERS.length - 1))).toFixed(1)} %`, 'des pixels des passes suivantes')
+            }
             if (first) {
               first = false
               setPhoto({ phase: 'capturing' })
@@ -296,8 +347,14 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
   }, [phase])
 
   // Demontage : tout est rendu.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => () => endSession(true), [])
+  useEffect(
+    () => () => {
+      endSession(true)
+      stopPrefetch()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   // --- capturing : afficher chaque passe, la lire juste apres le compositeur -----------
   useFrame(() => {

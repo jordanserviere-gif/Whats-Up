@@ -30,6 +30,8 @@ import {
   toHalf,
   fromHalf,
   cellAngle,
+  reuseShading,
+  type PhotoGBuffer,
   type MaxGrid,
   type PhotoFrame,
 } from './photoRaster'
@@ -57,6 +59,8 @@ export interface PrepareJob extends CurrentRelief {
   peakM: number
   sunAltitudeDeg: number
   sunAzimuthDeg: number
+  /** Precharger seulement : les tuiles du cadre vont au cache, et l'on s'arrete la. */
+  prefetch?: boolean
 }
 
 /** Ce que chaque worker du groupe garde pour toutes ses bandes. */
@@ -75,10 +79,8 @@ export interface RenderInit extends CurrentRelief {
 
 /** Une bande de colonnes d'une passe. */
 export interface BandJob {
-  pass: number
-  /** Decalage de la grille, en pas : une fraction de pixel. */
-  jitterAz: number
-  jitterEl: number
+  /** Decalages de la grille de chaque passe, en pas : des fractions de pixel. La premiere fait reference. */
+  jitters: Array<[number, number]>
   colStart: number
   colEnd: number
 }
@@ -102,6 +104,7 @@ export interface PrepareResult {
 
 export type PhotoWorkerMessage =
   | { type: 'progress'; phase: PhotoPhase; fraction: number; detail?: string }
+  | { type: 'prefetched'; tiles: number }
   | PrepareResult
   | {
       type: 'band'
@@ -109,6 +112,8 @@ export type PhotoWorkerMessage =
       colStart: number
       colEnd: number
       g: Uint16Array
+      /** Part des pixels calcules exactement — un pour la passe de reference. */
+      exact: number
     }
   | { type: 'error'; message: string }
 
@@ -373,6 +378,11 @@ async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
       }),
     )
   }
+  if (job.prefetch) {
+    post({ type: 'prefetched', tiles: store.size })
+    return
+  }
+
   if (signal.aborted) return
 
   // --- Carte d'ombre du voile ---------------------------------------------------------
@@ -426,40 +436,71 @@ function renderBand(job: BandJob): void {
   if (!renderer) throw new Error('worker de rendu non initialise')
   const { init, sample, coarse } = renderer
   const base = init.frame
-  // Une bande de colonnes est elle-meme une grille : la meme, plus etroite, et
-  // decalee de la fraction de pixel de sa passe.
-  const frame: PhotoFrame = {
-    az0: base.az0,
-    el0: base.el0,
-    uMin: base.uMin + (job.colStart + job.jitterAz) * base.step,
-    vMin: base.vMin + job.jitterEl * base.step,
-    step: base.step,
-    cols: job.colEnd - job.colStart,
-    rows: base.rows,
-  }
-  const gb = marchColumns(sample, frame, {
+  const opt = {
     observerM: init.eyeM,
     effectiveRadiusM: init.effectiveRadiusM,
     reachM: init.reachM,
-    fineStepAt: (d) => d * frame.step * 2.5,
+    fineStepAt: (d: number) => d * base.step * 2.5,
     maxGrid: init.maxGrid,
+  }
+  // Les passes de la bande, a la suite : la premiere fait reference, les
+  // suivantes en reprennent l'ombre et le ciel hors des bords — voir
+  // `reuseShading`.
+  let ref: { range: Float32Array; sun: Float32Array; sky: Float32Array } | null = null
+  const [jx0, jy0] = job.jitters[0]
+  job.jitters.forEach(([jx, jy], pass) => {
+    // Une bande de colonnes est elle-meme une grille : la meme, plus etroite, et
+    // decalee de la fraction de pixel de sa passe.
+    const frame: PhotoFrame = {
+      ...base,
+      uMin: base.uMin + (job.colStart + jx) * base.step,
+      vMin: base.vMin + jy * base.step,
+      cols: job.colEnd - job.colStart,
+    }
+    const gb = marchColumns(sample, frame, opt)
+    const normals = pixelNormals(sample, gb)
+    let sun: Float32Array
+    let sky: Float32Array
+    let exact = 1
+    if (!ref) {
+      ;({ sun, sky } = shadePixels(sample, coarse, gb, normals, 0, init, 0, frame.rows))
+      ref = { range: gb.range, sun, sky }
+    } else {
+      sun = new Float32Array(gb.range.length)
+      sky = new Float32Array(gb.range.length).fill(1)
+      const mask = reuseShading(ref, gb, jx - jx0, jy - jy0, sun, sky)
+      const part = shadePixels(sample, coarse, gb, normals, 0, init, 0, frame.rows, mask)
+      let n = 0
+      for (let k = 0; k < mask.length; k++) {
+        if (!mask[k]) continue
+        sun[k] = part.sun[k]
+        sky[k] = part.sky[k]
+        n++
+      }
+      exact = n / Math.max(1, mask.length)
+    }
+    const g = packBand(gb, normals, sun, sky)
+    post({ type: 'band', pass, colStart: job.colStart, colEnd: job.colEnd, g, exact }, [g.buffer])
   })
-  const normals = pixelNormals(sample, gb)
-  const { sun, sky } = shadePixels(sample, coarse, gb, normals, 0, init, 0, frame.rows)
-  // La bande de texture, deja en demi-flottants et deja entrelacee : deux texels
-  // par pixel — distance (km), altitude, part du Soleil, couverture ; puis
-  // normale (x, reste de la distance en metres, z) et part du ciel. Une seule texture, parce que le nuanceur du relief
-  // n'a plus qu'une unite de texture libre sur seize. La conversion se fait ici,
-  // en parallele, plutot que sur le fil principal.
+}
+
+/**
+ * La bande de texture, deja en demi-flottants et deja entrelacee : deux texels
+ * par pixel — distance (km), altitude, part du Soleil, couverture ; puis
+ * normale (x, reste de la distance en metres, z) et part du ciel. Une seule
+ * texture, parce que le nuanceur du relief n'a plus qu'une unite de texture
+ * libre sur seize. La conversion se fait ici, en parallele, plutot que sur le
+ * fil principal.
+ *
+ * ⚠️ La distance ne tient pas dans un demi-flottant : onze bits, soit 16 m
+ * d'arrondi a trente kilometres. Le nuanceur en retire la position au sol —
+ * l'orthophoto, l'eau, les lumieres des villes —, et l'arrondi la faisait
+ * avancer par paliers. Le reste de l'arrondi part dans la place de la
+ * composante verticale de la normale, que le nuanceur recalcule : elle est
+ * toujours positive sur un relief.
+ */
+function packBand(gb: PhotoGBuffer, normals: Float32Array, sun: Float32Array, sky: Float32Array): Uint16Array {
   const g = new Uint16Array(sky.length * 8)
-  //
-  // ⚠️ La distance ne tient pas dans un demi-flottant : onze bits, soit 16 m
-  // d'arrondi a trente kilometres. Le nuanceur en retire la position au sol —
-  // l'orthophoto, l'eau, les lumieres des villes —, et l'arrondi la faisait
-  // avancer par paliers : chaque ligne de pixels d'un palier relisait la meme
-  // teinte, et les collines se couvraient de terrasses. Le reste de l'arrondi
-  // part dans la place de la composante verticale de la normale, que le
-  // nuanceur recalcule : elle est toujours positive sur un relief.
   for (let i = 0; i < sky.length; i++) {
     const o = i * 8
     const km = toHalf(gb.range[i] / 1000)
@@ -472,16 +513,7 @@ function renderBand(job: BandJob): void {
     g[o + 6] = toHalf(normals[i * 3 + 2])
     g[o + 7] = toHalf(sky[i])
   }
-  post(
-    {
-      type: 'band',
-      pass: job.pass,
-      colStart: job.colStart,
-      colEnd: job.colEnd,
-      g,
-    },
-    [g.buffer],
-  )
+  return g
 }
 
 type WorkerRequest = { type: 'prepare'; job: PrepareJob } | { type: 'init'; init: RenderInit } | { type: 'band'; job: BandJob } | { type: 'cancel' }

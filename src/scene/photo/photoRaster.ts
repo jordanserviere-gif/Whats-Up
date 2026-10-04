@@ -453,6 +453,8 @@ export function shadePixels(
   opt: ShadeOptions,
   rowStart: number,
   rowEnd: number,
+  /** Pixels a calculer, indexes comme la grille ; tous si absent. */
+  mask?: Uint8Array,
 ): { sun: Float32Array; sky: Float32Array } {
   const { cols, step } = gb.frame
   const n = (rowEnd - rowStart) * cols
@@ -471,7 +473,7 @@ export function shadePixels(
       const k = r * cols + c
       const d = gb.range[k]
       const o = (r - rowStart) * cols + c
-      if (!(d > 0)) continue
+      if (!(d > 0) || (mask && !mask[k])) continue
       const az = gb.frame.az0 + colDa(gb.frame, c)
       const e = d * Math.sin(az)
       const nn = d * Math.cos(az)
@@ -492,7 +494,8 @@ export function shadePixels(
       }
 
       // --- Le ciel, un pixel sur deux.
-      if ((r & 1) === 0 && (c & 1) === 0 && d < 150_000) {
+      // Avec un masque, chaque pixel demande est un bord : il recoit son propre ciel.
+      if ((mask || ((r & 1) === 0 && (c & 1) === 0)) && d < 150_000) {
         // Pente du plan tangent : h_e = −nx/ny, h_n = nz/ny.
         const he = -nx / Math.max(1e-3, ny)
         const hn = nz / Math.max(1e-3, ny)
@@ -508,12 +511,95 @@ export function shadePixels(
           occluded += Math.max(0, Math.sin(best) - Math.sin(plane))
         }
         const v = Math.max(0, 1 - occluded / SKY_DIRECTIONS)
-        for (let b = 0; b < 2 && r + b < rowEnd; b++) for (let a = 0; a < 2 && c + a < cols; a++) sky[o + b * cols + a] = v
+        if (mask) sky[o] = v
+        else for (let b = 0; b < 2 && r + b < rowEnd; b++) for (let a = 0; a < 2 && c + a < cols; a++) sky[o + b * cols + a] = v
       }
     }
   }
   return { sun, sky }
 }
+
+/**
+ * Reprise de l'ombre et du ciel d'une passe voisine — l'echantillonnage
+ * adaptatif.
+ *
+ * Les passes de l'anticrenelage ne different que d'une fraction de pixel. La
+ * ou le relief est continu, la part du Soleil et celle du ciel n'y changent
+ * pas d'une passe a l'autre au-dela de l'interpolation : on les relit sur la
+ * passe de reference, entre ses quatre cases voisines. On ne refait le calcul
+ * exact qu'aux discontinuites — une crete devant un fond, un bord d'ombre, un
+ * pli de ciel —, la seule ou les passes apportent quelque chose.
+ *
+ * `dc`, `dr` : decalage de cette passe sur la reference, en cases. Rend le
+ * masque des pixels a calculer ; les autres sont deja remplis dans `sun` et
+ * `sky`.
+ */
+export function reuseShading(
+  ref: { range: Float32Array; sun: Float32Array; sky: Float32Array },
+  gb: PhotoGBuffer,
+  dc: number,
+  dr: number,
+  sun: Float32Array,
+  sky: Float32Array,
+): Uint8Array {
+  const { cols, rows } = gb.frame
+  const mask = new Uint8Array(cols * rows)
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const k = r * cols + c
+      const d = gb.range[k]
+      if (!(d > 0)) continue
+      // La position de ce pixel dans la grille de reference, centres de cases.
+      const fc = c + dc
+      const fr = r + dr
+      const c0 = Math.floor(fc)
+      const r0 = Math.floor(fr)
+      if (c0 < 0 || r0 < 0 || c0 + 1 >= cols || r0 + 1 >= rows) {
+        mask[k] = 1
+        continue
+      }
+      const k00 = r0 * cols + c0
+      const k10 = k00 + 1
+      const k01 = k00 + cols
+      const k11 = k01 + 1
+      const d00 = ref.range[k00]
+      const d10 = ref.range[k10]
+      const d01 = ref.range[k01]
+      const d11 = ref.range[k11]
+      const dMin = Math.min(d00, d10, d01, d11)
+      const dMax = Math.max(d00, d10, d01, d11)
+      const s00 = ref.sun[k00]
+      const s10 = ref.sun[k10]
+      const s01 = ref.sun[k01]
+      const s11 = ref.sun[k11]
+      const q00 = ref.sky[k00]
+      const q10 = ref.sky[k10]
+      const q01 = ref.sky[k01]
+      const q11 = ref.sky[k11]
+      if (
+        !(dMin > 0) ||
+        dMax > dMin * REUSE_RANGE ||
+        d < dMin / REUSE_RANGE ||
+        d > dMax * REUSE_RANGE ||
+        Math.max(s00, s10, s01, s11) - Math.min(s00, s10, s01, s11) > REUSE_SPREAD ||
+        Math.max(q00, q10, q01, q11) - Math.min(q00, q10, q01, q11) > REUSE_SPREAD
+      ) {
+        mask[k] = 1
+        continue
+      }
+      const tx = fc - c0
+      const ty = fr - r0
+      sun[k] = (s00 * (1 - tx) + s10 * tx) * (1 - ty) + (s01 * (1 - tx) + s11 * tx) * ty
+      sky[k] = (q00 * (1 - tx) + q10 * tx) * (1 - ty) + (q01 * (1 - tx) + q11 * tx) * ty
+    }
+  }
+  return mask
+}
+
+/** Ecart de distance relatif admis entre les quatre cases d'une reprise : au-dela, c'est un bord. */
+const REUSE_RANGE = 1.02
+/** Ecart admis de la part du Soleil ou du ciel entre ces cases : au-dela, un bord d'ombre. */
+const REUSE_SPREAD = 0.04
 
 /** Conversion flottant → demi-flottant IEEE, pour des textures moitie moins lourdes. */
 export function toHalf(value: number): number {
