@@ -8,19 +8,27 @@
  * ## Le deroule
  *
  * 1. `working` — le cadrage est fige. Un worker prepare : visibilite, tuiles au
- *    pas du pixel, relief rendu au pixel, normales, carte d'ombre fine. Puis un
- *    groupe de workers — autant que la machine a de coeurs, six au plus — se
- *    partage les lignes de l'image pour les rayons d'ombre et la part de ciel.
- *    Rien de cela ne touche le fil principal.
- * 2. `capturing` — le relief au pixel remplace le maillage courant, la
- *    definition du rendu monte au facteur demande, et quelques images passent
- *    pour que le compositeur et l'eau se remettent a la nouvelle taille.
- * 3. L'image suivante est lue **dans la meme tache que son rendu** — juste apres
- *    le compositeur, qui rend en priorite 1 — et enregistree en PNG.
+ *    pas du pixel, carte d'ombre fine. Puis un groupe de workers — autant que la
+ *    machine a de coeurs, six au plus — rend le relief par bandes de colonnes,
+ *    en plusieurs passes. Rien de cela ne touche le fil principal.
+ * 2. `capturing` — des que la premiere passe est prete, le relief au pixel
+ *    remplace le maillage courant et la definition du rendu monte au facteur
+ *    demande. Chaque passe est affichee a son tour, et l'image lue **dans la
+ *    meme tache que son rendu** — juste apres le compositeur, qui rend en
+ *    priorite 1.
+ * 3. La moyenne des passes est enregistree en PNG.
+ *
+ * ## L'anticrenelage
+ *
+ * Une passe n'echantillonne qu'un point par pixel : les cretes qui se masquent
+ * l'une l'autre sortent en escalier. Les passes decalent la grille d'une
+ * fraction de pixel — quatre points en grille tournee, comme le
+ * sur-echantillonnage d'un rendu hors ligne — et leur moyenne lisse les bords
+ * sans rien flouter. La memoire reste celle d'une seule passe.
  */
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { PerspectiveCamera, Vector3 } from 'three'
+import { PerspectiveCamera, Vector3, type DataTexture } from 'three'
 import { useSkyStore } from '@/state/store'
 import { currentClipmap } from '../terrain/elevationSource'
 import { nearFieldHeights } from '../terrain/nearField'
@@ -28,8 +36,9 @@ import { eyeAltitudeM, terrainPeakM } from '../terrain/elevationField'
 import { effectiveEarthRadiusM } from '../terrain/ridgeField'
 import { cachedHorizonDipDeg } from '../Globe'
 import { farRangeM } from '../Terrain'
-import { makePhotoRender, setPhotoRender } from './photoTerrain'
-import type { CurrentRelief, PhotoPhase, PhotoWorkerMessage, PrepareJob, PrepareResult, ShadeJob } from './photoWorker'
+import { makePhotoRender, photoShadowTexture, setPhotoRender } from './photoTerrain'
+import type { PhotoFrame } from './photoRaster'
+import type { BandJob, CurrentRelief, PhotoPhase, PhotoWorkerMessage, PrepareJob, RenderInit } from './photoWorker'
 
 const DEG = Math.PI / 180
 
@@ -40,15 +49,55 @@ const DEG = Math.PI / 180
 const MAX_SIDE_PX = 8000
 /** Images laissees au compositeur et a l'eau pour se remettre a la nouvelle taille. */
 const SETTLE_FRAMES = 8
+/** Images laissees a chaque passe suivante : le temps de charger sa texture. */
+const PASS_SETTLE_FRAMES = 3
+/** Points d'echantillonnage dans le pixel, en grille tournee — pixels. */
+const JITTERS: Array<[number, number]> = [
+  [-0.125, -0.375],
+  [0.375, -0.125],
+  [0.125, 0.375],
+  [-0.375, 0.125],
+]
+/** Bandes de colonnes par worker et par passe : les colonnes de ciel ne coutent rien, il faut de quoi equilibrer. */
+const BANDS_PER_WORKER = 4
 
 const STEP_LABELS: Record<PhotoPhase, string> = {
   visibilite: 'Visibilité',
   relief: 'Relief LiDAR',
-  rendu: 'Rendu du relief',
-  ombres: 'Ombres et ciel',
+  rendu: 'Préparation',
+  ombres: 'Rendu au pixel',
 }
 
 const newWorker = () => new Worker(new URL('./photoWorker.ts', import.meta.url), { type: 'module' })
+
+/** Une passe prete a afficher. */
+interface ReadyPass {
+  frame: PhotoFrame
+  jitter: [number, number]
+  g: Uint16Array
+}
+
+/** Une photo en cours, du cadrage fige a l'enregistrement. */
+interface Session {
+  dpr: number
+  previousDpr: number
+  pool: Worker[]
+  shadow: DataTexture | null
+  shadowHalfSpanM: number
+  /** Passes rendues, pas encore affichees. */
+  ready: ReadyPass[]
+  /** Passe affichee, et images ecoulees depuis. */
+  showing: boolean
+  settle: number
+  /** Somme des images lues, par canal. */
+  sum: Uint32Array | null
+  width: number
+  height: number
+  captured: number
+  /** Le dpr est-il deja monte ? */
+  raised: boolean
+  dispose: () => void
+}
 
 export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitudeDeg: number; sunAzimuthDeg: number }) {
   const phase = useSkyStore((s) => s.photo.phase)
@@ -68,14 +117,28 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
     setSize(size.width, size.height)
   }
 
-  const target = useRef<{ dpr: number; previousDpr: number } | null>(null)
-  const settle = useRef(0)
+  const session = useRef<Session | null>(null)
   const sun = useRef({ sunAltitudeDeg, sunAzimuthDeg })
   sun.current = { sunAltitudeDeg, sunAzimuthDeg }
 
-  // --- working : preparer, puis ombrer en parallele -----------------------------------
+  // --- Fin de session : annulation, ou photo enregistree ------------------------------
+  const endSession = (restore: boolean) => {
+    const s = session.current
+    if (!s) return
+    session.current = null
+    s.dispose()
+    if (restore && s.raised) applyDpr(s.previousDpr)
+    setPhotoRender(null)
+    s.shadow?.dispose()
+  }
+
+  // --- working : preparer, puis rendre les passes en parallele -----------------------
   useEffect(() => {
-    if (phase !== 'working') return
+    if (phase === 'off' || phase === 'preview') {
+      endSession(true)
+      return
+    }
+    if (phase !== 'working' || session.current) return
     const store = useSkyStore.getState()
     const setPhoto = store.setPhoto
     const forward = new Vector3()
@@ -85,7 +148,6 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
     const previousDpr = gl.getPixelRatio()
     const maxSide = Math.min(MAX_SIDE_PX, gl.capabilities.maxTextureSize - 64)
     const dpr = Math.min(previousDpr * store.photo.scale, maxSide / Math.max(size.width, size.height))
-    target.current = { dpr, previousDpr }
 
     const clipmap = currentClipmap()
     const eyeM = eyeAltitudeM(store.location.elevation, store.elevationOffsetM)
@@ -115,65 +177,94 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
     }
 
     const poolSize = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 1))
-    const pool = [newWorker()]
     let alive = true
+    const s: Session = {
+      dpr,
+      previousDpr,
+      pool: [newWorker()],
+      shadow: null,
+      shadowHalfSpanM: 0,
+      ready: [],
+      showing: false,
+      settle: 0,
+      sum: null,
+      width: 0,
+      height: 0,
+      captured: 0,
+      raised: false,
+      dispose: () => {
+        alive = false
+        s.pool.forEach((w) => w.terminate())
+      },
+    }
+    session.current = s
     const fail = (message: string) => {
       if (!alive) return
       setPhoto({ phase: 'preview', progress: null, message: `Échec : ${message}` })
     }
 
-    const runShading = (prepared: PrepareResult) => {
-      const { frame } = prepared
-      const cols = frame.cols
-      const g = new Uint16Array(cols * frame.rows * 8)
-      while (pool.length < poolSize) pool.push(newWorker())
-      const bands = pool.length
-      const per = Math.ceil(frame.rows / bands)
-      const progress = new Array<number>(bands).fill(0)
-      let pending = 0
-      pool.forEach((w, b) => {
-        const rowStart = b * per
-        const rowEnd = Math.min(frame.rows, rowStart + per)
-        if (rowStart >= rowEnd) return
-        pending++
+    const render = (init: RenderInit) => {
+      const { frame } = init
+      while (s.pool.length < poolSize) s.pool.push(newWorker())
+      // Les bandes, passe apres passe : la premiere passe sort tot, et la
+      // capture commence pendant que les suivantes se calculent.
+      const bandCount = s.pool.length * BANDS_PER_WORKER
+      const per = Math.ceil(frame.cols / bandCount)
+      const queue: BandJob[] = []
+      JITTERS.forEach(([jx, jy], pass) => {
+        for (let c = 0; c < frame.cols; c += per) queue.push({ pass, jitterAz: jx, jitterEl: jy, colStart: c, colEnd: Math.min(frame.cols, c + per) })
+      })
+      const total = queue.length
+      const passes = JITTERS.map(() => ({ g: new Uint16Array(0), left: 0 }))
+      queue.forEach((b) => passes[b.pass].left++)
+      let done = 0
+      let first = true
+
+      const feed = (w: Worker) => {
+        const next = queue.shift()
+        if (next) w.postMessage({ type: 'band', job: next })
+      }
+      for (const w of s.pool) {
         w.onmessage = (event: MessageEvent<PhotoWorkerMessage>) => {
           if (!alive) return
           const msg = event.data
-          if (msg.type === 'progress') {
-            progress[b] = msg.fraction
-            setPhoto({ progress: { step: STEP_LABELS.ombres, fraction: progress.reduce((a, v) => a + v, 0) / bands, detail: `${bands} workers` } })
-          } else if (msg.type === 'error') {
-            fail(msg.message)
-          } else if (msg.type === 'shaded') {
-            g.set(msg.g, msg.rowStart * cols * 8)
-            if (--pending === 0) {
-              setPhotoRender(makePhotoRender(frame, g, prepared.shadow))
-              settle.current = 0
-              setPhoto({ phase: 'capturing', progress: { step: 'Rendu', fraction: 0 } })
+          if (msg.type === 'error') return fail(msg.message)
+          if (msg.type !== 'band') return
+          feed(w)
+          const p = passes[msg.pass]
+          if (p.g.length === 0) p.g = new Uint16Array(frame.cols * frame.rows * 8)
+          // La bande arrive en lignes de sa propre largeur : on la range ligne
+          // par ligne dans l'image entiere.
+          const width = msg.colEnd - msg.colStart
+          for (let r = 0; r < frame.rows; r++) {
+            p.g.set(msg.g.subarray(r * width * 8, (r + 1) * width * 8), (r * frame.cols + msg.colStart) * 8)
+          }
+          done++
+          // L'avancement des workers reste l'information utile pendant la
+          // capture : les passes suivantes se calculent encore.
+          setPhoto({
+            progress: { step: STEP_LABELS.ombres, fraction: done / total, detail: `passe ${Math.min(JITTERS.length, msg.pass + 1)} / ${JITTERS.length}` },
+          })
+          if (--p.left === 0) {
+            const [jx, jy] = JITTERS[msg.pass]
+            s.ready.push({
+              frame: { ...frame, uMin: frame.uMin + jx * frame.step, vMin: frame.vMin + jy * frame.step },
+              jitter: [jx, jy],
+              g: p.g,
+            })
+            p.g = new Uint16Array(0)
+            if (first) {
+              first = false
+              setPhoto({ phase: 'capturing' })
             }
           }
         }
-        const shade: ShadeJob = {
-          ...relief,
-          frame,
-          range: prepared.range,
-          altitude: prepared.altitude,
-          coverage: prepared.coverage,
-          normals: prepared.normals.slice(rowStart * cols * 3, rowEnd * cols * 3),
-          rowStart,
-          rowEnd,
-          tiles: prepared.tiles,
-          projector: prepared.projector,
-          sunAltitudeDeg: job.sunAltitudeDeg,
-          sunAzimuthDeg: job.sunAzimuthDeg,
-          effectiveRadiusM,
-          peakM: job.peakM,
-        }
-        w.postMessage({ type: 'shade', job: shade })
-      })
+        w.postMessage({ type: 'init', init })
+        feed(w)
+      }
     }
 
-    pool[0].onmessage = (event: MessageEvent<PhotoWorkerMessage>) => {
+    s.pool[0].onmessage = (event: MessageEvent<PhotoWorkerMessage>) => {
       if (!alive) return
       const msg = event.data
       if (msg.type === 'progress') {
@@ -182,45 +273,88 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
         fail(msg.message)
       } else if (msg.type === 'prepared') {
         if (import.meta.env.DEV) console.info('[photo]', JSON.stringify(msg.stats), `${msg.frame.cols} × ${msg.frame.rows}`)
-        runShading(msg)
+        s.shadow = photoShadowTexture(msg.shadow)
+        s.shadowHalfSpanM = msg.shadow.halfSpanM
+        render({
+          ...relief,
+          frame: msg.frame,
+          tiles: msg.tiles,
+          projector: msg.projector,
+          maxGrid: msg.maxGrid,
+          eyeM: job.eyeM,
+          reachM: job.reachM,
+          sunAltitudeDeg: job.sunAltitudeDeg,
+          sunAzimuthDeg: job.sunAzimuthDeg,
+          effectiveRadiusM: job.effectiveRadiusM,
+          peakM: job.peakM,
+        })
       }
     }
-    pool[0].postMessage({ type: 'prepare', job })
-
-    return () => {
-      alive = false
-      // Annulation, ou fin du calcul : les workers sont rendus.
-      pool.forEach((w) => w.terminate())
-    }
+    s.pool[0].postMessage({ type: 'prepare', job })
     // Le cadrage est lu une fois, a l'entree dans la phase : c'est lui qu'on fige.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
-  // --- capturing : monter la definition -----------------------------------------
-  useEffect(() => {
-    if (phase !== 'capturing' || !target.current) return
-    applyDpr(target.current.dpr)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase])
+  // Demontage : tout est rendu.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => endSession(true), [])
 
-  // --- capturing : lire l'image juste apres le compositeur ---------------------------
+  // --- capturing : afficher chaque passe, la lire juste apres le compositeur -----------
   useFrame(() => {
-    if (useSkyStore.getState().photo.phase !== 'capturing' || !target.current) return
-    settle.current++
-    if (settle.current < SETTLE_FRAMES) {
-      useSkyStore.getState().setPhoto({ progress: { step: 'Rendu', fraction: settle.current / SETTLE_FRAMES } })
+    const s = session.current
+    if (!s || useSkyStore.getState().photo.phase !== 'capturing') return
+    const store = useSkyStore.getState()
+
+    if (!s.showing) {
+      const next = s.ready.shift()
+      if (!next || !s.shadow) return
+      setPhotoRender(makePhotoRender(next.frame, next.jitter, next.g, s.shadow, s.shadowHalfSpanM))
+      if (!s.raised) {
+        s.raised = true
+        applyDpr(s.dpr)
+      }
+      s.showing = true
+      s.settle = 0
       return
     }
-    const t = target.current
-    target.current = null
-    const canvas = gl.domElement
-    // La taille est lue maintenant : la definition retombe avant que l'image soit encodee.
-    const shotWidth = canvas.width
-    const shotHeight = canvas.height
-    const name = photoFileName(useSkyStore.getState().time)
+    s.settle++
+    const need = s.captured === 0 ? SETTLE_FRAMES : PASS_SETTLE_FRAMES
+    if (s.settle < need) return
+
     // Lu ici, dans la tache meme du rendu : voir l'en-tete.
-    canvas.toBlob((blob) => {
-      const store = useSkyStore.getState()
+    const canvas = gl.domElement
+    if (!s.sum) {
+      s.width = canvas.width
+      s.height = canvas.height
+      s.sum = new Uint32Array(s.width * s.height * 4)
+    }
+    if (canvas.width !== s.width || canvas.height !== s.height) {
+      store.setPhoto({ phase: 'preview', progress: null, message: 'Échec : la taille du rendu a changé' })
+      return
+    }
+    const reader = document.createElement('canvas')
+    reader.width = s.width
+    reader.height = s.height
+    const ctx = reader.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return
+    ctx.drawImage(canvas, 0, 0)
+    const px = ctx.getImageData(0, 0, s.width, s.height).data
+    const sum = s.sum
+    for (let i = 0; i < px.length; i++) sum[i] += px[i]
+    s.captured++
+    s.showing = false
+    if (s.captured < JITTERS.length) return
+
+    // --- La moyenne, enregistree.
+    const out = ctx.createImageData(s.width, s.height)
+    const n = s.captured
+    for (let i = 0; i < sum.length; i++) out.data[i] = Math.round(sum[i] / n)
+    ctx.putImageData(out, 0, 0)
+    const shotWidth = s.width
+    const shotHeight = s.height
+    const name = photoFileName(store.time)
+    endSession(true)
+    reader.toBlob((blob) => {
       if (blob) {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -229,26 +363,13 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
         a.click()
         setTimeout(() => URL.revokeObjectURL(url), 10_000)
       }
-      store.setPhoto({
+      useSkyStore.getState().setPhoto({
         phase: 'preview',
         progress: null,
         message: blob ? `Photo enregistrée — ${shotWidth} × ${shotHeight}` : 'Échec de l’enregistrement',
       })
     }, 'image/png')
-    applyDpr(t.previousDpr)
-    setPhotoRender(null)
   }, 2)
-
-  // Sortie du mode photo en plein travail : tout est rendu.
-  useEffect(() => {
-    if (phase !== 'off' && phase !== 'preview') return
-    if (target.current && phase === 'off') {
-      applyDpr(target.current.previousDpr)
-      target.current = null
-    }
-    setPhotoRender(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase])
 
   return null
 }

@@ -22,19 +22,24 @@ import {
   RGBAFormat,
   ShaderMaterial,
   Vector2,
+  Vector3,
   Vector4,
 } from 'three'
 import { NEAR_M, TERRAIN_DEPTH_SLOPE, TERRAIN_NEAR_DEPTH } from '../terrain/meshSampling'
 import type { PhotoFrame } from './photoRaster'
 
 export interface PhotoRender {
+  /** La grille de cette passe — deja decalee de sa fraction de pixel. */
   frame: PhotoFrame
+  /** Ce decalage, en pixels : le nuanceur vise le meme point du pixel. */
+  jitter: [number, number]
   /**
    * Deux texels par pixel, demi-flottants : distance (km), altitude, part du
-   * Soleil, couverture ; puis normale de scene et part du ciel.
+   * Soleil, couverture ; puis normale de scene (x, reste de la distance en
+   * metres, z) et part du ciel.
    */
   g: DataTexture
-  /** Carte d'ombre fine, pour le voile atmospherique. */
+  /** Carte d'ombre fine, pour le voile atmospherique — commune a toutes les passes. */
   shadow: DataTexture
   shadowHalfSpanM: number
   shadowSize: number
@@ -53,7 +58,7 @@ export function subscribePhotoRender(fn: () => void): () => void {
 export function setPhotoRender(next: PhotoRender | null): void {
   if (current && current !== next) {
     current.g.dispose()
-    current.shadow.dispose()
+    if (current.shadow !== next?.shadow) current.shadow.dispose()
   }
   current = next
   listeners.forEach((fn) => fn())
@@ -70,11 +75,8 @@ function gTexture(data: Float32Array | Uint16Array, width: number, height: numbe
   return t
 }
 
-export function makePhotoRender(
-  frame: PhotoFrame,
-  g: Uint16Array,
-  shadow: { size: number; halfSpanM: number; height: Float32Array },
-): PhotoRender {
+/** La carte d'ombre fine, en texture : une fois par photo. */
+export function photoShadowTexture(shadow: { size: number; height: Float32Array }): DataTexture {
   const s = new DataTexture(shadow.height as Float32Array<ArrayBuffer>, shadow.size, shadow.size, RedFormat, FloatType)
   s.minFilter = LinearFilter
   s.magFilter = LinearFilter
@@ -82,12 +84,23 @@ export function makePhotoRender(
   s.wrapT = ClampToEdgeWrapping
   s.generateMipmaps = false
   s.needsUpdate = true
+  return s
+}
+
+export function makePhotoRender(
+  frame: PhotoFrame,
+  jitter: [number, number],
+  g: Uint16Array,
+  shadow: DataTexture,
+  shadowHalfSpanM: number,
+): PhotoRender {
   return {
     frame,
+    jitter,
     g: gTexture(g, frame.cols * 2, frame.rows, true),
-    shadow: s,
-    shadowHalfSpanM: shadow.halfSpanM,
-    shadowSize: shadow.size,
+    shadow,
+    shadowHalfSpanM,
+    shadowSize: shadow.image.width,
   }
 }
 
@@ -110,13 +123,16 @@ export function photoTerrainMaterial(base: ShaderMaterial, shadeGlsl: string): S
       ...base.uniforms,
       uMicroRelief: { value: 0 },
       uG: { value: null as DataTexture | null },
-      /** azimut minimal, hauteur minimale, pas — radians. */
+      /** Azimut et hauteur du centre, radians ; `u` et `v` du bord de la grille. */
       uFrame: { value: new Vector4() },
-      uGrid: { value: new Vector2(1, 1) },
+      /** Colonnes, lignes, pas. */
+      uGrid: { value: new Vector3(1, 1, 1) },
       uProjInv: { value: new Matrix4() },
       uCamWorld: { value: new Matrix4() },
       uViewProj: { value: new Matrix4() },
       uResolution: { value: new Vector2(1, 1) },
+      /** Decalage de la passe, pixels. */
+      uJitter: { value: new Vector2() },
     },
     vertexShader: /* glsl */ `
       varying vec2 vNdc;
@@ -132,30 +148,39 @@ export function photoTerrainMaterial(base: ShaderMaterial, shadeGlsl: string): S
       ${shadeGlsl}
       uniform sampler2D uG;
       uniform vec4 uFrame;
-      uniform vec2 uGrid;
+      uniform vec3 uGrid;
       uniform mat4 uProjInv;
       uniform mat4 uCamWorld;
       uniform mat4 uViewProj;
       uniform vec2 uResolution;
+      uniform vec2 uJitter;
       varying vec2 vNdc;
 
       void main() {
-        // Le rayon de ce pixel, dans le repere de la scene.
-        vec4 v = uProjInv * vec4(vNdc, 1.0, 1.0);
+        // Le rayon de ce pixel, decale du point d'echantillonnage de la passe —
+        // le meme decalage que celui de la grille : chaque passe lit le centre
+        // d'une case, en un autre point du pixel.
+        vec2 ndc = vNdc + uJitter * vec2(dFdx(vNdc.x), dFdy(vNdc.y));
+        vec4 v = uProjInv * vec4(ndc, 1.0, 1.0);
         vec3 dir = normalize(mat3(uCamWorld) * (v.xyz / v.w));
-        // Sa case dans la grille angulaire.
+        // Sa case dans la grille, espacee comme l'ecran — voir photoRaster.
         float az = atan(dir.x, -dir.z);
         float da = az - uFrame.x;
-        da -= 6.28318530718 * floor(da / 6.28318530718);
-        vec2 cell = vec2(da, asin(clamp(dir.y, -1.0, 1.0)) - uFrame.y) / uFrame.z;
+        da -= 6.28318530718 * floor(da / 6.28318530718 + 0.5);
+        if (abs(da) > 1.4835) discard;
+        vec2 screenUv = vec2(tan(da), tan(asin(clamp(dir.y, -1.0, 1.0)) - uFrame.y) / cos(da));
+        vec2 cell = (screenUv - uFrame.zw) / uGrid.z;
         if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= uGrid.x || cell.y >= uGrid.y) discard;
         ivec2 ij = ivec2(cell);
         vec4 g1 = texelFetch(uG, ivec2(ij.x * 2, ij.y), 0);
         if (g1.x <= 0.0) discard;
         vec4 g2 = texelFetch(uG, ivec2(ij.x * 2 + 1, ij.y), 0);
-        float range = g1.x * 1000.0;
+        // La distance : kilometres arrondis, plus le reste en metres — voir le
+        // worker. La normale verticale se recalcule, toujours positive.
+        float range = g1.x * 1000.0 + g2.y;
+        vec3 normal = vec3(g2.x, sqrt(max(0.0, 1.0 - g2.x * g2.x - g2.z * g2.z)), g2.z);
 
-        vec3 radiance = shadeTerrain(dir, range, g1.y, normalize(g2.xyz), g1.z, g2.w);
+        vec3 radiance = shadeTerrain(dir, range, g1.y, normalize(normal), g1.z, g2.w);
         float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
         vec3 color = mix(radiance, luma * uNightTint, uNight);
 

@@ -1289,8 +1289,9 @@ export function Terrain({
     if (photo) {
       const p = photoMaterial.uniforms
       p.uG.value = photo.g
-      ;(p.uFrame.value as Vector4).set(photo.frame.azMin, photo.frame.elMin, photo.frame.step, 0)
-      ;(p.uGrid.value as Vector2).set(photo.frame.cols, photo.frame.rows)
+      ;(p.uFrame.value as Vector4).set(photo.frame.az0, photo.frame.el0, photo.frame.uMin, photo.frame.vMin)
+      ;(p.uGrid.value as Vector3).set(photo.frame.cols, photo.frame.rows, photo.frame.step)
+      ;(p.uJitter.value as Vector2).set(photo.jitter[0], photo.jitter[1])
       ;(p.uProjInv.value as Matrix4).copy(camera.projectionMatrixInverse)
       ;(p.uCamWorld.value as Matrix4).copy(camera.matrixWorld)
       ;(p.uViewProj.value as Matrix4).multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)

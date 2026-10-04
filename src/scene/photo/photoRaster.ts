@@ -17,11 +17,20 @@
  *
  * ## Le cadre, en azimut et en hauteur
  *
- * Le rendu se fait dans une grille **angulaire** — une colonne par pas
- * d'azimut, une ligne par pas de hauteur apparente, au pas du pixel de la
- * photo. Une colonne y est un plan vertical : c'est ce qui rend la marche par
- * colonne exacte quelle que soit l'inclinaison de la camera. Le GPU, lui,
- * relit cette grille pour chaque pixel de l'image en perspective.
+ * Une colonne de la grille est un plan vertical, d'azimut fixe : c'est ce qui
+ * rend la marche par colonne exacte. Les colonnes et les lignes sont espacees
+ * **comme les pixels de l'ecran**, pas a angle constant :
+ *
+ *     u = tan(az − az₀)                 — l'abscisse de l'ecran
+ *     v = tan(h − h₀) / cos(az − az₀)   — son ordonnee
+ *
+ * a pas egal en `u` et en `v`. Pour une camera horizontale, c'est exactement la
+ * projection de l'image ; inclinee de quelques degres, a peine moins.
+ *
+ * ⚠️ Une grille a pas angulaire constant tombait juste au centre de l'image,
+ * mais un pixel du bord n'y couvre que la moitie de l'angle d'un pixel du
+ * centre : la grille y etait deux fois trop grossiere, et le GPU dupliquait des
+ * colonnes entieres — des tranches verticales franches.
  *
  * ## Ce module est pur
  *
@@ -34,15 +43,28 @@ const DEG = Math.PI / 180
 
 // --- Le cadre ------------------------------------------------------------------
 
-/** Grille angulaire qui couvre le cadre. Angles en radians, azimut depuis le nord. */
+/** Grille qui couvre le cadre, espacee comme l'ecran. Angles en radians, azimut depuis le nord. */
 export interface PhotoFrame {
-  azMin: number
-  elMin: number
-  /** Pas angulaire, radians — le meme dans les deux sens. */
+  /** Azimut et hauteur du centre de l'image. */
+  az0: number
+  el0: number
+  /** `u` et `v` du bord de la premiere case. */
+  uMin: number
+  vMin: number
+  /** Pas en `u` et en `v` — c'est aussi l'angle d'une case au centre de l'image. */
   step: number
   cols: number
   rows: number
 }
+
+/** Ecart d'azimut au centre de la colonne `c`. */
+export const colDa = (f: PhotoFrame, c: number): number => Math.atan(f.uMin + (c + 0.5) * f.step)
+
+/** Hauteur apparente du centre de la ligne `r`, dans une colonne d'ecart `cosDa`. */
+export const rowEl = (f: PhotoFrame, cosDa: number, r: number): number => f.el0 + Math.atan((f.vMin + (r + 0.5) * f.step) * cosDa)
+
+/** Angle d'une case en travers de la visee, pour un ecart d'azimut donne : il fixe la finesse voulue. */
+export const cellAngle = (f: PhotoFrame, da: number): number => f.step * Math.cos(da) ** 2
 
 /** Direction d'un rayon de la camera, pour `x, y ∈ [−1, 1]` sur l'image. */
 function rayOf(view: PhotoView, x: number, y: number): { az: number; el: number } {
@@ -59,14 +81,19 @@ function rayOf(view: PhotoView, x: number, y: number): { az: number; el: number 
   return { az: Math.atan2(d[0], d[2]), el: Math.asin(d[1] / len) }
 }
 
-/** La grille angulaire du cadre, avec deux pas de marge. */
+/** Ecart d'azimut le plus grand que la grille accepte : `u = tan(Δaz)` doit rester fini. */
+const MAX_DA = 85 * DEG
+
+/** La grille du cadre, au pas du pixel, avec deux pas de marge. */
 export function photoFrame(view: PhotoView): PhotoFrame {
-  const step = (view.fovDeg * DEG) / Math.max(1, view.heightPx)
+  // Un pixel, en unites de l'ecran : 2·tan(champ/2) sur la hauteur.
+  const step = (2 * Math.tan((view.fovDeg / 2) * DEG)) / Math.max(1, view.heightPx)
   const az0 = view.azimuthDeg * DEG
-  let azLo = Infinity
-  let azHi = -Infinity
-  let elLo = Infinity
-  let elHi = -Infinity
+  const el0 = view.altitudeDeg * DEG
+  let uLo = Infinity
+  let uHi = -Infinity
+  let vLo = Infinity
+  let vHi = -Infinity
   const N = 16
   for (let i = 0; i <= N; i++) {
     for (const [x, y] of [
@@ -76,34 +103,37 @@ export function photoFrame(view: PhotoView): PhotoFrame {
       [1, -1 + (2 * i) / N],
     ]) {
       const { az, el } = rayOf(view, x, y)
-      // Azimut relatif au centre, ramene dans ]−π, π].
+      // Azimut relatif au centre, ramene dans ]−π, π] — et borne : une camera
+      // qui vise le sol voit tous les azimuts sous elle.
       let da = az - az0
-      da = Math.atan2(Math.sin(da), Math.cos(da))
-      azLo = Math.min(azLo, da)
-      azHi = Math.max(azHi, da)
-      elLo = Math.min(elLo, el)
-      elHi = Math.max(elHi, el)
+      da = Math.max(-MAX_DA, Math.min(MAX_DA, Math.atan2(Math.sin(da), Math.cos(da))))
+      const u = Math.tan(da)
+      const v = Math.tan(el - el0) / Math.cos(da)
+      uLo = Math.min(uLo, u)
+      uHi = Math.max(uHi, u)
+      vLo = Math.min(vLo, v)
+      vHi = Math.max(vHi, v)
     }
   }
-  // Une camera qui vise le sol voit tous les azimuts sous elle : on borne.
-  azLo = Math.max(azLo - 2 * step, -Math.PI)
-  azHi = Math.min(azHi + 2 * step, Math.PI)
-  elLo -= 2 * step
-  elHi += 2 * step
+  uLo -= 2 * step
+  uHi += 2 * step
+  vLo -= 2 * step
+  vHi += 2 * step
   return {
-    azMin: az0 + azLo,
-    elMin: elLo,
+    az0,
+    el0,
+    uMin: uLo,
+    vMin: vLo,
     step,
-    cols: Math.max(2, Math.ceil((azHi - azLo) / step)),
-    rows: Math.max(2, Math.ceil((elHi - elLo) / step)),
+    cols: Math.max(2, Math.ceil((uHi - uLo) / step)),
+    rows: Math.max(2, Math.ceil((vHi - vLo) / step)),
   }
 }
 
 /** Une grille angulaire plus grossiere d'un facteur entier — pour la passe de visibilite. */
 export function coarsenFrame(frame: PhotoFrame, factor: number): PhotoFrame {
   return {
-    azMin: frame.azMin,
-    elMin: frame.elMin,
+    ...frame,
     step: frame.step * factor,
     cols: Math.max(2, Math.ceil(frame.cols / factor)),
     rows: Math.max(2, Math.ceil(frame.rows / factor)),
@@ -187,7 +217,7 @@ const COARSE_MAX_M = 800
 const COARSE_RATIO = 0.004
 
 export function marchColumns(sample: Sampler, frame: PhotoFrame, opt: MarchOptions, out?: PhotoGBuffer): PhotoGBuffer {
-  const { cols, rows, step: de } = frame
+  const { cols, rows } = frame
   const gb = out ?? {
     frame,
     range: new Float32Array(cols * rows),
@@ -195,12 +225,20 @@ export function marchColumns(sample: Sampler, frame: PhotoFrame, opt: MarchOptio
     coverage: new Float32Array(cols * rows),
   }
   const { observerM: eye, effectiveRadiusM: R, reachM, maxGrid } = opt
-  const elRow = (r: number) => frame.elMin + (r + 0.5) * de
 
   for (let c = opt.colStart ?? 0; c < (opt.colEnd ?? cols); c++) {
-    const az = frame.azMin + (c + 0.5) * de
+    const da = colDa(frame, c)
+    const az = frame.az0 + da
     const sa = Math.sin(az)
     const ca = Math.cos(az)
+    const cosDa = Math.cos(da)
+    const elRow = (r: number) => rowEl(frame, cosDa, r)
+    // Hauteur d'une ligne, la ou la marche en est : elle varie le long de la colonne.
+    let de = elRow(1) - elRow(0)
+    const lineAt = (r: number) => {
+      de = elRow(r + 1) - elRow(r)
+      return de
+    }
     let filled = 0
     let topEl = -Infinity
     let topD = 0
@@ -224,6 +262,7 @@ export function marchColumns(sample: Sampler, frame: PhotoFrame, opt: MarchOptio
         const t = el > pel ? Math.max(0, Math.min(1, (elRow(filled) - pel) / (el - pel))) : 1
         write(filled, pd + t * (d - pd), ph + t * (h - ph), 1)
         filled++
+        lineAt(filled)
       }
       if (el > topEl) {
         topEl = el
@@ -282,10 +321,12 @@ export function marchColumns(sample: Sampler, frame: PhotoFrame, opt: MarchOptio
     // C'est l'anticrenelage vertical des cretes, exact au lieu d'estime.
     if (filled > 0 && Number.isFinite(topEl)) {
       const last = filled - 1
-      const coverLast = (topEl - (elRow(last) - de / 2)) / de
+      const deLast = lineAt(last)
+      const coverLast = (topEl - (elRow(last) - deLast / 2)) / deLast
       if (coverLast < 1) gb.coverage[last * cols + c] = Math.max(0, coverLast)
       if (filled < rows) {
-        const coverNext = (topEl - (elRow(filled) - de / 2)) / de
+        const deNext = lineAt(filled)
+        const coverNext = (topEl - (elRow(filled) - deNext / 2)) / deNext
         if (coverNext > 0.02) write(filled, topD, topH, Math.min(1, coverNext))
       }
     }
@@ -310,15 +351,17 @@ export interface TileNeed {
  * plus bas : le long de la visee, un pixel couvre bien davantage, et c'est la
  * subdivision de la marche, pas la donnee, qui y rattrape le relief raide.
  */
-export function tileNeeds(gb: PhotoGBuffer, photoStepRad: number): TileNeed[] {
-  const { cols, rows, azMin, step } = { ...gb.frame, azMin: gb.frame.azMin }
+export function tileNeeds(gb: PhotoGBuffer, photo: PhotoFrame): TileNeed[] {
+  const { cols, rows } = gb.frame
   const needs: TileNeed[] = []
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
+  for (let c = 0; c < cols; c++) {
+    const da = colDa(gb.frame, c)
+    const az = gb.frame.az0 + da
+    const angle = cellAngle(photo, da)
+    for (let r = 0; r < rows; r++) {
       const d = gb.range[r * cols + c]
       if (!(d > 0)) continue
-      const az = azMin + (c + 0.5) * step
-      needs.push({ cellM: d * photoStepRad, eastM: d * Math.sin(az), northM: d * Math.cos(az) })
+      needs.push({ cellM: d * angle, eastM: d * Math.sin(az), northM: d * Math.cos(az) })
     }
   }
   return needs
@@ -338,7 +381,7 @@ const normalStep = (d: number, stepRad: number) => Math.max(1.25, 1.5 * d * step
 
 /** Normales de scene (+X est, +Y haut, −Z nord) de chaque pixel vu. */
 export function pixelNormals(sample: Sampler, gb: PhotoGBuffer, rowStart = 0, rowEnd = gb.frame.rows): Float32Array {
-  const { cols, azMin, step } = gb.frame
+  const { cols, step } = gb.frame
   const out = new Float32Array((rowEnd - rowStart) * cols * 3)
   for (let r = rowStart; r < rowEnd; r++) {
     for (let c = 0; c < cols; c++) {
@@ -349,7 +392,7 @@ export function pixelNormals(sample: Sampler, gb: PhotoGBuffer, rowStart = 0, ro
         out[o + 1] = 1
         continue
       }
-      const az = azMin + (c + 0.5) * step
+      const az = gb.frame.az0 + colDa(gb.frame, c)
       const e = d * Math.sin(az)
       const n = d * Math.cos(az)
       const g = normalStep(d, step)
@@ -411,7 +454,7 @@ export function shadePixels(
   rowStart: number,
   rowEnd: number,
 ): { sun: Float32Array; sky: Float32Array } {
-  const { cols, azMin, step } = gb.frame
+  const { cols, step } = gb.frame
   const n = (rowEnd - rowStart) * cols
   const sun = new Float32Array(n)
   const sky = new Float32Array(n).fill(1)
@@ -429,7 +472,7 @@ export function shadePixels(
       const d = gb.range[k]
       const o = (r - rowStart) * cols + c
       if (!(d > 0)) continue
-      const az = azMin + (c + 0.5) * step
+      const az = gb.frame.az0 + colDa(gb.frame, c)
       const e = d * Math.sin(az)
       const nn = d * Math.cos(az)
       const h = gb.altitude[k]
@@ -489,4 +532,14 @@ export function toHalf(value: number): number {
   if (exp >= 31) return sign | 0x7c00
   const half = sign | (exp << 10) | ((mant + 0x1000) >> 13)
   return half
+}
+
+/** Conversion demi-flottant → flottant : pour connaitre ce que l'arrondi a perdu. */
+export function fromHalf(h: number): number {
+  const sign = h & 0x8000 ? -1 : 1
+  const exp = (h >> 10) & 0x1f
+  const mant = h & 0x3ff
+  if (exp === 0) return sign * mant * 2 ** -24
+  if (exp === 31) return mant ? Number.NaN : sign * Infinity
+  return sign * (1 + mant / 1024) * 2 ** (exp - 15)
 }

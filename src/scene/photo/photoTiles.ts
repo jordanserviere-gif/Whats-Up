@@ -38,6 +38,12 @@ export const tileSpanDeg = (z: number): number => 360 / 2 ** (z + 1)
 /** Taille d'une case au niveau `z`, metres, dans la direction la plus grossiere (le nord). */
 export const tileCellM = (z: number): number => (tileSpanDeg(z) / TILE_CELLS) * 111_320
 
+/** Taille d'une case au niveau zero, metres : `tileCellM(z) = CELL0_M / 2^z`. */
+const CELL0_M = tileCellM(0)
+
+/** Niveau fractionnaire dont la case vaut `targetM` : 13,4 tombe entre le 13 et le 14. */
+export const tileLevelAt = (targetM: number): number => Math.log2(CELL0_M / Math.max(1e-3, targetM))
+
 /** Le niveau le plus grossier dont la case tient sous `targetM`, borne a `maxZ`. */
 export function tileLevelFor(targetM: number, maxZ: number): number {
   for (let z = 0; z <= maxZ; z++) if (tileCellM(z) <= targetM) return z
@@ -118,29 +124,65 @@ export class TileStore {
   /** Altitude, metres, ou NaN si aucune tuile ne connait le point. */
   sample(lat: number, lon: number): number {
     for (const z of this.levels) {
-      const span = tileSpanDeg(z)
-      const gx = (lon + 180) / span
-      const gy = (90 - lat) / span
-      const x = Math.floor(gx)
-      const y = Math.floor(gy)
-      const tile = this.tiles.get(tileKey(z, x, y))
-      if (!tile) continue
-      const fx = (gx - x) * TILE_CELLS
-      const fy = (gy - y) * TILE_CELLS
-      const ix = Math.min(TILE_CELLS - 1, Math.floor(fx))
-      const iy = Math.min(TILE_CELLS - 1, Math.floor(fy))
-      const tx = fx - ix
-      const ty = fy - iy
-      const c = tile.codes
-      const k = iy * TILE_POINTS + ix
-      const a = c[k]
-      const b = c[k + 1]
-      const d = c[k + TILE_POINTS]
-      const e = c[k + TILE_POINTS + 1]
-      if (a === UNKNOWN || b === UNKNOWN || d === UNKNOWN || e === UNKNOWN) continue
-      return tile.base + ((a * (1 - tx) + b * tx) * (1 - ty) + (d * (1 - tx) + e * tx) * ty) * tile.quantum
+      const h = this.sampleLevel(z, lat, lon)
+      if (!Number.isNaN(h)) return h
     }
     return Number.NaN
+  }
+
+  /**
+   * Altitude lue au niveau fractionnaire `zf` : le fondu des deux niveaux qui
+   * l'encadrent, comme le filtrage trilineaire d'une texture.
+   *
+   * ⚠️ Pourquoi un fondu. Deux niveaux voisins du service ne s'accordent pas :
+   * sous le niveau 14, il sous-echantillonne au plus proche, et l'ecart atteint
+   * plusieurs metres. Passer de l'un a l'autre d'un coup fait une marche ; et
+   * sous un regard rasant, une marche de trois metres a trente kilometres cache
+   * une centaine de metres de pente et trace une ligne franche — des terrasses
+   * sur toutes les collines. Fondu sur la distance, le relief reste continu.
+   *
+   * Un niveau absent laisse la place a l'autre ; les deux absents, au plus fin
+   * des niveaux plus grossiers qui connaisse le point.
+   */
+  sampleBlend(lat: number, lon: number, zf: number): number {
+    const z0 = Math.floor(zf)
+    const t = zf - z0
+    const fine = t > 0 ? this.sampleLevel(z0 + 1, lat, lon) : Number.NaN
+    const coarse = this.sampleLevel(z0, lat, lon)
+    if (!Number.isNaN(fine) && !Number.isNaN(coarse)) return coarse + (fine - coarse) * t
+    if (!Number.isNaN(coarse)) return coarse
+    if (!Number.isNaN(fine)) return fine
+    for (const z of this.levels) {
+      if (z >= z0) continue
+      const h = this.sampleLevel(z, lat, lon)
+      if (!Number.isNaN(h)) return h
+    }
+    return this.sample(lat, lon)
+  }
+
+  /** Altitude lue au seul niveau `z`, ou NaN. */
+  private sampleLevel(z: number, lat: number, lon: number): number {
+    const span = tileSpanDeg(z)
+    const gx = (lon + 180) / span
+    const gy = (90 - lat) / span
+    const x = Math.floor(gx)
+    const y = Math.floor(gy)
+    const tile = this.tiles.get(tileKey(z, x, y))
+    if (!tile) return Number.NaN
+    const fx = (gx - x) * TILE_CELLS
+    const fy = (gy - y) * TILE_CELLS
+    const ix = Math.min(TILE_CELLS - 1, Math.floor(fx))
+    const iy = Math.min(TILE_CELLS - 1, Math.floor(fy))
+    const tx = fx - ix
+    const ty = fy - iy
+    const c = tile.codes
+    const k = iy * TILE_POINTS + ix
+    const a = c[k]
+    const b = c[k + 1]
+    const d = c[k + TILE_POINTS]
+    const e = c[k + TILE_POINTS + 1]
+    if (a === UNKNOWN || b === UNKNOWN || d === UNKNOWN || e === UNKNOWN) return Number.NaN
+    return tile.base + ((a * (1 - tx) + b * tx) * (1 - ty) + (d * (1 - tx) + e * tx) * ty) * tile.quantum
   }
 }
 

@@ -74,8 +74,8 @@ async function cachedArrayBuffer(url: string, signal: AbortSignal): Promise<Arra
   return buf
 }
 
-/** Tuile LiDAR HD / RGE ALTI. `null` hors couverture. */
-async function lidarTile(z: number, x: number, y: number, signal: AbortSignal): Promise<HeightTile | null> {
+/** Tuile LiDAR HD / RGE ALTI : `null` hors couverture, `'failed'` si le service n'a pas repondu. */
+async function lidarTile(z: number, x: number, y: number, signal: AbortSignal): Promise<HeightTile | null | 'failed'> {
   const b = tileBounds(z, x, y)
   const half = (b.lonMax - b.lonMin) / TILE_CELLS / 2
   // WMS 1.3.0 en EPSG:4326 : latitude puis longitude.
@@ -88,7 +88,7 @@ async function lidarTile(z: number, x: number, y: number, signal: AbortSignal): 
     if (signal.aborted) throw err
     return null
   })
-  if (!buf || buf.byteLength !== TILE_POINTS * TILE_POINTS * 4) return null
+  if (!buf || buf.byteLength !== TILE_POINTS * TILE_POINTS * 4) return 'failed'
   const raw = new Float32Array(buf)
   const heights = new Float32Array(raw.length)
   for (let i = 0; i < raw.length; i++) heights[i] = raw[i] < NODATA_BELOW ? Number.NaN : raw[i]
@@ -173,8 +173,15 @@ async function terrariumTile(z: number, x: number, y: number, signal: AbortSigna
   return quantizeTile(z, x, y, heights)
 }
 
-/** La meilleure tuile disponible pour une case de la grille. */
-export async function fetchHeightTile(z: number, x: number, y: number, signal: AbortSignal): Promise<HeightTile | null> {
+/**
+ * La meilleure tuile disponible pour une case de la grille : `null` si aucune
+ * source ne la couvre, `'failed'` si le service n'a pas repondu.
+ *
+ * ⚠️ Un echec du LiDAR ne retombe **pas** sur Terrarium : une tuile Terrarium au
+ * milieu de tuiles LiDAR fait une plaque lisse, decalee de quelques metres, aux
+ * bords droits. L'appelant reprend la tuile, ou se rabat sur sa parente.
+ */
+export async function fetchHeightTile(z: number, x: number, y: number, signal: AbortSignal): Promise<HeightTile | null | 'failed'> {
   if (tileInFrance(z, x, y)) {
     const lidar = await lidarTile(z, x, y, signal)
     if (lidar) return lidar

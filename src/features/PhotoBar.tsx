@@ -64,7 +64,7 @@ export function PhotoBar() {
       if (e.key !== 'Escape') return
       e.stopPropagation()
       const s = useSkyStore.getState()
-      if (s.photo.phase === 'working') s.setPhoto({ phase: 'preview', progress: null, message: 'Photo annulée' })
+      if (s.photo.phase === 'working' || s.photo.phase === 'capturing') s.setPhoto({ phase: 'preview', progress: null, message: 'Photo annulée' })
       else if (s.photo.phase === 'preview') leave()
     }
     window.addEventListener('keydown', onKey, true)

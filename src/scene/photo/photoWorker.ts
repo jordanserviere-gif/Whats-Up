@@ -2,26 +2,21 @@
  * Worker du mode photo — deux roles.
  *
  * **Preparer** (une instance) : la passe de visibilite grossiere, le choix des
- * tuiles au pas du pixel, leur chargement, le rendu du relief au pixel, les
- * normales, et une carte d'ombre fine pour le voile atmospherique.
+ * tuiles au pas du pixel, leur chargement, et une carte d'ombre fine pour le
+ * voile atmospherique.
  *
- * **Ombrer** (plusieurs instances, une bande de lignes chacune) : un rayon vers
- * le Soleil par pixel, et la part de ciel que le relief laisse a chaque point.
- * C'est le poste le plus cher, et il se partage sans peine : chaque pixel est
- * independant.
+ * **Rendre** (un groupe) : chaque worker recoit les tuiles une fois, puis des
+ * bandes de colonnes, passe apres passe. Pour chacune : la marche des rayons,
+ * les normales, un rayon vers le Soleil par pixel et la part de ciel. Les
+ * passes ne different que d'un decalage de la grille d'une fraction de pixel :
+ * leur moyenne est l'anticrenelage de l'image.
  *
  * Le fil principal ne recoit que des tableaux prets pour le GPU, transferes
  * sans copie.
  */
 /// <reference lib="webworker" />
 import { CLIPMAP_SIZE, sampleClipmap, type ElevationClipmap } from '../terrain/elevationClipmap'
-import {
-  NEAR_FIELD_HALF_SPAN_M,
-  NEAR_FIELD_SIZE,
-  NEAR_FIELD_STEP_M,
-  NEAR_FIELD_UNIT_M,
-  nearFieldWeight,
-} from '../terrain/nearField'
+import { NEAR_FIELD_HALF_SPAN_M, NEAR_FIELD_SIZE, NEAR_FIELD_STEP_M, NEAR_FIELD_UNIT_M, nearFieldWeight } from '../terrain/nearField'
 import { castSunShadow } from '../terrain/sunShadow'
 import type { PhotoView, Sampler } from './photoPlan'
 import {
@@ -33,17 +28,24 @@ import {
   shadePixels,
   tileNeeds,
   toHalf,
+  fromHalf,
+  cellAngle,
+  type MaxGrid,
   type PhotoFrame,
-  type PhotoGBuffer,
 } from './photoRaster'
 import { fetchHeightTile, LIDAR_MAX_LEVEL, pointInFrance, TERRARIUM_MAX_LEVEL } from './photoSources'
-import { LocalProjector, TileStore, tileCellM, tileKey, tileLevelFor, tileSpanDeg, type HeightTile } from './photoTiles'
+import { LocalProjector, TileStore, tileCellM, tileKey, tileLevelAt, tileSpanDeg, type HeightTile } from './photoTiles'
 
 /** Le relief courant, copie depuis le fil principal. */
 export interface CurrentRelief {
   latitudeDeg: number
   longitudeDeg: number
-  clipmap: Array<{ halfSpanM: number; stepM: number; heights: Int16Array; ready: boolean }>
+  clipmap: Array<{
+    halfSpanM: number
+    stepM: number
+    heights: Int16Array
+    ready: boolean
+  }>
   near: Int16Array | null
 }
 
@@ -57,21 +59,28 @@ export interface PrepareJob extends CurrentRelief {
   sunAzimuthDeg: number
 }
 
-export interface ShadeJob extends CurrentRelief {
+/** Ce que chaque worker du groupe garde pour toutes ses bandes. */
+export interface RenderInit extends CurrentRelief {
   frame: PhotoFrame
-  range: Float32Array
-  altitude: Float32Array
-  coverage: Float32Array
-  /** Normales des lignes `[rowStart, rowEnd[`, flottants interleaves. */
-  normals: Float32Array
-  rowStart: number
-  rowEnd: number
   tiles: HeightTile[]
   projector: { lat: Float64Array; lon: Float64Array; half: number }
+  maxGrid: MaxGrid
+  eyeM: number
+  reachM: number
   sunAltitudeDeg: number
   sunAzimuthDeg: number
   effectiveRadiusM: number
   peakM: number
+}
+
+/** Une bande de colonnes d'une passe. */
+export interface BandJob {
+  pass: number
+  /** Decalage de la grille, en pas : une fraction de pixel. */
+  jitterAz: number
+  jitterEl: number
+  colStart: number
+  colEnd: number
 }
 
 export type PhotoPhase = 'visibilite' | 'relief' | 'rendu' | 'ombres'
@@ -79,24 +88,31 @@ export type PhotoPhase = 'visibilite' | 'relief' | 'rendu' | 'ombres'
 export interface PrepareResult {
   type: 'prepared'
   frame: PhotoFrame
-  range: Float32Array
-  altitude: Float32Array
-  coverage: Float32Array
-  normals: Float32Array
   tiles: HeightTile[]
   projector: { lat: Float64Array; lon: Float64Array; half: number }
+  maxGrid: MaxGrid
   shadow: { size: number; halfSpanM: number; height: Float32Array }
-  stats: { tiles: number; failed: number; levels: Record<number, number>; milliseconds: number }
+  stats: {
+    tiles: number
+    failed: number
+    levels: Record<number, number>
+    milliseconds: number
+  }
 }
 
 export type PhotoWorkerMessage =
   | { type: 'progress'; phase: PhotoPhase; fraction: number; detail?: string }
   | PrepareResult
-  | { type: 'shaded'; rowStart: number; rowEnd: number; g: Uint16Array }
+  | {
+      type: 'band'
+      pass: number
+      colStart: number
+      colEnd: number
+      g: Uint16Array
+    }
   | { type: 'error'; message: string }
 
-const post = (msg: PhotoWorkerMessage, transfer: Transferable[] = []) =>
-  (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer)
+const post = (msg: PhotoWorkerMessage, transfer: Transferable[] = []) => (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer)
 
 let abort: AbortController | null = null
 
@@ -126,8 +142,7 @@ function currentSampler(job: CurrentRelief): Sampler {
     const tx = fx - ix
     const tz = fz - iz
     const k = iz * NEAR_FIELD_SIZE + ix
-    const units =
-      (near[k] * (1 - tx) + near[k + 1] * tx) * (1 - tz) + (near[k + NEAR_FIELD_SIZE] * (1 - tx) + near[k + NEAR_FIELD_SIZE + 1] * tx) * tz
+    const units = (near[k] * (1 - tx) + near[k + 1] * tx) * (1 - tz) + (near[k + NEAR_FIELD_SIZE] * (1 - tx) + near[k + NEAR_FIELD_SIZE + 1] * tx) * tz
     const w = nearFieldWeight(e, n)
     return units * NEAR_FIELD_UNIT_M * w + coarse * (1 - w)
   }
@@ -140,18 +155,36 @@ function currentStepAt(job: CurrentRelief, d: number): number {
   return job.clipmap[job.clipmap.length - 1]?.stepM ?? 500
 }
 
-/** Les tuiles, puis le relief courant la ou elles se taisent. */
-function compose(store: TileStore, projector: LocalProjector, fallback: Sampler): Sampler {
+/**
+ * Niveau de tuile voulu a une distance donnee : celui dont la case vaut
+ * l'empreinte d'un pixel de la photo, borne par la source.
+ */
+function levelAt(distanceM: number, angleRad: number, lat: number, lon: number): number {
+  const maxZ = pointInFrance(lat, lon) ? LIDAR_MAX_LEVEL : TERRARIUM_MAX_LEVEL
+  return Math.min(maxZ, tileLevelAt(distanceM * angleRad))
+}
+
+/**
+ * Les tuiles, fondues entre niveaux selon la distance — voir
+ * `TileStore.sampleBlend` —, puis le relief courant la ou elles se taisent.
+ */
+function compose(store: TileStore, projector: LocalProjector, fallback: Sampler, photo: PhotoFrame): Sampler {
   const ll = { lat: 0, lon: 0 }
   return (e, n) => {
     projector.toLatLon(e, n, ll)
-    const h = store.sample(ll.lat, ll.lon)
+    // La finesse voulue suit celle des pixels, plus fins vers les bords de l'image.
+    const da = Math.atan2(e, n) - photo.az0
+    const angle = cellAngle(photo, Math.min(1.5, Math.abs(Math.atan2(Math.sin(da), Math.cos(da)))))
+    const h = store.sampleBlend(ll.lat, ll.lon, levelAt(Math.hypot(e, n), angle, ll.lat, ll.lon))
     return Number.isNaN(h) ? fallback(e, n) : h
   }
 }
 
-/** Plafond de tuiles par photo : 900 × 132 ko, 120 Mo. */
-const MAX_TILES = 900
+/**
+ * Plafond de tuiles par photo : 1 300 × 132 ko, 170 Mo — copies dans chaque
+ * worker du groupe.
+ */
+const MAX_TILES = 1300
 /** Requetes simultanees. */
 const CONCURRENCY = 8
 /** Carte d'ombre du voile : 4 096 cases sur 120 km, trente metres. */
@@ -168,6 +201,8 @@ const SHADOW_HALF_SPAN_M = 60_000
  * plus fine que le relief courant n'est pas demandee. Au-dela du plafond, tout
  * le monde passe au niveau superieur.
  */
+/** Niveau le plus grossier du filet de tuiles parentes. */
+const NET_FLOOR = 8
 /** Part d'une tuile, pres de chaque bord, ou la voisine est demandee aussi. */
 const EDGE = 0.06
 function chooseTiles(
@@ -177,32 +212,47 @@ function chooseTiles(
   have: Set<number>,
 ): Array<{ z: number; x: number; y: number }> {
   const ll = { lat: 0, lon: 0 }
-  for (let coarsen = 1; coarsen <= 64; coarsen *= 2) {
+  // Au-dela du plafond, la finesse recule par paliers de racine de deux : un
+  // depassement d'un cheveu ne fait plus tomber toute la photo d'un niveau.
+  for (let coarsen = 1; coarsen <= 64; coarsen *= Math.SQRT2) {
     const wanted = new Map<number, { z: number; x: number; y: number }>()
     for (const need of needs) {
       projector.toLatLon(need.eastM, need.northM, ll)
       const maxZ = pointInFrance(ll.lat, ll.lon) ? LIDAR_MAX_LEVEL : TERRARIUM_MAX_LEVEL
-      const z = tileLevelFor(need.cellM * coarsen, maxZ)
+      const zf = Math.min(maxZ, tileLevelAt(need.cellM * coarsen))
       const d = Math.hypot(need.eastM, need.northM)
-      if (tileCellM(z) >= 0.8 * currentStepAt(job, d)) continue
-      // La tuile du point, et ses voisines seulement s'il tombe pres d'un bord :
-      // les huit voisines systematiques multipliaient la demande par neuf, et
-      // le plafond faisait alors tomber toute la photo d'un niveau.
-      const span = tileSpanDeg(z)
-      const gx = (ll.lon + 180) / span
-      const gy = (90 - ll.lat) / span
-      const x = Math.floor(gx)
-      const y = Math.floor(gy)
-      const fx = gx - x
-      const fy = gy - y
-      const x0 = fx < EDGE ? -1 : 0
-      const x1 = fx > 1 - EDGE ? 1 : 0
-      const y0 = fy < EDGE ? -1 : 0
-      const y1 = fy > 1 - EDGE ? 1 : 0
-      for (let dy = y0; dy <= y1; dy++) {
-        for (let dx = x0; dx <= x1; dx++) {
-          const k = tileKey(z, x + dx, y + dy)
-          if (!have.has(k)) wanted.set(k, { z, x: x + dx, y: y + dy })
+      // Les deux niveaux que la lecture fondra ici.
+      const z1 = Math.ceil(zf)
+      for (const z of z1 > zf ? [z1, z1 - 1] : [z1]) {
+        if (z < 0 || tileCellM(z) >= 0.8 * currentStepAt(job, d)) continue
+        // La tuile du point, et ses voisines seulement s'il tombe pres d'un bord :
+        // les huit voisines systematiques multipliaient la demande par neuf, et
+        // le plafond faisait alors tomber toute la photo d'un niveau.
+        const span = tileSpanDeg(z)
+        const gx = (ll.lon + 180) / span
+        const gy = (90 - ll.lat) / span
+        const x = Math.floor(gx)
+        const y = Math.floor(gy)
+        const fx = gx - x
+        const fy = gy - y
+        const x0 = fx < EDGE ? -1 : 0
+        const x1 = fx > 1 - EDGE ? 1 : 0
+        const y0 = fy < EDGE ? -1 : 0
+        const y1 = fy > 1 - EDGE ? 1 : 0
+        for (let dy = y0; dy <= y1; dy++) {
+          for (let dx = x0; dx <= x1; dx++) {
+            const k = tileKey(z, x + dx, y + dy)
+            if (!have.has(k)) wanted.set(k, { z, x: x + dx, y: y + dy })
+          }
+        }
+        // Le filet : l'aieule de trois niveaux au-dessus, soixante-quatre fois
+        // moins nombreuse. La ou une tuile fine manque — refusee par le service,
+        // ou tombee sur un point que les passes grossieres croyaient cache —, la
+        // lecture retombe sur elle, et non sur le relief courant, plus lisse et
+        // decale de quelques metres : il en sortait des plaques rectangulaires.
+        if (z >= 3 + NET_FLOOR) {
+          const k = tileKey(z - 3, x >> 3, y >> 3)
+          if (!have.has(k)) wanted.set(k, { z: z - 3, x: x >> 3, y: y >> 3 })
         }
       }
       if (wanted.size > MAX_TILES * 1.5) break
@@ -221,11 +271,11 @@ async function loadTiles(
   onProgress: (fraction: number) => void,
 ): Promise<void> {
   let done = 0
-  // Deux tours : le service rate des tuiles sous la charge, et les rend sans
-  // difficulte une fois les autres servies. Le second tour, moins presse, reprend
-  // celles-la.
+  // Trois tours. Le service rate des tuiles sous la charge, et les rend sans
+  // difficulte une fois les autres servies : le second tour, moins presse,
+  // reprend celles-la. Ce qui echoue encore est remplace par sa parente.
   let queue = list
-  for (let round = 0; round < 2 && queue.length > 0; round++) {
+  for (let round = 0; round < 3 && queue.length > 0; round++) {
     const missed: typeof list = []
     let next = 0
     const run = async () => {
@@ -233,16 +283,21 @@ async function loadTiles(
         const t = queue[next++]
         have.add(tileKey(t.z, t.x, t.y))
         const tile = await fetchHeightTile(t.z, t.x, t.y, signal)
-        if (tile) {
+        if (tile === 'failed') {
+          const parent = tileKey(t.z - 1, t.x >> 1, t.y >> 1)
+          if (round === 0) missed.push(t)
+          else {
+            stats.failed++
+            if (round === 1 && t.z > 0 && !have.has(parent)) {
+              have.add(parent)
+              missed.push({ z: t.z - 1, x: t.x >> 1, y: t.y >> 1 })
+            }
+          }
+        } else if (tile) {
           store.add(tile)
           stats.levels[t.z] = (stats.levels[t.z] ?? 0) + 1
-          onProgress(++done / list.length)
-        } else if (round === 0) {
-          missed.push(t)
-        } else {
-          stats.failed++
-          onProgress(++done / list.length)
         }
+        if (round === 0) onProgress(++done / list.length)
       }
     }
     await Promise.all(Array.from({ length: Math.min(round === 0 ? CONCURRENCY : 3, queue.length) }, run))
@@ -252,19 +307,24 @@ async function loadTiles(
 
 async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
   const started = performance.now()
-  const stats: PrepareResult['stats'] = { tiles: 0, failed: 0, levels: {}, milliseconds: 0 }
+  const stats: PrepareResult['stats'] = {
+    tiles: 0,
+    failed: 0,
+    levels: {},
+    milliseconds: 0,
+  }
   const fallback = currentSampler(job)
   const projector = new LocalProjector(job.latitudeDeg, job.longitudeDeg, job.reachM + 5000)
   const store = new TileStore()
   const have = new Set<number>()
-  const sample = compose(store, projector, fallback)
+  const frame = photoFrame(job.view)
+  const sample = compose(store, projector, fallback, frame)
 
   // --- Visibilite grossiere, sur le relief courant ---------------------------------
   post({ type: 'progress', phase: 'visibilite', fraction: 0 })
   // Majorants : le relief courant plus une marge qui couvre ce que la donnee fine
   // peut y ajouter — la moitie d'une case, et cent cinquante metres.
   const maxGrid = buildMaxGrid(fallback, job.reachM, (d) => 150 + 0.5 * currentStepAt(job, d))
-  const frame = photoFrame(job.view)
   const coarse = coarsenFrame(frame, 4)
   const march = (s: Sampler, f: PhotoFrame) =>
     marchColumns(s, f, {
@@ -278,10 +338,20 @@ async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return
 
   // --- Les tuiles du visible --------------------------------------------------------
-  const first = chooseTiles(tileNeeds(rough, frame.step), projector, job, have)
-  post({ type: 'progress', phase: 'relief', fraction: 0, detail: `${first.length} tuiles` })
+  const first = chooseTiles(tileNeeds(rough, frame), projector, job, have)
+  post({
+    type: 'progress',
+    phase: 'relief',
+    fraction: 0,
+    detail: `${first.length} tuiles`,
+  })
   await loadTiles(first, store, have, signal, stats, (f) =>
-    post({ type: 'progress', phase: 'relief', fraction: f * 0.8, detail: `${first.length} tuiles` }),
+    post({
+      type: 'progress',
+      phase: 'relief',
+      fraction: f * 0.8,
+      detail: `${first.length} tuiles`,
+    }),
   )
   if (signal.aborted) return
 
@@ -292,17 +362,18 @@ async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
   // l'on charge ce qui leur manque avant le rendu definitif.
   post({ type: 'progress', phase: 'rendu', fraction: 0 })
   const mid = march(sample, coarsenFrame(frame, 2))
-  const extra = chooseTiles(tileNeeds(mid, frame.step), projector, job, have)
+  const extra = chooseTiles(tileNeeds(mid, frame), projector, job, have)
   if (extra.length > 0) {
     await loadTiles(extra, store, have, signal, stats, (f) =>
-      post({ type: 'progress', phase: 'relief', fraction: 0.8 + f * 0.2, detail: `${first.length + extra.length} tuiles` }),
+      post({
+        type: 'progress',
+        phase: 'relief',
+        fraction: 0.8 + f * 0.2,
+        detail: `${first.length + extra.length} tuiles`,
+      }),
     )
   }
   if (signal.aborted) return
-  post({ type: 'progress', phase: 'rendu', fraction: 0.3 })
-  const gb: PhotoGBuffer = march(sample, frame)
-  post({ type: 'progress', phase: 'rendu', fraction: 0.7 })
-  const normals = pixelNormals(sample, gb)
 
   // --- Carte d'ombre du voile ---------------------------------------------------------
   const shadowHeight = new Float32Array(SHADOW_SIZE * SHADOW_SIZE)
@@ -316,76 +387,116 @@ async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
   const tiles = store.all()
   stats.tiles = tiles.length
   stats.milliseconds = Math.round(performance.now() - started)
-  const proj = projector.export()
-  // Les tuiles et la projection repartent par copie vers les workers d'ombrage :
-  // on ne les transfere pas, le fil principal les redistribue.
+  // Les tuiles, la projection et les majorants repartent par copie vers le
+  // groupe : on ne les transfere pas, le fil principal les redistribue.
   post(
     {
       type: 'prepared',
       frame,
-      range: gb.range,
-      altitude: gb.altitude,
-      coverage: gb.coverage,
-      normals,
       tiles,
-      projector: proj,
-      shadow: { size: SHADOW_SIZE, halfSpanM: SHADOW_HALF_SPAN_M, height: shadowHeight },
+      projector: projector.export(),
+      maxGrid,
+      shadow: {
+        size: SHADOW_SIZE,
+        halfSpanM: SHADOW_HALF_SPAN_M,
+        height: shadowHeight,
+      },
       stats,
     },
-    [gb.coverage.buffer, shadowHeight.buffer],
+    [shadowHeight.buffer],
   )
 }
 
-function shade(job: ShadeJob): void {
+// --- Rendre : une bande de colonnes d'une passe ----------------------------------------
+
+let renderer: { init: RenderInit; sample: Sampler; coarse: Sampler } | null = null
+
+function initRender(init: RenderInit): void {
   const store = new TileStore()
-  for (const t of job.tiles) store.add(t)
-  const coarse = currentSampler(job)
-  const sample = compose(store, LocalProjector.from(job.projector), coarse)
-  const gb: PhotoGBuffer = { frame: job.frame, range: job.range, altitude: job.altitude, coverage: new Float32Array(0) }
-  const rows = job.rowEnd - job.rowStart
-  const sun = new Float32Array(rows * job.frame.cols)
-  const skyF = new Float32Array(rows * job.frame.cols)
-  // Par paquets de lignes, pour publier l'avancement.
-  const chunk = Math.max(1, Math.ceil(rows / 20))
-  for (let r = job.rowStart; r < job.rowEnd; r += chunk) {
-    const end = Math.min(job.rowEnd, r + chunk)
-    const part = shadePixels(sample, coarse, gb, job.normals, job.rowStart, job, r, end)
-    sun.set(part.sun, (r - job.rowStart) * job.frame.cols)
-    skyF.set(part.sky, (r - job.rowStart) * job.frame.cols)
-    post({ type: 'progress', phase: 'ombres', fraction: (end - job.rowStart) / rows })
+  for (const t of init.tiles) store.add(t)
+  const coarse = currentSampler(init)
+  renderer = {
+    init,
+    sample: compose(store, LocalProjector.from(init.projector), coarse, init.frame),
+    coarse,
   }
-  // La bande de texture du rendu, deja en demi-flottants et deja entrelacee :
-  // deux texels par pixel — distance (km), altitude, part du Soleil,
-  // couverture ; puis normale et part du ciel. Une seule texture, parce que le
-  // nuanceur du relief n'a plus qu'une unite de texture libre sur seize. La
-  // conversion se fait ici, en parallele, plutot que sur le fil principal.
-  const cols = job.frame.cols
-  const g = new Uint16Array(skyF.length * 8)
-  for (let i = 0; i < skyF.length; i++) {
-    const k = job.rowStart * cols + i
-    const o = i * 8
-    g[o] = toHalf(job.range[k] / 1000)
-    g[o + 1] = toHalf(job.altitude[k])
-    g[o + 2] = toHalf(sun[i])
-    g[o + 3] = toHalf(job.coverage[k])
-    g[o + 4] = toHalf(job.normals[i * 3])
-    g[o + 5] = toHalf(job.normals[i * 3 + 1])
-    g[o + 6] = toHalf(job.normals[i * 3 + 2])
-    g[o + 7] = toHalf(skyF[i])
-  }
-  post({ type: 'shaded', rowStart: job.rowStart, rowEnd: job.rowEnd, g }, [g.buffer])
 }
 
-self.onmessage = (event: MessageEvent<{ type: 'prepare'; job: PrepareJob } | { type: 'shade'; job: ShadeJob } | { type: 'cancel' }>) => {
+function renderBand(job: BandJob): void {
+  if (!renderer) throw new Error('worker de rendu non initialise')
+  const { init, sample, coarse } = renderer
+  const base = init.frame
+  // Une bande de colonnes est elle-meme une grille : la meme, plus etroite, et
+  // decalee de la fraction de pixel de sa passe.
+  const frame: PhotoFrame = {
+    az0: base.az0,
+    el0: base.el0,
+    uMin: base.uMin + (job.colStart + job.jitterAz) * base.step,
+    vMin: base.vMin + job.jitterEl * base.step,
+    step: base.step,
+    cols: job.colEnd - job.colStart,
+    rows: base.rows,
+  }
+  const gb = marchColumns(sample, frame, {
+    observerM: init.eyeM,
+    effectiveRadiusM: init.effectiveRadiusM,
+    reachM: init.reachM,
+    fineStepAt: (d) => d * frame.step * 2.5,
+    maxGrid: init.maxGrid,
+  })
+  const normals = pixelNormals(sample, gb)
+  const { sun, sky } = shadePixels(sample, coarse, gb, normals, 0, init, 0, frame.rows)
+  // La bande de texture, deja en demi-flottants et deja entrelacee : deux texels
+  // par pixel — distance (km), altitude, part du Soleil, couverture ; puis
+  // normale (x, reste de la distance en metres, z) et part du ciel. Une seule texture, parce que le nuanceur du relief
+  // n'a plus qu'une unite de texture libre sur seize. La conversion se fait ici,
+  // en parallele, plutot que sur le fil principal.
+  const g = new Uint16Array(sky.length * 8)
+  //
+  // ⚠️ La distance ne tient pas dans un demi-flottant : onze bits, soit 16 m
+  // d'arrondi a trente kilometres. Le nuanceur en retire la position au sol —
+  // l'orthophoto, l'eau, les lumieres des villes —, et l'arrondi la faisait
+  // avancer par paliers : chaque ligne de pixels d'un palier relisait la meme
+  // teinte, et les collines se couvraient de terrasses. Le reste de l'arrondi
+  // part dans la place de la composante verticale de la normale, que le
+  // nuanceur recalcule : elle est toujours positive sur un relief.
+  for (let i = 0; i < sky.length; i++) {
+    const o = i * 8
+    const km = toHalf(gb.range[i] / 1000)
+    g[o] = km
+    g[o + 1] = toHalf(gb.altitude[i])
+    g[o + 2] = toHalf(sun[i])
+    g[o + 3] = toHalf(gb.coverage[i])
+    g[o + 4] = toHalf(normals[i * 3])
+    g[o + 5] = toHalf(gb.range[i] - fromHalf(km) * 1000)
+    g[o + 6] = toHalf(normals[i * 3 + 2])
+    g[o + 7] = toHalf(sky[i])
+  }
+  post(
+    {
+      type: 'band',
+      pass: job.pass,
+      colStart: job.colStart,
+      colEnd: job.colEnd,
+      g,
+    },
+    [g.buffer],
+  )
+}
+
+type WorkerRequest = { type: 'prepare'; job: PrepareJob } | { type: 'init'; init: RenderInit } | { type: 'band'; job: BandJob } | { type: 'cancel' }
+
+self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data
   if (msg.type === 'cancel') {
     abort?.abort()
     abort = null
     return
   }
-  if (msg.type === 'shade') {
+  if (msg.type === 'init' || msg.type === 'band') {
     try {
-      shade(msg.job)
+      if (msg.type === 'init') initRender(msg.init)
+      else renderBand(msg.job)
     } catch (err) {
       post({ type: 'error', message: String((err as Error)?.message ?? err) })
     }

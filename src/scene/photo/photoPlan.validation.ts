@@ -10,7 +10,7 @@ import { suite, type SuiteResult } from '@/atmosphere/validation/harness'
 import { enuToGeodetic } from '../terrain/geodesy'
 import { apparentElevationRad } from '../terrain/ridgeField'
 import { SUN_SEMI_DIAMETER_DEG, sunVisibility, type PhotoView } from './photoPlan'
-import { buildMaxGrid, marchColumns, photoFrame, toHalf, type PhotoFrame } from './photoRaster'
+import { buildMaxGrid, colDa, fromHalf, marchColumns, photoFrame, rowEl, toHalf, type PhotoFrame } from './photoRaster'
 import { LocalProjector, quantizeTile, TileStore, TILE_POINTS, tileCellM, tileKey, tileLevelFor, tileSpanDeg } from './photoTiles'
 
 const R = 7_500_000
@@ -33,7 +33,7 @@ export function photoSuite(): SuiteResult {
     const frame = photoFrame(VIEW)
     t.checkTrue(
       'la grille angulaire couvre le cadre',
-      frame.cols * frame.step >= (2 * Math.atan(Math.tan(5 * (Math.PI / 180)) * 1.5)) && frame.rows * frame.step >= 10 * (Math.PI / 180),
+      frame.cols * frame.step >= 2 * Math.tan(5 * (Math.PI / 180)) * 1.5 && frame.rows * frame.step >= 2 * Math.tan(5 * (Math.PI / 180)),
       `${frame.cols} × ${frame.rows}`,
     )
 
@@ -43,10 +43,11 @@ export function photoSuite(): SuiteResult {
     let worst = 0
     let checked = 0
     const c = Math.floor(frame.cols / 2)
+    const cosDa = Math.cos(colDa(frame, c))
     for (let r = 0; r < frame.rows; r++) {
       const d = flat.range[r * frame.cols + c]
       if (!(d > 50 && d < 50_000)) continue
-      const el = frame.elMin + (r + 0.5) * frame.step
+      const el = rowEl(frame, cosDa, r)
       const back = apparentElevationRad(d, 0, EYE, R)
       worst = Math.max(worst, Math.abs(back - el) / frame.step)
       checked++
@@ -58,7 +59,7 @@ export function photoSuite(): SuiteResult {
     const wall = (_e: number, n: number) => (n > 10_000 ? 600 : 0)
     const gw = march(wall, frame, 700)
     const top = apparentElevationRad(10_000, 600, EYE, R)
-    const rowTop = Math.floor((top - frame.elMin) / frame.step - 0.5)
+    const rowTop = Math.floor((Math.tan(top - frame.el0) / cosDa - frame.vMin) / frame.step - 0.5)
     const below = gw.range[(rowTop - 2) * frame.cols + c]
     const above = gw.range[(rowTop + 3) * frame.cols + c]
     t.checkTrue('mur : sous la crete, le mur a dix kilometres', Math.abs((below ?? 0) - 10_000) < 200, `${(below ?? 0).toFixed(0)} m`)
@@ -109,6 +110,15 @@ export function photoSuite(): SuiteResult {
 
     // --- Demi-flottants.
     t.checkTrue('demi-flottants exacts sur les valeurs simples', toHalf(1) === 0x3c00 && toHalf(0.5) === 0x3800 && toHalf(-2) === 0xc000 && toHalf(0) === 0)
+    // La distance part en deux demi-flottants : kilometres arrondis, puis le
+    // reste en metres. Un seul en perdait seize a trente kilometres.
+    let rangeErr = 0
+    for (const d of [12.3, 987.6, 30_123.4, 61_777.7, 449_321.9]) {
+      const km = toHalf(d / 1000)
+      const back = fromHalf(km) * 1000 + fromHalf(toHalf(d - fromHalf(km) * 1000))
+      rangeErr = Math.max(rangeErr, Math.abs(back - d))
+    }
+    t.checkTrue('la distance se relit au decimetre pres jusqu a 450 km', rangeErr < 0.1, `${rangeErr.toFixed(3)} m`)
 
     // --- Ombres : trois cas a reponse connue.
     const plain = () => 0
