@@ -2,6 +2,19 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.6.0 — 2026-10-04
+
+### Nouveautes
+
+- **photo** : anticrenelage en quatre passes, grille calee sur l'ecran, relief continu entre niveaux (2f86cd3)
+- **photo** : relief rendu au pixel — marche de rayons par colonne, tuiles LiDAR au pas du pixel, ombres et ciel par pixel (b8f9533)
+- **relief** : portee portee a 560 km — les plus longues lignes de vue connues tiennent dans la pyramide (d2d1536)
+- **photo** : mode photo — relief LiDAR HD du cadre, maillage au pixel, ombres par rayon, rendu haute definition (67b6aa4)
+
+### Performances
+
+- **photo** : capture deux fois plus rapide — reprise adaptative entre passes, rayons de Soleil arretes au plus tot, tuiles prechargees pendant l'apercu (c538664)
+
 ## v0.5.0 — 2026-09-27
 
 ### Nouveautes
