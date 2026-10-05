@@ -92,8 +92,17 @@ export const WATER_COMMON_GLSL = /* glsl */ `
    */
   vec3 waterLevel(sampler2D tex, float half_, vec2 en) {
     vec2 f = (en + half_) / (2.0 * half_) * ${CLIPMAP_SIZE - 1}.0;
+    // La couverture se lit filtree : le trait de cote en sort anticrenele.
     vec4 m = textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0);
-    float q = floor(m.b * 255.0 + 0.5) * 256.0 + floor(m.a * 255.0 + 0.5);
+    // ⚠️ Le niveau, lui, se lit **au texel le plus proche**. Il est code sur
+    // deux octets ; les melanger par le filtrage donnait le long des cotes des
+    // niveaux sans rapport avec aucun des deux voisins — des pics.
+    vec4 l = texelFetch(tex, ivec2(clamp(floor(f + 0.5), vec2(0.0), vec2(${CLIPMAP_SIZE - 1}.0))), 0);
+    float q = floor(l.b * 255.0 + 0.5) * 256.0 + floor(l.a * 255.0 + 0.5);
+    // ⚠️ Niveau inconnu — le relief n'est pas encore la pour decouper l'eau :
+    // pas d'eau du tout. Lu comme un niveau, il valait 7 692 m, et toute la mer
+    // se dressait en rideaux de sept kilometres le temps du chargement.
+    if (q > 65534.5) return vec3(0.0);
     return vec3(m.rg, q / 8.0 - 500.0);
   }
   /** Eau, ocean, niveau — meme choix de niveau et meme frange que le relief. */
@@ -277,8 +286,17 @@ export const WATER_VERTEX_GLSL = /* glsl */ `
 
   vec3 waterLevelV(sampler2D tex, float half_, vec2 en) {
     vec2 f = (en + half_) / (2.0 * half_) * ${CLIPMAP_SIZE - 1}.0;
+    // La couverture se lit filtree : le trait de cote en sort anticrenele.
     vec4 m = textureLod(tex, (f + 0.5) / ${CLIPMAP_SIZE}.0, 0.0);
-    float q = floor(m.b * 255.0 + 0.5) * 256.0 + floor(m.a * 255.0 + 0.5);
+    // ⚠️ Le niveau, lui, se lit **au texel le plus proche**. Il est code sur
+    // deux octets ; les melanger par le filtrage donnait le long des cotes des
+    // niveaux sans rapport avec aucun des deux voisins — des pics.
+    vec4 l = texelFetch(tex, ivec2(clamp(floor(f + 0.5), vec2(0.0), vec2(${CLIPMAP_SIZE - 1}.0))), 0);
+    float q = floor(l.b * 255.0 + 0.5) * 256.0 + floor(l.a * 255.0 + 0.5);
+    // ⚠️ Niveau inconnu — le relief n'est pas encore la pour decouper l'eau :
+    // pas d'eau du tout. Lu comme un niveau, il valait 7 692 m, et toute la mer
+    // se dressait en rideaux de sept kilometres le temps du chargement.
+    if (q > 65534.5) return vec3(0.0);
     return vec3(m.rg, q / 8.0 - 500.0);
   }
   vec3 waterAtV(vec2 en) {
