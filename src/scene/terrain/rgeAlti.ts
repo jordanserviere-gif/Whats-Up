@@ -118,12 +118,20 @@ export const rgeAltiUrl = (col: number, row: number, zoom = RGE_ALTI_ZOOM): stri
  * `ExceptionReport` de cent trente-sept octets, qu'on reconnait ainsi sans
  * analyser du XML.
  */
+/** En deca, une valeur du service n'est pas une altitude mais son « pas de donnee » (−99 999). */
+const RGE_ALTI_NODATA_BELOW = -1000
+
 export function decodeBilTile(buffer: ArrayBuffer): Float32Array | null {
   const expected = RGE_ALTI_TILE_SIZE * RGE_ALTI_TILE_SIZE * 4
   if (buffer.byteLength !== expected) return null
   const view = new DataView(buffer)
   const out = new Float32Array(RGE_ALTI_TILE_SIZE * RGE_ALTI_TILE_SIZE)
-  for (let i = 0; i < out.length; i++) out[i] = view.getFloat32(i * 4, true)
+  // ⚠️ Hors de France — en mer, a Monaco, en Italie a deux kilometres de
+  // Menton — le service rend −99 999 : « pas de donnee », jamais une altitude.
+  for (let i = 0; i < out.length; i++) {
+    const v = view.getFloat32(i * 4, true)
+    out[i] = Number.isFinite(v) && v > RGE_ALTI_NODATA_BELOW ? v : Number.NaN
+  }
   return out
 }
 

@@ -42,6 +42,25 @@ export function nearFieldSuite(): SuiteResult {
       // Elle n'est pas celle de Terrarium : degres, pas Mercator. Un point tous
       // les 4,3·10⁻⁵ degres, ce qui donne une maille **non carree** et qui
       // s'etire vers le nord.
+      // --- ⚠️ Le « pas de donnee » du service n'est pas une altitude ----------
+      //
+      // En mer et hors de France, le service rend −99 999 m. Range sur seize bits
+      // apres interpolation, il debordait et revenait en aiguilles de ±8 km sur
+      // toutes les cotes (signale a Menton, quelques secondes apres le
+      // chargement). Il doit sortir du decodage comme une valeur absente.
+      {
+        const raw = new DataView(new ArrayBuffer(RGE_ALTI_TILE_SIZE * RGE_ALTI_TILE_SIZE * 4))
+        raw.setFloat32(0, -99999, true)
+        raw.setFloat32(4, 123.5, true)
+        raw.setFloat32(8, -2.5, true)
+        const tile = decodeBilTile(raw.buffer)!
+        t.checkTrue(
+          'le pas de donnee du service sort du decodage comme une valeur absente',
+          Number.isNaN(tile[0]) && tile[1] === 123.5 && tile[2] === -2.5,
+          'une altitude legerement negative — un polder — reste une altitude',
+        )
+      }
+
       const res = rgeAltiResolutionM(LAT)
       t.check('resolution en longitude au Ventoux', res.eastM, 3.43, 0.05, ' m')
       t.check('resolution en latitude au Ventoux', res.northM, 4.78, 0.05, ' m')

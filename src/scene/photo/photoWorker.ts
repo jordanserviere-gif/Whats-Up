@@ -16,7 +16,7 @@
  */
 /// <reference lib="webworker" />
 import { CLIPMAP_SIZE, sampleClipmap, type ElevationClipmap } from '../terrain/elevationClipmap'
-import { NEAR_FIELD_HALF_SPAN_M, NEAR_FIELD_SIZE, NEAR_FIELD_STEP_M, NEAR_FIELD_UNIT_M, nearFieldWeight } from '../terrain/nearField'
+import { NEAR_FIELD_HALF_SPAN_M, NEAR_FIELD_SIZE, NEAR_FIELD_STEP_M, NEAR_FIELD_UNIT_M, NEAR_FIELD_UNKNOWN, nearFieldWeight } from '../terrain/nearField'
 import { castSunShadow } from '../terrain/sunShadow'
 import type { PhotoView, Sampler } from './photoPlan'
 import {
@@ -149,6 +149,14 @@ function currentSampler(job: CurrentRelief): Sampler {
     const tx = fx - ix
     const tz = fz - iz
     const k = iz * NEAR_FIELD_SIZE + ix
+    // Un coin inconnu — la mer, l'etranger — laisse la main a la pyramide.
+    if (
+      near[k] === NEAR_FIELD_UNKNOWN ||
+      near[k + 1] === NEAR_FIELD_UNKNOWN ||
+      near[k + NEAR_FIELD_SIZE] === NEAR_FIELD_UNKNOWN ||
+      near[k + NEAR_FIELD_SIZE + 1] === NEAR_FIELD_UNKNOWN
+    )
+      return coarse
     const units = (near[k] * (1 - tx) + near[k + 1] * tx) * (1 - tz) + (near[k + NEAR_FIELD_SIZE] * (1 - tx) + near[k + NEAR_FIELD_SIZE + 1] * tx) * tz
     const w = nearFieldWeight(e, n)
     return units * NEAR_FIELD_UNIT_M * w + coarse * (1 - w)

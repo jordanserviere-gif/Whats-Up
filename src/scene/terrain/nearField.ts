@@ -48,6 +48,17 @@ export const NEAR_FIELD_SIZE = 2048
 /** Metres represents par une unite stockee — voir l'en-tete. */
 export const NEAR_FIELD_UNIT_M = 0.25
 
+/**
+ * Altitude inconnue — le service n'a rien la : en mer, ou hors de France.
+ *
+ * ⚠️ Elle valait zero, ou pire. Le « pas de donnee » du service, −99 999 m,
+ * etait interpole avec ses voisins puis range sur seize bits ou il debordait,
+ * et revenait en altitudes quasi aleatoires jusqu'a ±8 km : des aiguilles et des
+ * rideaux sur toutes les cotes et les frontieres, quelques secondes apres le
+ * chargement. Un point inconnu laisse desormais la main a la pyramide.
+ */
+export const NEAR_FIELD_UNKNOWN = -32768
+
 /** Distance entre deux cellules, metres. */
 export const NEAR_FIELD_STEP_M = (2 * NEAR_FIELD_HALF_SPAN_M) / (NEAR_FIELD_SIZE - 1)
 
@@ -101,6 +112,7 @@ export function nearAltitudeM(eastM: number, northM: number): number | null {
   const b = h[iz * NEAR_FIELD_SIZE + ix + 1]
   const c = h[(iz + 1) * NEAR_FIELD_SIZE + ix]
   const d = h[(iz + 1) * NEAR_FIELD_SIZE + ix + 1]
+  if (a === NEAR_FIELD_UNKNOWN || b === NEAR_FIELD_UNKNOWN || c === NEAR_FIELD_UNKNOWN || d === NEAR_FIELD_UNKNOWN) return null
   const units = (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz
   return units * NEAR_FIELD_UNIT_M
 }
@@ -223,7 +235,7 @@ async function fill(latitudeDeg: number, longitudeDeg: number, key: string): Pro
           (lon[k01] * (1 - wx) + lon[k11] * wx) * wz
         const h = sampleTiles(tiles, lo, la)
         heights[iz * NEAR_FIELD_SIZE + ix] =
-          h === null ? 0 : Math.round(h / NEAR_FIELD_UNIT_M)
+          h === null || Number.isNaN(h) ? NEAR_FIELD_UNKNOWN : Math.max(-32767, Math.min(32767, Math.round(h / NEAR_FIELD_UNIT_M)))
       }
     }
     await yieldToBrowser()
