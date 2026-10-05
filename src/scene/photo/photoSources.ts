@@ -1,18 +1,32 @@
 /**
  * Mode photo — d'ou viennent les tuiles d'altitude.
  *
- * ## En France : le MNT LiDAR HD de l'IGN, par WMS
+ * Chaque tuile va au service le plus fin qui couvre son territoire — voir
+ * `photoCoverage.ts` pour les contours —, et Terrarium sert partout ailleurs.
+ *
+ * ## France : le MNT LiDAR HD de l'IGN, par WMS — 50 cm
  *
  * `GetMap` rend un raster d'altitudes en flottants (BIL 32 bits) pour n'importe
  * quelle emprise et definition. La couche `MIXED` descend a cinquante
  * centimetres et retombe d'elle-meme sur le RGE ALTI la ou le LiDAR n'est pas
- * leve. Mesure : 512 × 512 points au sommet du Ventoux, 1 797 a 1 909 m ; CORS
- * ouvert. Hors de France, elle rend −9999 partout.
+ * leve. Hors de France, elle rend −9999.
  *
- * Chaque tuile est demandee en 257 × 257 sur une emprise **elargie d'une
- * demi-case** de chaque cote : le service place ses points au centre des
- * pixels, et c'est ainsi qu'ils tombent exactement sur la grille de la tuile,
- * bords compris.
+ * ## Etats-Unis : le 3DEP de l'USGS, par ImageServer — 1 m
+ *
+ * `exportImage` en `bsq` 32 bits : les flottants bruts, suivis d'un masque de
+ * validite d'un bit par point. La source est multi-resolution — un metre la ou
+ * le LiDAR est leve, dix ailleurs.
+ *
+ * ## Espagne : le MDT05 de l'IGN, par WCS — 5 m
+ *
+ * Issu du LiDAR PNOA. `GetCoverage` en grille ASCII ArcInfo, dans une reponse
+ * multipart. Hors d'Espagne, il rend zero : zero est donc lu comme inconnu —
+ * la mer retombe sur le repli, qui y vaut zero aussi.
+ *
+ * Toutes trois sont demandees en 257 × 257 sur une emprise **elargie d'une
+ * demi-case** de chaque cote : les services placent leurs points au centre des
+ * pixels, et c'est ainsi qu'ils tombent sur la grille de la tuile, bords
+ * compris.
  *
  * ## Ailleurs : les tuiles Terrarium, jusqu'a leur plancher
  *
@@ -21,12 +35,13 @@
  *
  * ## Le cache
  *
- * Les reponses WMS vont dans le Cache Storage du navigateur, sous leur adresse
+ * Les reponses vont dans le Cache Storage du navigateur, sous leur adresse
  * exacte : la grille etant fixe, une seconde photo au meme endroit ne
  * retelecharge rien.
  */
 import { decodeTerrariumTile, terrariumUrl } from '../terrain/terrarium'
 import { lonLatToTile, TILE_SIZE } from '../terrain/geodesy'
+import { cellAt, type TerritoryId } from './photoCoverage'
 import { quantizeTile, tileBounds, TILE_CELLS, TILE_POINTS, type HeightTile } from './photoTiles'
 
 const WMS = 'https://data.geopf.fr/wms-r'
@@ -34,20 +49,27 @@ const LAYER = 'IGNF_LIDAR-HD_MNT_ELEVATION.MIXED.WGS84G'
 const NODATA_BELOW = -1000
 const CACHE_NAME = 'whats-up-photo-relief-v1'
 
-/** Emprise metropolitaine et corse, avec une marge. */
-const FRANCE = { latMin: 41.2, latMax: 51.3, lonMin: -5.6, lonMax: 9.8 }
-
-/** Niveau de tuile le plus fin pour chaque source. */
-export const LIDAR_MAX_LEVEL = 17
+/** Niveau de tuile le plus fin de Terrarium : une case d'une vingtaine de metres. */
 export const TERRARIUM_MAX_LEVEL = 12
 
-export function tileInFrance(z: number, x: number, y: number): boolean {
-  const b = tileBounds(z, x, y)
-  return b.latMax > FRANCE.latMin && b.latMin < FRANCE.latMax && b.lonMax > FRANCE.lonMin && b.lonMin < FRANCE.lonMax
+type Fetched = HeightTile | null | 'failed'
+
+/** Un service d'altitude : son territoire, sa finesse, et comment lui demander une tuile. */
+export interface Source {
+  name: string
+  /** `null` : partout — le repli. */
+  territory: TerritoryId | null
+  /** Niveau de tuile le plus fin qui vaille la peine — la case juste sous le pas du service. */
+  maxLevel: number
+  fetch: (z: number, x: number, y: number, signal: AbortSignal) => Promise<Fetched>
 }
 
-export const pointInFrance = (lat: number, lon: number): boolean =>
-  lat > FRANCE.latMin && lat < FRANCE.latMax && lon > FRANCE.lonMin && lon < FRANCE.lonMax
+/** Emprise d'une tuile elargie d'une demi-case : les points des services au centre des pixels. */
+function paddedBounds(z: number, x: number, y: number) {
+  const b = tileBounds(z, x, y)
+  const half = (b.lonMax - b.lonMin) / TILE_CELLS / 2
+  return { latMin: b.latMin - half, latMax: b.latMax + half, lonMin: b.lonMin - half, lonMax: b.lonMax + half }
+}
 
 let cachePromise: Promise<Cache | null> | null = null
 const photoCache = (): Promise<Cache | null> =>
@@ -74,25 +96,94 @@ async function cachedArrayBuffer(url: string, signal: AbortSignal): Promise<Arra
   return buf
 }
 
+/** Telechargement sans laisser filer l'erreur, sauf l'annulation. */
+const download = (url: string, signal: AbortSignal) =>
+  cachedArrayBuffer(url, signal).catch((err) => {
+    if (signal.aborted) throw err
+    return null
+  })
+
 /** Tuile LiDAR HD / RGE ALTI : `null` hors couverture, `'failed'` si le service n'a pas repondu. */
-async function lidarTile(z: number, x: number, y: number, signal: AbortSignal): Promise<HeightTile | null | 'failed'> {
-  const b = tileBounds(z, x, y)
-  const half = (b.lonMax - b.lonMin) / TILE_CELLS / 2
+async function lidarTile(z: number, x: number, y: number, signal: AbortSignal): Promise<Fetched> {
+  const b = paddedBounds(z, x, y)
   // WMS 1.3.0 en EPSG:4326 : latitude puis longitude.
   const url =
     `${WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&STYLES=&FORMAT=image/x-bil;bits=32` +
     `&LAYERS=${LAYER}&CRS=EPSG:4326` +
-    `&BBOX=${b.latMin - half},${b.lonMin - half},${b.latMax + half},${b.lonMax + half}` +
+    `&BBOX=${b.latMin},${b.lonMin},${b.latMax},${b.lonMax}` +
     `&WIDTH=${TILE_POINTS}&HEIGHT=${TILE_POINTS}`
-  const buf = await cachedArrayBuffer(url, signal).catch((err) => {
-    if (signal.aborted) throw err
-    return null
-  })
+  const buf = await download(url, signal)
   if (!buf || buf.byteLength !== TILE_POINTS * TILE_POINTS * 4) return 'failed'
   const raw = new Float32Array(buf)
   const heights = new Float32Array(raw.length)
   for (let i = 0; i < raw.length; i++) heights[i] = raw[i] < NODATA_BELOW ? Number.NaN : raw[i]
   return quantizeTile(z, x, y, heights)
+}
+
+// --- Etats-Unis : 3DEP ----------------------------------------------------------
+
+const USGS = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage'
+
+/** Tuile 3DEP : flottants bruts, puis un bit de validite par point, poids fort d'abord. */
+async function usgsTile(z: number, x: number, y: number, signal: AbortSignal): Promise<Fetched> {
+  const b = paddedBounds(z, x, y)
+  const url =
+    `${USGS}?bbox=${b.lonMin},${b.latMin},${b.lonMax},${b.latMax}&bboxSR=4326&imageSR=4326` +
+    `&size=${TILE_POINTS},${TILE_POINTS}&format=bsq&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image`
+  const buf = await download(url, signal)
+  const n = TILE_POINTS * TILE_POINTS
+  if (!buf || buf.byteLength < n * 4) return 'failed'
+  const raw = new Float32Array(buf, 0, n)
+  const mask = buf.byteLength >= n * 4 + Math.ceil(n / 8) ? new Uint8Array(buf, n * 4) : null
+  const heights = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const valid = !mask || (mask[i >> 3] >> (7 - (i & 7))) & 1
+    heights[i] = valid && raw[i] > NODATA_BELOW ? raw[i] : Number.NaN
+  }
+  return quantizeTile(z, x, y, heights)
+}
+
+// --- Espagne : MDT05 ------------------------------------------------------------
+
+const IDEE = 'https://servicios.idee.es/wcs-inspire/mdt'
+
+/** Tuile MDT05 : une grille ASCII ArcInfo dans une reponse multipart. */
+async function spainTile(z: number, x: number, y: number, signal: AbortSignal): Promise<Fetched> {
+  const b = paddedBounds(z, x, y)
+  const url =
+    `${IDEE}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID=Elevacion4258_5&FORMAT=application/asc` +
+    `&SUBSET=lat(${b.latMin},${b.latMax})&SUBSET=long(${b.lonMin},${b.lonMax})` +
+    `&SCALESIZE=lat(${TILE_POINTS}),long(${TILE_POINTS})`
+  const buf = await download(url, signal)
+  if (!buf) return 'failed'
+  const heights = parseArcGrid(new TextDecoder().decode(buf))
+  if (!heights) return 'failed'
+  // Hors d'Espagne, le service rend zero : inconnu.
+  for (let i = 0; i < heights.length; i++) if (heights[i] === 0) heights[i] = Number.NaN
+  return quantizeTile(z, x, y, heights)
+}
+
+/** Les 257 × 257 valeurs d'une grille ASCII ArcInfo, rangee 0 au nord ; `null` si elle n'a pas cette forme. */
+export function parseArcGrid(text: string): Float32Array | null {
+  const start = text.indexOf('ncols')
+  if (start < 0) return null
+  const end = text.indexOf('--wcs', start)
+  const tokens = text.slice(start, end < 0 ? undefined : end).split(/\s+/)
+  const header: Record<string, number> = {}
+  let k = 0
+  while (k + 1 < tokens.length && /^[a-z_]+$/i.test(tokens[k])) {
+    header[tokens[k].toLowerCase()] = Number(tokens[k + 1])
+    k += 2
+  }
+  if (header.ncols !== TILE_POINTS || header.nrows !== TILE_POINTS) return null
+  const nodata = header.nodata_value
+  const n = TILE_POINTS * TILE_POINTS
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const v = Number(tokens[k + i])
+    out[i] = Number.isFinite(v) && v !== nodata ? v : Number.NaN
+  }
+  return out
 }
 
 // --- Terrarium ------------------------------------------------------------------
@@ -173,19 +264,52 @@ async function terrariumTile(z: number, x: number, y: number, signal: AbortSigna
   return quantizeTile(z, x, y, heights)
 }
 
+// --- Le choix de la source --------------------------------------------------------
+
+/** Les services, du plus fin au plus grossier ; Terrarium en dernier, partout. */
+export const SOURCES: Source[] = [
+  { name: 'LiDAR HD', territory: 'france', maxLevel: 17, fetch: lidarTile },
+  { name: '3DEP', territory: 'usa', maxLevel: 16, fetch: usgsTile },
+  { name: 'MDT05', territory: 'spain', maxLevel: 14, fetch: spainTile },
+  { name: 'Terrarium', territory: null, maxLevel: TERRARIUM_MAX_LEVEL, fetch: (z, x, y, signal) => terrariumTile(z, x, y, signal) },
+]
+const TERRARIUM = SOURCES.length - 1
+const SOURCE_OF = new Map<TerritoryId | null, number>(SOURCES.map((s, i) => [s.territory, i]))
+
+const orders = new WeakMap<object, readonly number[]>()
+
 /**
- * La meilleure tuile disponible pour une case de la grille : `null` si aucune
- * source ne la couvre, `'failed'` si le service n'a pas repondu.
+ * Les services d'un point, celui de son territoire en tete.
  *
- * ⚠️ Un echec du LiDAR ne retombe **pas** sur Terrarium : une tuile Terrarium au
- * milieu de tuiles LiDAR fait une plaque lisse, decalee de quelques metres, aux
- * bords droits. L'appelant reprend la tuile, ou se rabat sur sa parente.
+ * Une case evidente n'en a qu'un ; une case qu'une frontiere traverse a ceux de
+ * chaque cote — les tuiles de chacun y sont demandees, et la lecture les essaie
+ * dans l'ordre.
  */
-export async function fetchHeightTile(z: number, x: number, y: number, signal: AbortSignal): Promise<HeightTile | null | 'failed'> {
-  if (tileInFrance(z, x, y)) {
-    const lidar = await lidarTile(z, x, y, signal)
-    if (lidar) return lidar
+export function sourcesAt(lat: number, lon: number): readonly number[] {
+  const cell = cellAt(lat, lon)
+  let order = orders.get(cell)
+  if (!order) {
+    const first = SOURCE_OF.get(cell.label) ?? TERRARIUM
+    const others = cell.present.map((t) => SOURCE_OF.get(t) ?? TERRARIUM).filter((i) => i !== first)
+    order = [first, ...new Set(others.sort((a, b) => a - b))]
+    orders.set(cell, order)
   }
-  if (z > TERRARIUM_MAX_LEVEL) return null
-  return terrariumTile(z, x, y, signal)
+  return order
+}
+
+/**
+ * Une tuile d'un service : `null` s'il n'y a rien, `'failed'` s'il n'a pas
+ * repondu.
+ *
+ * ⚠️ Un echec d'un service fin ne retombe **pas** sur Terrarium : une tuile
+ * Terrarium au milieu de tuiles fines fait une plaque lisse, decalee de
+ * quelques metres, aux bords droits. L'appelant reprend la tuile, ou se rabat
+ * sur sa parente. Une tuile toute hors du service — la mer au-dela des eaux
+ * territoriales —, elle, prend Terrarium la ou il existe.
+ */
+export async function fetchHeightTile(source: number, z: number, x: number, y: number, signal: AbortSignal): Promise<Fetched> {
+  let tile = await SOURCES[source].fetch(z, x, y, signal)
+  if (tile === null && source !== TERRARIUM && z <= TERRARIUM_MAX_LEVEL) tile = await terrariumTile(z, x, y, signal)
+  if (tile && tile !== 'failed') tile.source = source
+  return tile
 }

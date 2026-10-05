@@ -11,6 +11,8 @@ import { enuToGeodetic } from '../terrain/geodesy'
 import { apparentElevationRad } from '../terrain/ridgeField'
 import { SUN_SEMI_DIAMETER_DEG, sunVisibility, type PhotoView } from './photoPlan'
 import { buildMaxGrid, colDa, fromHalf, marchColumns, photoFrame, reuseShading, rowEl, toHalf, type PhotoFrame } from './photoRaster'
+import { territoryAt } from './photoCoverage'
+import { parseArcGrid, sourcesAt } from './photoSources'
 import { LocalProjector, quantizeTile, TileStore, TILE_POINTS, tileCellM, tileKey, tileLevelFor, tileSpanDeg } from './photoTiles'
 
 const R = 7_500_000
@@ -97,6 +99,101 @@ export function photoSuite(): SuiteResult {
         'la reprise relit le continu et recalcule les bords',
         mask[k] === 0 && Math.abs(sun[k] - (0.5 + 0.001 * 20.5)) < 1e-6 && mask[kTop] + mask[kTop - frame.cols] + mask[kTop + frame.cols] > 0,
         `sol ${mask[k] ? 'recalcule' : 'relu'}, crete ${mask[kTop] + mask[kTop - frame.cols] + mask[kTop + frame.cols] > 0 ? 'recalculee' : 'relue'}`,
+      )
+    }
+
+    // --- Les territoires des services fins : des villes de part et d'autre
+    // des frontieres. Le rectangle d'avant donnait Barcelone, Geneve, Bruxelles
+    // et Turin a la France.
+    const cities: Array<[string, number, number, 'france' | 'spain' | 'usa' | null]> = [
+      ['Paris', 48.86, 2.35, 'france'],
+      ['Strasbourg', 48.58, 7.75, 'france'],
+      ['Nice', 43.7, 7.27, 'france'],
+      ['Brest', 48.39, -4.49, 'france'],
+      ['Chamonix', 45.92, 6.87, 'france'],
+      ['Ajaccio', 41.93, 8.74, 'france'],
+      ['Perpignan', 42.7, 2.9, 'france'],
+      ['Bayonne', 43.49, -1.47, 'france'],
+      ['Bruxelles', 50.85, 4.35, null],
+      ['Luxembourg', 49.61, 6.13, null],
+      ['Zurich', 47.37, 8.54, null],
+      ['Turin', 45.07, 7.69, null],
+      ['Courmayeur', 45.79, 6.97, null],
+      ['Hendaye', 43.359, -1.774, 'france'],
+      ['Irun', 43.338, -1.789, 'spain'],
+      ['Llivia, enclave espagnole', 42.464, 1.98, 'spain'],
+      ['Bourg-Madame', 42.433, 1.946, 'france'],
+      ['Andorre-la-Vieille', 42.507, 1.522, 'spain'],
+      ['Monaco', 43.737, 7.421, null],
+      ['Bale', 47.56, 7.59, null],
+      ['Saint-Louis', 47.59, 7.56, 'france'],
+      ['Aoste', 45.74, 7.32, null],
+      ['Briancon', 44.9, 6.64, 'france'],
+      ['Londres', 51.51, -0.13, null],
+      ['Cagliari', 39.22, 9.12, null],
+      ['Madrid', 40.42, -3.7, 'spain'],
+      ['Barcelone', 41.39, 2.17, 'spain'],
+      ['Bilbao', 43.26, -2.93, 'spain'],
+      ['Saint-Jacques', 42.88, -8.54, 'spain'],
+      ['Seville', 37.39, -5.98, 'spain'],
+      ['Palma', 39.57, 2.65, 'spain'],
+      ['Las Palmas', 28.12, -15.43, 'spain'],
+      ['Lisbonne', 38.72, -9.14, null],
+      ['Porto', 41.15, -8.61, null],
+      ['Denver', 39.74, -104.99, 'usa'],
+      ['Seattle', 47.61, -122.33, 'usa'],
+      ['Duluth', 46.79, -92.1, 'usa'],
+      ['Buffalo', 42.89, -78.88, 'usa'],
+      ['Bangor', 44.8, -68.77, 'usa'],
+      ['Miami', 25.76, -80.19, 'usa'],
+      ['San Diego', 32.72, -117.16, 'usa'],
+      ['Anchorage', 61.22, -149.9, 'usa'],
+      ['Juneau', 58.3, -134.42, 'usa'],
+      ['Honolulu', 21.31, -157.86, 'usa'],
+      ['Vancouver', 49.28, -123.12, null],
+      ['Victoria', 48.43, -123.37, null],
+      ['Toronto', 43.65, -79.38, null],
+      ['Montreal', 45.5, -73.57, null],
+      ['Thunder Bay', 48.38, -89.25, null],
+      ['Tijuana', 32.52, -117.04, null],
+      ['Mexicali', 32.62, -115.45, null],
+      ['Whitehorse', 60.72, -135.06, null],
+      ['Prince Rupert', 54.31, -130.32, null],
+    ]
+    const wrong = cities.filter(([, lat, lon, want]) => {
+      return territoryAt(lat, lon) !== want
+    })
+    t.checkTrue('chaque ville tombe dans son territoire, et dans un seul', wrong.length === 0, wrong.length ? wrong.map((w) => w[0]).join(', ') : `${cities.length} villes`)
+
+    // --- Les cases : evidente loin des frontieres, mixte dessus.
+    {
+      const paris = sourcesAt(48.86, 2.35)
+      const border = sourcesAt(43.345, -1.775)
+      t.checkTrue(
+        'une case evidente a un seul service, une case frontaliere ceux des deux cotes',
+        paris.length === 1 && border.length >= 2 && border.includes(0) && border.includes(2),
+        `Paris ${paris.join(',')} · Bidassoa ${border.join(',')}`,
+      )
+    }
+
+    // --- La grille ASCII du service espagnol, dans son enveloppe multipart.
+    {
+      const values = Array.from({ length: TILE_POINTS * TILE_POINTS }, (_, i) => (i === 5 ? -9999 : 1000 + i * 0.001).toFixed(3))
+      const text = `--wcs
+Content-Type: application/asc
+
+ncols        ${TILE_POINTS}
+nrows        ${TILE_POINTS}
+xllcorner    -0.1
+yllcorner    42.6
+cellsize     0.0001
+NODATA_value -9999
+ ${values.join(' ')}
+--wcs--`
+      const grid = parseArcGrid(text)
+      t.checkTrue(
+        'la grille ASCII se relit, valeur absente comprise',
+        !!grid && Math.abs(grid[0] - 1000) < 1e-3 && Number.isNaN(grid[5]) && Math.abs(grid[grid.length - 1] - (1000 + (grid.length - 1) * 0.001)) < 1e-2,
       )
     }
 

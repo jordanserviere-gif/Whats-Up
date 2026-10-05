@@ -35,7 +35,7 @@ import {
   type MaxGrid,
   type PhotoFrame,
 } from './photoRaster'
-import { fetchHeightTile, LIDAR_MAX_LEVEL, pointInFrance, TERRARIUM_MAX_LEVEL } from './photoSources'
+import { fetchHeightTile, SOURCES, sourcesAt } from './photoSources'
 import { LocalProjector, TileStore, tileCellM, tileKey, tileLevelAt, tileSpanDeg, type HeightTile } from './photoTiles'
 
 /** Le relief courant, copie depuis le fil principal. */
@@ -160,28 +160,52 @@ function currentStepAt(job: CurrentRelief, d: number): number {
   return job.clipmap[job.clipmap.length - 1]?.stepM ?? 500
 }
 
-/**
- * Niveau de tuile voulu a une distance donnee : celui dont la case vaut
- * l'empreinte d'un pixel de la photo, borne par la source.
- */
-function levelAt(distanceM: number, angleRad: number, lat: number, lon: number): number {
-  const maxZ = pointInFrance(lat, lon) ? LIDAR_MAX_LEVEL : TERRARIUM_MAX_LEVEL
-  return Math.min(maxZ, tileLevelAt(distanceM * angleRad))
+/** Les tuiles d'une photo, un magasin par service. */
+class Stores {
+  readonly bySource = SOURCES.map(() => new TileStore())
+  add(tile: HeightTile): void {
+    this.bySource[tile.source].add(tile)
+  }
+  get size(): number {
+    return this.bySource.reduce((a, s) => a + s.size, 0)
+  }
+  all(): HeightTile[] {
+    return this.bySource.flatMap((s) => s.all())
+  }
 }
+
+/** Cle d'une tuile d'un service : la grille est la meme pour tous. */
+const sourceKey = (source: number, z: number, x: number, y: number) => tileKey(z, x, y) * 8 + source
 
 /**
  * Les tuiles, fondues entre niveaux selon la distance — voir
  * `TileStore.sampleBlend` —, puis le relief courant la ou elles se taisent.
+ *
+ * Les services sont lus en cascade, celui du territoire du point d'abord :
+ * chacun s'arrete a sa frontiere, et la donnee la trace au point pres. Les
+ * autres suivent, pour qu'aucun trou ne reste la ou une case mixte s'est
+ * trompee de cote.
  */
-function compose(store: TileStore, projector: LocalProjector, fallback: Sampler, photo: PhotoFrame): Sampler {
+function compose(stores: Stores, projector: LocalProjector, fallback: Sampler, photo: PhotoFrame): Sampler {
   const ll = { lat: 0, lon: 0 }
+  const all = SOURCES.map((_, i) => i)
   return (e, n) => {
     projector.toLatLon(e, n, ll)
     // La finesse voulue suit celle des pixels, plus fins vers les bords de l'image.
     const da = Math.atan2(e, n) - photo.az0
     const angle = cellAngle(photo, Math.min(1.5, Math.abs(Math.atan2(Math.sin(da), Math.cos(da)))))
-    const h = store.sampleBlend(ll.lat, ll.lon, levelAt(Math.hypot(e, n), angle, ll.lat, ll.lon))
-    return Number.isNaN(h) ? fallback(e, n) : h
+    const zf = tileLevelAt(Math.hypot(e, n) * angle)
+    const first = sourcesAt(ll.lat, ll.lon)
+    for (const i of first) {
+      const h = stores.bySource[i].sampleBlend(ll.lat, ll.lon, Math.min(zf, SOURCES[i].maxLevel))
+      if (!Number.isNaN(h)) return h
+    }
+    for (const i of all) {
+      if (first.includes(i) || stores.bySource[i].size === 0) continue
+      const h = stores.bySource[i].sampleBlend(ll.lat, ll.lon, Math.min(zf, SOURCES[i].maxLevel))
+      if (!Number.isNaN(h)) return h
+    }
+    return fallback(e, n)
   }
 }
 
@@ -210,54 +234,52 @@ const SHADOW_HALF_SPAN_M = 60_000
 const NET_FLOOR = 8
 /** Part d'une tuile, pres de chaque bord, ou la voisine est demandee aussi. */
 const EDGE = 0.06
-function chooseTiles(
-  needs: ReturnType<typeof tileNeeds>,
-  projector: LocalProjector,
-  job: CurrentRelief,
-  have: Set<number>,
-): Array<{ z: number; x: number; y: number }> {
+function chooseTiles(needs: ReturnType<typeof tileNeeds>, projector: LocalProjector, job: CurrentRelief, have: Set<number>): TileRef[] {
   const ll = { lat: 0, lon: 0 }
   // Au-dela du plafond, la finesse recule par paliers de racine de deux : un
   // depassement d'un cheveu ne fait plus tomber toute la photo d'un niveau.
   for (let coarsen = 1; coarsen <= 64; coarsen *= Math.SQRT2) {
-    const wanted = new Map<number, { z: number; x: number; y: number }>()
+    const wanted = new Map<number, TileRef>()
     for (const need of needs) {
       projector.toLatLon(need.eastM, need.northM, ll)
-      const maxZ = pointInFrance(ll.lat, ll.lon) ? LIDAR_MAX_LEVEL : TERRARIUM_MAX_LEVEL
-      const zf = Math.min(maxZ, tileLevelAt(need.cellM * coarsen))
       const d = Math.hypot(need.eastM, need.northM)
-      // Les deux niveaux que la lecture fondra ici.
-      const z1 = Math.ceil(zf)
-      for (const z of z1 > zf ? [z1, z1 - 1] : [z1]) {
-        if (z < 0 || tileCellM(z) >= 0.8 * currentStepAt(job, d)) continue
-        // La tuile du point, et ses voisines seulement s'il tombe pres d'un bord :
-        // les huit voisines systematiques multipliaient la demande par neuf, et
-        // le plafond faisait alors tomber toute la photo d'un niveau.
-        const span = tileSpanDeg(z)
-        const gx = (ll.lon + 180) / span
-        const gy = (90 - ll.lat) / span
-        const x = Math.floor(gx)
-        const y = Math.floor(gy)
-        const fx = gx - x
-        const fy = gy - y
-        const x0 = fx < EDGE ? -1 : 0
-        const x1 = fx > 1 - EDGE ? 1 : 0
-        const y0 = fy < EDGE ? -1 : 0
-        const y1 = fy > 1 - EDGE ? 1 : 0
-        for (let dy = y0; dy <= y1; dy++) {
-          for (let dx = x0; dx <= x1; dx++) {
-            const k = tileKey(z, x + dx, y + dy)
-            if (!have.has(k)) wanted.set(k, { z, x: x + dx, y: y + dy })
+      // Chaque service du point — un seul dans une case evidente, ceux de
+      // chaque cote dans une case qu'une frontiere traverse.
+      for (const src of sourcesAt(ll.lat, ll.lon)) {
+        const zf = Math.min(SOURCES[src].maxLevel, tileLevelAt(need.cellM * coarsen))
+        // Les deux niveaux que la lecture fondra ici.
+        const z1 = Math.ceil(zf)
+        for (const z of z1 > zf ? [z1, z1 - 1] : [z1]) {
+          if (z < 0 || tileCellM(z) >= 0.8 * currentStepAt(job, d)) continue
+          // La tuile du point, et ses voisines seulement s'il tombe pres d'un bord :
+          // les huit voisines systematiques multipliaient la demande par neuf, et
+          // le plafond faisait alors tomber toute la photo d'un niveau.
+          const span = tileSpanDeg(z)
+          const gx = (ll.lon + 180) / span
+          const gy = (90 - ll.lat) / span
+          const x = Math.floor(gx)
+          const y = Math.floor(gy)
+          const fx = gx - x
+          const fy = gy - y
+          const x0 = fx < EDGE ? -1 : 0
+          const x1 = fx > 1 - EDGE ? 1 : 0
+          const y0 = fy < EDGE ? -1 : 0
+          const y1 = fy > 1 - EDGE ? 1 : 0
+          for (let dy = y0; dy <= y1; dy++) {
+            for (let dx = x0; dx <= x1; dx++) {
+              const k = sourceKey(src, z, x + dx, y + dy)
+              if (!have.has(k)) wanted.set(k, { src, z, x: x + dx, y: y + dy })
+            }
           }
-        }
-        // Le filet : l'aieule de trois niveaux au-dessus, soixante-quatre fois
-        // moins nombreuse. La ou une tuile fine manque — refusee par le service,
-        // ou tombee sur un point que les passes grossieres croyaient cache —, la
-        // lecture retombe sur elle, et non sur le relief courant, plus lisse et
-        // decale de quelques metres : il en sortait des plaques rectangulaires.
-        if (z >= 3 + NET_FLOOR) {
-          const k = tileKey(z - 3, x >> 3, y >> 3)
-          if (!have.has(k)) wanted.set(k, { z: z - 3, x: x >> 3, y: y >> 3 })
+          // Le filet : l'aieule de trois niveaux au-dessus, soixante-quatre fois
+          // moins nombreuse. La ou une tuile fine manque — refusee par le service,
+          // ou tombee sur un point que les passes grossieres croyaient cache —, la
+          // lecture retombe sur elle, et non sur le relief courant, plus lisse et
+          // decale de quelques metres : il en sortait des plaques rectangulaires.
+          if (z >= 3 + NET_FLOOR) {
+            const k = sourceKey(src, z - 3, x >> 3, y >> 3)
+            if (!have.has(k)) wanted.set(k, { src, z: z - 3, x: x >> 3, y: y >> 3 })
+          }
         }
       }
       if (wanted.size > MAX_TILES * 1.5) break
@@ -267,9 +289,17 @@ function chooseTiles(
   return []
 }
 
+/** Une tuile a demander : son service et sa place dans la grille. */
+interface TileRef {
+  src: number
+  z: number
+  x: number
+  y: number
+}
+
 async function loadTiles(
-  list: Array<{ z: number; x: number; y: number }>,
-  store: TileStore,
+  list: TileRef[],
+  store: Stores,
   have: Set<number>,
   signal: AbortSignal,
   stats: PrepareResult['stats'],
@@ -286,16 +316,16 @@ async function loadTiles(
     const run = async () => {
       while (next < queue.length) {
         const t = queue[next++]
-        have.add(tileKey(t.z, t.x, t.y))
-        const tile = await fetchHeightTile(t.z, t.x, t.y, signal)
+        have.add(sourceKey(t.src, t.z, t.x, t.y))
+        const tile = await fetchHeightTile(t.src, t.z, t.x, t.y, signal)
         if (tile === 'failed') {
-          const parent = tileKey(t.z - 1, t.x >> 1, t.y >> 1)
+          const parent = sourceKey(t.src, t.z - 1, t.x >> 1, t.y >> 1)
           if (round === 0) missed.push(t)
           else {
             stats.failed++
             if (round === 1 && t.z > 0 && !have.has(parent)) {
               have.add(parent)
-              missed.push({ z: t.z - 1, x: t.x >> 1, y: t.y >> 1 })
+              missed.push({ src: t.src, z: t.z - 1, x: t.x >> 1, y: t.y >> 1 })
             }
           }
         } else if (tile) {
@@ -320,7 +350,7 @@ async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
   }
   const fallback = currentSampler(job)
   const projector = new LocalProjector(job.latitudeDeg, job.longitudeDeg, job.reachM + 5000)
-  const store = new TileStore()
+  const store = new Stores()
   const have = new Set<number>()
   const frame = photoFrame(job.view)
   const sample = compose(store, projector, fallback, frame)
@@ -422,7 +452,7 @@ async function prepare(job: PrepareJob, signal: AbortSignal): Promise<void> {
 let renderer: { init: RenderInit; sample: Sampler; coarse: Sampler } | null = null
 
 function initRender(init: RenderInit): void {
-  const store = new TileStore()
+  const store = new Stores()
   for (const t of init.tiles) store.add(t)
   const coarse = currentSampler(init)
   renderer = {

@@ -65,7 +65,7 @@ const BANDS_PER_WORKER = 12
 
 const STEP_LABELS: Record<PhotoPhase, string> = {
   visibilite: 'Visibilité',
-  relief: 'Relief LiDAR',
+  relief: 'Relief haute résolution',
   rendu: 'Préparation',
   ombres: 'Rendu au pixel',
 }

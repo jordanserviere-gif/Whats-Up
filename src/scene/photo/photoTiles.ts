@@ -71,6 +71,8 @@ export interface HeightTile {
   z: number
   x: number
   y: number
+  /** Service d'origine — son rang dans `SOURCES`. */
+  source: number
   /** Altitude du code zero, metres. */
   base: number
   /** Pas d'un code, metres. */
@@ -94,7 +96,7 @@ export function quantizeTile(z: number, x: number, y: number, heights: Float32Ar
     const h = heights[i]
     codes[i] = Number.isNaN(h) ? UNKNOWN : Math.min(UNKNOWN - 1, Math.round((h - min) / quantum))
   }
-  return { z, x, y, base: min, quantum, codes }
+  return { z, x, y, source: 0, base: min, quantum, codes }
 }
 
 /**
