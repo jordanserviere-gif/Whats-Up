@@ -2,6 +2,12 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.8.0 — 2026-10-05
+
+### Nouveautes
+
+- **corps** : satellites, planetes naines et asteroides — 35 corps, positions JPL Horizons a la seconde d'arc (7f70365)
+
 ## v0.7.1 — 2026-10-05
 
 ### Corrections
