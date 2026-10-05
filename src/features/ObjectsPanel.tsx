@@ -14,7 +14,7 @@ import {
   Section,
   StatTile,
 } from '@/ui'
-import { BODIES, BODY_BY_ID, nextRelativeLongitudeEvent } from '@/astro/bodies'
+import { BODY_BY_ID, nextRelativeLongitudeEvent } from '@/astro/bodies'
 import { azimuthToCardinal, formatDeg, formatDms, formatRa } from '@/astro/coords'
 import { formatDate, formatTime } from '@/astro/time'
 import { isFixedKind } from '@/astro/search'
@@ -23,7 +23,7 @@ import { selectedBodyId, useSkyStore } from '@/state/store'
 import { useAllRiseSets, useBodyStates, useMoonInfo, useRiseSet } from '@/state/hooks'
 import { FixedObjectDetails } from './ObjectDetails'
 import { MoonPhaseDial } from './MoonPhaseDial'
-import type { BodyState, RiseSetInfo } from '@/astro/types'
+import type { BodyId, BodyState, RiseSetInfo } from '@/astro/types'
 import './ObjectsPanel.css'
 
 const KM_PER_AU = 149_597_870.7
@@ -53,19 +53,17 @@ export function ObjectsPanel() {
   const selectBody = useSkyStore((s) => s.selectBody)
   const focusOn = useSkyStore((s) => s.focusOn)
 
+  // Les grands corps seulement : les satellites et les petits corps se trouvent
+  // par la recherche ou d'un clic, mais une soixantaine de noms noieraient ici
+  // les planetes qu'on cherche du regard.
   const sorted = useMemo(
-    () => [...bodies].sort((a, b) => b.horizontal.altitude - a.horizontal.altitude),
+    () => bodies.filter((b) => LISTED.has(b.id)).sort((a, b) => b.horizontal.altitude - a.horizontal.altitude),
     [bodies],
   )
   const visibleCount = sorted.filter((b) => b.visible).length
 
   return (
-    <Section
-      title="Au-dessus de l’horizon"
-      icon="visibility"
-      summary={`${visibleCount} / ${BODIES.length}`}
-      collapsible={false}
-    >
+    <Section title="Au-dessus de l’horizon" icon="visibility" summary={`${visibleCount} / ${sorted.length}`} collapsible={false}>
       <List>
         {sorted.map((b) => (
           <ListItem
@@ -86,6 +84,9 @@ export function ObjectsPanel() {
     </Section>
   )
 }
+
+/** Corps de la liste : le Soleil, la Lune, les planetes, et les petits corps qu'on peut voir aux jumelles. */
+const LISTED = new Set<BodyId>(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto', 'ceres', 'vesta'])
 
 /**
  * Fiche ancree du panneau « objets ».

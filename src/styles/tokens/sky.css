@@ -24,6 +24,14 @@
   --app-body-europa: #ece6da;
   --app-body-ganymede: #d8cfc2;
   --app-body-callisto: #bfb3a3;
+  /* Les autres satellites : gris de glace et de roche, a peine teintes ; Titan
+   * garde l'orange de sa brume. */
+  --app-body-satellite-minor: #d4cfc6;
+  --app-body-titan: #e8b46c;
+  /* Planetes naines et asteroides : roches ternes, les naines glacees un peu
+   * plus claires. */
+  --app-body-dwarf: #d6c8b8;
+  --app-body-asteroid: #b8b0a4;
   --app-body-satellite: var(--app-scene-bright);
 
   /* Couches de la scene. */

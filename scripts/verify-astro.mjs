@@ -442,13 +442,22 @@ console.log('\n=== 7. Eclairement solaire des corps ===')
 
       const phaseDeg = Math.acos(Math.min(1, Math.max(-1, cosPhase))) * RAD
       const fraction = (1 + cosPhase) / 2
+      // Un petit corps n'existe pas dans astronomy-engine : sa reference est sa
+      // propre fraction eclairee, que le vecteur doit reproduire.
+      if (def.model === 'minor') {
+        check(`  ${def.name} : fraction eclairee (vecteur / H-G)`, fraction, st.illumination, 1e-3)
+        continue
+      }
       const ref = A.Illumination(def.body, date)
 
       // Tolerance elargie pour la Lune : la reference est geocentrique, notre
-      // geometrie topocentrique, et la parallaxe lunaire atteint le degre.
-      const tolerance = def.id === 'moon' ? 1.2 : 0.05
+      // geometrie topocentrique, et la parallaxe lunaire atteint le degre. Un
+      // satellite est compare a sa planete : Himalia s'en ecarte d'un tiers de
+      // degre de phase, a onze millions de kilometres.
+      const satellite = def.model === 'moon' || def.model === 'galilean'
+      const tolerance = def.id === 'moon' ? 1.2 : satellite ? 0.3 : 0.05
       check(`  ${def.name} : angle de phase`, phaseDeg, ref.phase_angle, tolerance, '°')
-      check(`  ${def.name} : fraction eclairee`, fraction, ref.phase_fraction, def.id === 'moon' ? 1e-2 : 1e-3)
+      check(`  ${def.name} : fraction eclairee`, fraction, ref.phase_fraction, def.id === 'moon' ? 1e-2 : satellite ? 3e-3 : 1e-3)
     }
   }
 
@@ -584,6 +593,48 @@ console.log('\n=== 8. Ciel profond (OpenNGC) ===')
     `${messierOk ? 'OK  ' : 'ECHEC'} ${'objets Messier presents'.padEnd(52)} ` +
       `${MESSIER_OBJECTS.length} / 110 (les manquants sont des asterismes ou des doublons)`,
   )
+}
+
+// --- Satellites et petits corps, contre Horizons -------------------------------
+//
+// References tirees de JPL Horizons (ephemeride d'observateur, RA/Dec
+// apparentes, site 0°/0°/0 m). Pour un satellite, c'est l'ecart a sa planete
+// qui compte — ce qu'on voit a l'oculaire — ; pour un petit corps, la position.
+{
+  console.log('\n=== Satellites et petits corps, contre JPL Horizons ===')
+  const site = { name: 'equateur', latitude: 0, longitude: 0, elevation: 0 }
+  const offset = (id, date) => {
+    const def = BODY_BY_ID.get(id)
+    const m = computeBodyState(def, date, site).equatorial
+    const p = computeBodyState(BODY_BY_ID.get(def.parent), date, site).equatorial
+    return [(m.ra - p.ra) * Math.cos(p.dec * DEG) * 3600, (m.dec - p.dec) * 3600]
+  }
+  const satellites = [
+    ['2026-10-05T22:00:00Z', 'phobos', -7.5, -0.1, 1],
+    ['2026-10-05T22:00:00Z', 'titan', 168.4, 6.9, 1],
+    ['2026-10-05T22:00:00Z', 'iapetus', -553.4, -140.4, 1.5],
+    ['2026-10-05T22:00:00Z', 'titania', -30.9, -4.3, 1],
+    ['2026-10-05T22:00:00Z', 'triton', 9.4, 12.6, 1],
+    ['2026-10-05T22:00:00Z', 'charon', -0.6, 0.5, 0.3],
+    ['2026-10-05T22:00:00Z', 'himalia', -579.6, 1299.8, 3],
+    ['2020-01-01T00:00:00Z', 'mimas', -14.0, -6.7, 2],
+    ['2035-06-01T00:00:00Z', 'titan', 170.1, -0.4, 1],
+    ['2035-06-01T00:00:00Z', 'himalia', -2026.3, -2169.3, 3],
+  ]
+  for (const [iso, id, dx, dy, tol] of satellites) {
+    const [x, y] = offset(id, new Date(iso))
+    check(`${id} : ecart a sa planete, ${iso.slice(0, 10)}`, Math.hypot(x - dx, y - dy), 0, tol, '″')
+  }
+  const date = new Date('2026-10-05T22:00:00Z')
+  for (const [id, ra, dec] of [
+    ['ceres', 108.94826873, 23.244391641],
+    ['vesta', 24.603099703, -2.536187681],
+    ['eris', 27.47642468, 0.06995709],
+  ]) {
+    const e = computeBodyState(BODY_BY_ID.get(id), date, site).equatorial
+    const sep = Math.hypot((e.ra - ra) * Math.cos(dec * DEG), e.dec - dec) * 3600
+    check(`${id} : position apparente, 2026-10-05`, sep, 0, 5, '″')
+  }
 }
 
 console.log(`\n${failures === 0 ? 'Toutes les verifications passent.' : `${failures} verification(s) en echec.`}`)

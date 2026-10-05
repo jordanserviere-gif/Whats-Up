@@ -7,7 +7,7 @@
  * memes identifiants. Sans cela, cliquer sur Vega et la chercher au clavier
  * meneraient a deux objets differents.
  */
-import { BODIES } from './bodies'
+import { BODIES, type BodyDefinition } from './bodies'
 import { NAMED_STARS, CONSTELLATIONS } from './catalog'
 import { DEEP_SKY_INDEX } from './deepsky'
 import type { Equatorial, OrbitalElements } from './types'
@@ -60,12 +60,22 @@ export function foldText(value: string): string {
     .trim()
 }
 
+/** Famille d'un corps, en clair : « satellite de Saturne », « planète naine »… */
+export function bodyDetail(b: BodyDefinition): string {
+  if (b.id === 'sun') return 'étoile'
+  if (b.id === 'moon') return 'satellite de la Terre'
+  if (b.category === 'satellite') return `satellite de ${BODIES.find((p) => p.id === b.parent)?.name ?? '—'}`
+  if (b.category === 'naine') return 'planète naine'
+  if (b.category === 'asteroide') return 'astéroïde'
+  return 'planète'
+}
+
 function bodyTargets(): SkyTarget[] {
   return BODIES.map((b) => ({
     kind: 'body' as const,
     id: b.id,
     name: b.name,
-    detail: b.id === 'sun' || b.id === 'moon' ? 'système solaire' : 'planète',
+    detail: bodyDetail(b),
     magnitude: null,
     equatorialJ2000: null,
   }))

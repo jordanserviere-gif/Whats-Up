@@ -395,6 +395,9 @@ export function SkyCanvas() {
               Boolean(e.state),
             ),
           limitingMagnitude,
+          instrumentGainMag: instrumentGainMag(
+            (2 * Math.tan((fov * Math.PI) / 360)) / (host.current?.clientHeight ?? 800),
+          ),
           includeStars: layers.stars,
           includeDeepSky: layers.deepSky,
         },
@@ -419,6 +422,7 @@ export function SkyCanvas() {
       satStates,
       aircraftStates,
       limitingMagnitude,
+      fov,
       select,
       selectAircraft,
       setTab,

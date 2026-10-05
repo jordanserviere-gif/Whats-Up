@@ -11,7 +11,8 @@ import { Matrix4 } from 'three'
 import { NAMED_STARS } from '@/astro/catalog'
 import { equatorialToHorizontal, precessFromJ2000 } from '@/astro/coords'
 import { DEEP_SKY_INDEX, buildDeepSkyGeometry } from '@/astro/deepsky'
-import type { SkyTarget } from '@/astro/search'
+import { BODY_BY_ID } from '@/astro/bodies'
+import { bodyDetail, type SkyTarget } from '@/astro/search'
 import type { BodyState, GeoLocation, Horizontal, OrbitalElements, SatelliteState } from '@/astro/types'
 import { angularDistance, sceneDirectionToEquatorial } from './sceneMath'
 
@@ -23,6 +24,12 @@ export interface PickCandidateInputs {
   satellites: ReadonlyArray<{ element: OrbitalElements; state: SatelliteState }>
   /** Magnitude limite du moment : rien de moins visible n'est proposable. */
   limitingMagnitude: number
+  /**
+   * Gain d'instrument au grossissement du moment, en magnitudes : c'est lui qui
+   * fait apparaitre les satellites en zoomant. Un corps n'est designable que
+   * s'il est dessine.
+   */
+  instrumentGainMag?: number
   /** Les etoiles et le ciel profond sont-ils affiches ? */
   includeStars: boolean
   includeDeepSky: boolean
@@ -47,6 +54,9 @@ const KIND_PRIORITY: Record<string, number> = {
   star: 1,
   deepsky: 1.1,
 }
+
+/** Poids des satellites, planetes naines et asteroides : entre les planetes et les etoiles. */
+const MINOR_BODY_PRIORITY = 1.6
 
 /**
  * Objet le plus proche de `direction`, dans la limite de `toleranceDeg`.
@@ -80,20 +90,33 @@ export function pickSkyTarget(
   }
 
   // --- Corps du systeme solaire ---
+  //
+  // Hierarchises : un satellite ne se designe que separe de sa planete d'au
+  // moins la marge du clic — a champ large, Titan se confond avec Saturne, et
+  // c'est Saturne qu'on visait. Un corps qu'on ne voit pas — trop faible au
+  // grossissement du moment, eclipse, cache — ne se designe pas non plus.
+  const byId = new Map(inputs.bodies.map((b) => [b.id, b]))
+  const visibleUpTo = inputs.limitingMagnitude + (inputs.instrumentGainMag ?? 0) + 0.5
   for (const b of inputs.bodies) {
     if (b.horizontal.altitude < -2) continue
-    consider(
-      {
-        kind: 'body',
-        id: b.id,
-        name: b.name,
-        detail: b.id === 'sun' || b.id === 'moon' ? 'système solaire' : 'planète',
-        magnitude: b.magnitude,
-        equatorialJ2000: null,
-      },
-      angularDistance(aim, b.horizontal),
-      () => b.horizontal,
-    )
+    const def = BODY_BY_ID.get(b.id)
+    const major = !def || def.category === 'etoile' || def.category === 'planete' || b.id === 'moon'
+    if (!major && b.magnitude > visibleUpTo) continue
+    if (def?.parent) {
+      const parent = byId.get(def.parent)
+      if (parent && angularDistance(parent.horizontal, b.horizontal) < toleranceDeg) continue
+    }
+    const target: SkyTarget = {
+      kind: 'body',
+      id: b.id,
+      name: b.name,
+      detail: def ? bodyDetail(def) : 'système solaire',
+      magnitude: b.magnitude,
+      equatorialJ2000: null,
+    }
+    // Les petits corps cedent aux grands a ecart comparable.
+    const distance = angularDistance(aim, b.horizontal)
+    consider(target, major ? distance : distance * (KIND_PRIORITY.body / MINOR_BODY_PRIORITY), () => b.horizontal)
   }
 
   // --- Satellites ---

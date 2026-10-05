@@ -332,6 +332,12 @@ export function useAllRiseSets() {
   return useMemo(() => {
     const map = new Map<BodyId, ReturnType<typeof computeRiseSet> | null>()
     for (const def of BODIES) {
+      // Un satellite se leve et se couche avec sa planete — `computeRiseSet` le
+      // dit lui-meme : inutile de refaire vingt fois la recherche de Saturne.
+      if (def.parent && map.has(def.parent)) {
+        map.set(def.id, map.get(def.parent) ?? null)
+        continue
+      }
       try {
         map.set(def.id, computeRiseSet(def, new Date(hour * 3_600_000), location))
       } catch {
