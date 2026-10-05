@@ -36,6 +36,7 @@ import {
   type PhotoFrame,
 } from './photoRaster'
 import { fetchHeightTile, SOURCES, sourcesAt } from './photoSources'
+import { passImagery, type ImageryContext } from './photoImagery'
 import { LocalProjector, TileStore, tileCellM, tileKey, tileLevelAt, tileSpanDeg, type HeightTile } from './photoTiles'
 
 /** Le relief courant, copie depuis le fil principal. */
@@ -85,7 +86,7 @@ export interface BandJob {
   colEnd: number
 }
 
-export type PhotoPhase = 'visibilite' | 'relief' | 'rendu' | 'ombres'
+export type PhotoPhase = 'visibilite' | 'relief' | 'rendu' | 'ombres' | 'imagerie'
 
 export interface PrepareResult {
   type: 'prepared'
@@ -115,6 +116,7 @@ export type PhotoWorkerMessage =
       /** Part des pixels calcules exactement — un pour la passe de reference. */
       exact: number
     }
+  | { type: 'imagery'; pass: number; data: Uint16Array }
   | { type: 'error'; message: string }
 
 const post = (msg: PhotoWorkerMessage, transfer: Transferable[] = []) => (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer)
@@ -546,13 +548,44 @@ function packBand(gb: PhotoGBuffer, normals: Float32Array, sun: Float32Array, sk
   return g
 }
 
-type WorkerRequest = { type: 'prepare'; job: PrepareJob } | { type: 'init'; init: RenderInit } | { type: 'band'; job: BandJob } | { type: 'cancel' }
+type WorkerRequest =
+  | { type: 'prepare'; job: PrepareJob }
+  | { type: 'init'; init: RenderInit }
+  | { type: 'band'; job: BandJob }
+  | { type: 'imageryInit'; projector: { lat: Float64Array; lon: Float64Array; half: number } }
+  | { type: 'imagery'; pass: number; g: Uint16Array; frame: PhotoFrame }
+  | { type: 'cancel' }
+
+// --- Imagerie : un worker a part, qui garde ses tuiles d'une passe a l'autre ---------
+
+let imageryCtx: ImageryContext | null = null
+/** Les passes arrivent l'une apres l'autre ; on les traite dans cet ordre. */
+let imageryQueue: Promise<void> = Promise.resolve()
+const imageryAbort = new AbortController()
+
+function queueImagery(pass: number, g: Uint16Array, frame: PhotoFrame): void {
+  imageryQueue = imageryQueue.then(async () => {
+    if (!imageryCtx) throw new Error('imagerie non initialisee')
+    const data = await passImagery(imageryCtx, g, frame, imageryAbort.signal, (fraction, tiles) =>
+      post({ type: 'progress', phase: 'imagerie', fraction, detail: `${tiles} tuiles` }),
+    )
+    post({ type: 'imagery', pass, data }, [data.buffer])
+  }).catch((err) => post({ type: 'error', message: String((err as Error)?.message ?? err) }))
+}
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data
   if (msg.type === 'cancel') {
     abort?.abort()
     abort = null
+    return
+  }
+  if (msg.type === 'imageryInit') {
+    imageryCtx = { projector: LocalProjector.from(msg.projector), tiles: new Map() }
+    return
+  }
+  if (msg.type === 'imagery') {
+    queueImagery(msg.pass, msg.g, msg.frame)
     return
   }
   if (msg.type === 'init' || msg.type === 'band') {

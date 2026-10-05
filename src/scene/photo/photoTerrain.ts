@@ -33,6 +33,8 @@ export interface PhotoRender {
   frame: PhotoFrame
   /** Ce decalage, en pixels : le nuanceur vise le meme point du pixel. */
   jitter: [number, number]
+  /** Teinte du sol au pixel, de-eclairee — voir `photoImagery.ts`. `null` sans imagerie. */
+  imagery: DataTexture | null
   /**
    * Deux texels par pixel, demi-flottants : distance (km), altitude, part du
    * Soleil, couverture ; puis normale de scene (x, reste de la distance en
@@ -58,6 +60,7 @@ export function subscribePhotoRender(fn: () => void): () => void {
 export function setPhotoRender(next: PhotoRender | null): void {
   if (current && current !== next) {
     current.g.dispose()
+    current.imagery?.dispose()
     if (current.shadow !== next?.shadow) current.shadow.dispose()
   }
   current = next
@@ -91,6 +94,7 @@ export function makePhotoRender(
   frame: PhotoFrame,
   jitter: [number, number],
   g: Uint16Array,
+  imagery: Uint16Array | null,
   shadow: DataTexture,
   shadowHalfSpanM: number,
 ): PhotoRender {
@@ -98,6 +102,7 @@ export function makePhotoRender(
     frame,
     jitter,
     g: gTexture(g, frame.cols * 2, frame.rows, true),
+    imagery: imagery ? gTexture(imagery, frame.cols, frame.rows, true) : null,
     shadow,
     shadowHalfSpanM,
     shadowSize: shadow.image.width,
@@ -133,6 +138,13 @@ export function photoTerrainMaterial(base: ShaderMaterial, shadeGlsl: string): S
       uResolution: { value: new Vector2(1, 1) },
       /** Decalage de la passe, pixels. */
       uJitter: { value: new Vector2() },
+      /**
+       * ⚠️ Un objet a part, et non celui du materiau courant : en photo, l'unite
+       * de l'atlas d'imagerie porte la teinte au pixel — il n'en reste aucune
+       * de libre.
+       */
+      uOrtho: { value: null as DataTexture | null },
+      uPhotoImagery: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vNdc;
@@ -154,6 +166,7 @@ export function photoTerrainMaterial(base: ShaderMaterial, shadeGlsl: string): S
       uniform mat4 uViewProj;
       uniform vec2 uResolution;
       uniform vec2 uJitter;
+      uniform float uPhotoImagery;
       varying vec2 vNdc;
 
       void main() {
@@ -180,6 +193,9 @@ export function photoTerrainMaterial(base: ShaderMaterial, shadeGlsl: string): S
         float range = g1.x * 1000.0 + g2.y;
         vec3 normal = vec3(g2.x, sqrt(max(0.0, 1.0 - g2.x * g2.x - g2.z * g2.z)), g2.z);
 
+        // L'imagerie du sol, choisie au pixel a une finesse que l'atlas de la vue
+        // en direct n'a pas : elle passe avant lui dans orthoTint.
+        if (uPhotoImagery > 0.5) gGroundTint = texelFetch(uOrtho, ij, 0).rgb;
         vec3 radiance = shadeTerrain(dir, range, g1.y, normalize(normal), g1.z, g2.w);
         float luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
         vec3 color = mix(radiance, luma * uNightTint, uNight);

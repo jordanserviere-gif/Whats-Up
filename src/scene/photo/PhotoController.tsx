@@ -68,6 +68,7 @@ const STEP_LABELS: Record<PhotoPhase, string> = {
   relief: 'Relief haute résolution',
   rendu: 'Préparation',
   ombres: 'Rendu au pixel',
+  imagerie: 'Imagerie du sol',
 }
 
 const newWorker = () => new Worker(new URL('./photoWorker.ts', import.meta.url), { type: 'module' })
@@ -77,6 +78,8 @@ interface ReadyPass {
   frame: PhotoFrame
   jitter: [number, number]
   g: Uint16Array
+  /** Teinte du sol au pixel, demi-flottants RGBA — `null` si l'imagerie a echoue. */
+  imagery: Uint16Array | null
 }
 
 /** Une photo en cours, du cadrage fige a l'enregistrement. */
@@ -252,8 +255,45 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
       setPhoto({ phase: 'preview', progress: null, message: `Échec : ${message}` })
     }
 
+    // --- L'imagerie du sol, au pixel : un worker a part, qui garde ses tuiles ---
+    const imageryWorker = newWorker()
+    const disposeRender = s.dispose
+    s.dispose = () => {
+      disposeRender()
+      imageryWorker.terminate()
+    }
+    const waitingImagery = new Map<number, ReadyPass>()
+    let first = true
+    const release = (pass: number, imagery: Uint16Array | null) => {
+      const ready = waitingImagery.get(pass)
+      if (!ready) return
+      waitingImagery.delete(pass)
+      ready.imagery = imagery
+      s.ready.push(ready)
+      if (first) {
+        first = false
+        setPhoto({ phase: 'capturing' })
+      }
+    }
+    let imageryFailed = false
+    imageryWorker.onmessage = (event: MessageEvent<PhotoWorkerMessage>) => {
+      if (!alive) return
+      const msg = event.data
+      if (msg.type === 'progress') {
+        setPhoto({ progress: { step: STEP_LABELS[msg.phase], fraction: msg.fraction, detail: msg.detail } })
+      } else if (msg.type === 'imagery') {
+        release(msg.pass, msg.data)
+      } else if (msg.type === 'error') {
+        // Sans imagerie, la photo se fait quand meme : le sol garde l'albedo du modele.
+        console.warn('[photo] imagerie :', msg.message)
+        imageryFailed = true
+        for (const pass of [...waitingImagery.keys()]) release(pass, null)
+      }
+    }
+
     const render = (init: RenderInit) => {
       const { frame } = init
+      imageryWorker.postMessage({ type: 'imageryInit', projector: init.projector })
       while (s.pool.length < poolSize) s.pool.push(newWorker())
       // Une bande porte toutes ses passes : la premiere y fait reference, et les
       // suivantes en reprennent l'ombre et le ciel hors des bords.
@@ -265,7 +305,6 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
       const passes = JITTERS.map(() => ({ g: new Uint16Array(0), left: queue.length }))
       let done = 0
       let exact = 0
-      let first = true
 
       const feed = (w: Worker) => {
         const next = queue.shift()
@@ -295,19 +334,22 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
           })
           if (--p.left === 0) {
             const [jx, jy] = JITTERS[msg.pass]
-            s.ready.push({
+            const ready: ReadyPass = {
               frame: { ...frame, uMin: frame.uMin + jx * frame.step, vMin: frame.vMin + jy * frame.step },
               jitter: [jx, jy],
               g: p.g,
-            })
+              imagery: null,
+            }
             p.g = new Uint16Array(0)
+            // L'imagerie de la passe se calcule a part ; la passe ne s'affiche
+            // qu'avec elle. Le tampon part en copie : il sert encore ici.
+            waitingImagery.set(msg.pass, ready)
+            if (imageryFailed) release(msg.pass, null)
+            else imageryWorker.postMessage({ type: 'imagery', pass: msg.pass, g: ready.g, frame: ready.frame })
             if (import.meta.env.DEV && done === total) {
               console.info('[photo] calcul exact sur', `${((100 * exact) / ((total / JITTERS.length) * (JITTERS.length - 1))).toFixed(1)} %`, 'des pixels des passes suivantes')
             }
-            if (first) {
-              first = false
-              setPhoto({ phase: 'capturing' })
-            }
+
           }
         }
         w.postMessage({ type: 'init', init })
@@ -365,7 +407,7 @@ export function PhotoController({ sunAltitudeDeg, sunAzimuthDeg }: { sunAltitude
     if (!s.showing) {
       const next = s.ready.shift()
       if (!next || !s.shadow) return
-      setPhotoRender(makePhotoRender(next.frame, next.jitter, next.g, s.shadow, s.shadowHalfSpanM))
+      setPhotoRender(makePhotoRender(next.frame, next.jitter, next.g, next.imagery, s.shadow, s.shadowHalfSpanM))
       if (!s.raised) {
         s.raised = true
         applyDpr(s.dpr)

@@ -153,8 +153,10 @@ import {
   ORTHO_GLSL,
   loadOrthophoto,
   orthoCanvas,
+  orthoLevelMask,
   orthoReady,
   orthoSpanM,
+  subscribeOrtho,
 } from './terrain/orthophoto'
 
 // Les trois nombres qui decident **ou** l'on interroge le relief vivent dans
@@ -902,6 +904,8 @@ function terrainMaterial(): ShaderMaterial {
       uOrthoHalfSpan: { value: 1 },
       /** Zero tant qu'aucune orthophoto n'est disponible — hors de France. */
       uOrthoStrength: { value: 0 },
+      /** Etages de l'atlas deja poses. */
+      uOrthoLevels: { value: new Vector4() },
       /** Carte proche des lumieres urbaines — voir `cityLights.ts`. */
       uCityNear: { value: null as CanvasTexture | null },
       /** Carte lointaine, qui porte les villes que la proche ne voit plus. */
@@ -1099,6 +1103,12 @@ export function Terrain({
       texture.anisotropy = 8
       texture.needsUpdate = true
       setOrtho(texture)
+      // Les etages plus fins se posent ensuite dans le meme canevas : chacun
+      // renvoie la texture au GPU.
+      const off = subscribeOrtho(() => {
+        if (!alive) return off()
+        texture.needsUpdate = true
+      })
     })
 
     // Masque d'eau, sur la meme pyramide que le relief — voir terrain/waterMask.ts.
@@ -1292,6 +1302,8 @@ export function Terrain({
       ;(p.uFrame.value as Vector4).set(photo.frame.az0, photo.frame.el0, photo.frame.uMin, photo.frame.vMin)
       ;(p.uGrid.value as Vector3).set(photo.frame.cols, photo.frame.rows, photo.frame.step)
       ;(p.uJitter.value as Vector2).set(photo.jitter[0], photo.jitter[1])
+      p.uOrtho.value = photo.imagery
+      p.uPhotoImagery.value = photo.imagery ? 1 : 0
       ;(p.uProjInv.value as Matrix4).copy(camera.projectionMatrixInverse)
       ;(p.uCamWorld.value as Matrix4).copy(camera.matrixWorld)
       ;(p.uViewProj.value as Matrix4).multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
@@ -1302,6 +1314,7 @@ export function Terrain({
     u.uOrtho.value = ortho
     u.uOrthoStrength.value = ortho && orthoReady() ? 1 : 0
     u.uOrthoHalfSpan.value = Math.max(1, orthoSpanM())
+    ;(u.uOrthoLevels.value as Vector4).fromArray(orthoLevelMask())
 
     // --- Eau : masque, etat de mer, temps des vagues.
     const water = waterTextures()
