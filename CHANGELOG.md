@@ -2,6 +2,12 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.7.1 — 2026-10-05
+
+### Corrections
+
+- **photo** : plus de ligne d'horizon sur la photo — un repere de lecture, pas un objet du paysage (c163eb5)
+
 ## v0.7.0 — 2026-10-05
 
 ### Nouveautes
