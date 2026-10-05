@@ -2,6 +2,12 @@
 
 Chaque version est un tag `vX.Y.Z`, publie par `npm run release`.
 
+## v0.7.0 — 2026-10-05
+
+### Nouveautes
+
+- **photo** : frontieres OSM precises, services fins par pays — 3DEP aux Etats-Unis, MDT05 en Espagne, lecture en cascade aux frontieres (7b1a27d)
+
 ## v0.6.0 — 2026-10-04
 
 ### Nouveautes
