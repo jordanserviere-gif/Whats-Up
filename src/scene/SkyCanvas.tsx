@@ -106,6 +106,7 @@ export function SkyCanvas() {
   const location = useSkyStore((s) => s.location)
   const elevationOffsetM = useSkyStore((s) => s.elevationOffsetM)
   const layers = useSkyStore((s) => s.layers)
+  const photoActive = useSkyStore((s) => s.photo.phase !== 'off')
   const magnitudeLimit = useSkyStore((s) => s.magnitudeLimit)
   const discScale = useSkyStore((s) => s.discScale)
   const aerosolTurbidity = useSkyStore((s) => s.aerosolTurbidity)
@@ -772,7 +773,8 @@ export function SkyCanvas() {
           />
         )}
 
-        <HorizonLine color={colors.horizonLine} />
+        {/* Un repere de lecture, pas un objet du paysage : la photo s'en passe. */}
+        {!photoActive && <HorizonLine color={colors.horizonLine} />}
         {/* L'altitude passee au globe est celle du **site**, non celle qui bascule
             a cent kilometres quand le calque atmosphere est eteint : la
             depression de l'horizon est une propriete du lieu, pas du calque. */}
